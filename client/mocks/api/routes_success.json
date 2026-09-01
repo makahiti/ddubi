@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "data": {
+    "content": [
+      {
+        "id": "route-1",
+        "rank": 1,
+        "selected": true,
+        "totalDurationMin": 47,
+        "transfers": 1,
+        "walkMin": 8,
+        "congestion": "MODERATE",
+        "riskScore": 0.18,
+        "segments": []
+      }
+    ]
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-route-1"
+}

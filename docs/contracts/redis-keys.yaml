@@ -74,7 +74,7 @@ keys:
     pattern: "route:candidates:{originHash}:{destinationHash}"
     ttlSeconds: 600
     owner: backend
-    description: 외부 길찾기 API(ODSay) 후보 경로 단기 캐시.
+    description: 외부 길찾기 API(카카오맵) 후보 경로 단기 캐시.
 
 # ---------------------------------------------------------------------
 # segment_id 채번 규칙 — 미확정 (안건 B-1-a)

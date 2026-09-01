@@ -9,7 +9,7 @@
 ## 1. 프로젝트 개요
 
 - **서비스**: 뚜비(뚜벅이 비서) — 일정과 실시간 교통·날씨·행사 데이터를 분석해 "늦지 않을 출발 시각 + 이동 경로"를 선제적으로 알려주는 대중교통 이동 비서 (SSAFY 특화, 도메인: 빅데이터·분산시스템)
-- **핵심 흐름**: 사용자가 "도착 시각(arrive_by)"이 있는 일정을 등록 → 외부 길찾기 API(ODSay)로 후보 경로 확보 → 후보를 구간(segment) 단위로 분해 → Spark가 계산한 구간별 실시간 상태(Redis) + 평소값(baseline)으로 재평가 → 권장 출발 시각·추천 경로·이유를 응답 → 상황 변화 시 영향 일정만 재계산 후 FCM 알림
+- **핵심 흐름**: 사용자가 "도착 시각(arrive_by)"이 있는 일정을 등록 → 외부 길찾기 API(카카오맵)로 후보 경로 확보 → 후보를 구간(segment) 단위로 분해 → Spark가 계산한 구간별 실시간 상태(Redis) + 평소값(baseline)으로 재평가 → 권장 출발 시각·추천 경로·이유를 응답 → 상황 변화 시 영향 일정만 재계산 후 FCM 알림
 - **내(백엔드 서비스 담당)가 만드는 것**: 회원/인증, 일정/반복일정/장소, 경로·추천, 알림, 도착·리포트, 내부(internal) API 전부 + 분산 계산 결과(Redis/baseline)를 프론트에 서빙하는 계층
 - **내가 만들지 않는 것**: 수집기(collector), Spark 잡, Flutter 클라이언트, 인프라(compose/CI). 단, `baseline_serving`·`detection_log`·`pipeline_config`와 internal API는 **백엔드가 스텁·스키마를 먼저 만들고 분산 담당이 수정**하는 방식이다.
 
@@ -18,7 +18,7 @@
 ```
 Flutter(Android·Web) → Nginx(443) → Spring Boot API ─┬→ MySQL 8 (진실 원장)
                                                       ├→ Redis (구간 최신 상태 조회, 세션/멱등/락)
-                                                      ├→ 외부 길찾기 API(ODSay), 카카오 로컬 검색
+                                                      ├→ 카카오맵 대중교통 길찾기·로컬 검색
                                                       └→ Kafka(알림 이벤트) → Notification 서비스 → FCM
 [분산 파이프라인] 수집기 → Kafka → Spark Structured Streaming → Redis(구간 상태) / HDFS+Parquet(원본·Replay)
 ```
@@ -205,7 +205,7 @@ BASE-001/002 `/internal/baselines`(조회/일괄 적재 — 적재 주체는 Spa
 1. **Phase 0 — 골격**: Maven 단일 모듈(`backend/pom.xml` + `mvnw` 래퍼), 패키지 구조(3.1장), 공통 응답 래퍼·오류 처리·requestId 필터, JPA 설정(Auditing·BaseTimeEntity), Flyway V1(ERD_master), `backend/docker-compose.dev.yml`(MySQL·Redis), Actuator/Swagger.
 2. **Phase 1 — 인증·회원**: signup/login/oauth(카카오)/refresh(회전)/logout, users/me CRUD(확장 필드 포함), 탈퇴 CASCADE, device_token upsert. 통합 시나리오 테스트 필수(3·4번 규칙).
 3. **Phase 2 — 장소·일정·반복**: place CRUD + 외부 장소검색 프록시, schedule CRUD(스냅샷·소유권·낙관적 잠금·soft cancel), repeat CRUD + 인스턴스 생성 로직(is_customized 규칙), `/home`, `/schedules/conflicts`.
-4. **Phase 3 — 경로·추천(핵심)**: ODSay 클라이언트(route_request 원본 저장) → 후보 분해(route/route_segment, SegmentIdResolver) → 재평가 엔진(Redis 상태 + baseline 폴백 + percentile 정책 + buffer) → recommendation INSERT → latest/explanation/routes/selection/map/live. 2초 초과 202 비동기 경로 포함.
+4. **Phase 3 — 경로·추천(핵심)**: 카카오맵 대중교통 클라이언트(route_request 원본 저장) → 후보 분해(route/route_segment, SegmentIdResolver) → 재평가 엔진(Redis 상태 + baseline 폴백 + percentile 정책 + buffer) → recommendation INSERT → latest/explanation/routes/selection/map/live. 2초 초과 202 비동기 경로 포함.
 5. **Phase 4 — 알림·재계산**: notification CRUD/읽음, suppress_key 파이프, Kafka 알림 이벤트 발행(스텁 가능), `/internal/recalculations`(역조회 쿼리 → 재계산 → 변화 시 알림), Spring Scheduler(브리핑·출발 임박).
 6. **Phase 5 — internal·도착·리포트**: baselines/detections/segments-query internal API, arrival/history/reports(P3), ops 스텁.
 

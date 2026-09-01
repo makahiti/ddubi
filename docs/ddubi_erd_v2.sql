@@ -174,7 +174,7 @@ CREATE TABLE schedule (
 CREATE TABLE route_request (
     id           BIGINT      NOT NULL AUTO_INCREMENT,
     schedule_id  BIGINT      NOT NULL,
-    provider     ENUM('ODSAY') NOT NULL DEFAULT 'ODSAY',
+    provider     ENUM('ODSAY','KAKAO') NOT NULL DEFAULT 'KAKAO',
     raw_response JSON        NULL COMMENT '외부 응답 원본 전체 — 재현성 확보용. 응답/로그 노출 금지',
     requested_at DATETIME    NOT NULL COMMENT '호출 시각',
     created_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

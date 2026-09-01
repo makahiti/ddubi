@@ -1,0 +1,16 @@
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_REQUEST",
+    "message": "입력값을 확인해주세요.",
+    "fieldErrors": [
+      {
+        "field": "arriveBy",
+        "rejectedValue": "2026-08-30T10:00:00+09:00",
+        "reason": "미래 시각이어야 합니다."
+      }
+    ]
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-schedule-3"
+}

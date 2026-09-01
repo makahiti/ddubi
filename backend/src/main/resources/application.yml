@@ -97,9 +97,9 @@ ddubi:
     # 이 시간을 넘기면 202 + jobId 비동기로 전환 (성능 목표)
     sync-timeout: 2s
   external:
-    odsay:
-      base-url: https://api.odsay.com/v1/api
-      api-key: ${ODSAY_API_KEY:}
     kakao:
+      # 장소 검색과 대중교통 길찾기에 사용하는 카카오맵 REST API 주소
       base-url: https://dapi.kakao.com
+      public-transit-path: /v2/routing/publictraffic
+      # 실제 값은 .env 또는 배포 환경변수로 넣고 저장소에는 절대 커밋하지 않는다.
       rest-api-key: ${KAKAO_REST_API_KEY:}

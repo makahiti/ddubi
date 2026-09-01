@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "error": {
+    "code": "ROUTE_NOT_AVAILABLE",
+    "message": "현재 조건에서 이용 가능한 경로가 없습니다.",
+    "fieldErrors": []
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-route-2"
+}

@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "data": {
+    "accessToken": "mock-access-token",
+    "refreshToken": "mock-refresh-token",
+    "tokenType": "Bearer",
+    "accessTokenExpiresInSec": 3600,
+    "refreshTokenExpiresInSec": 1209600,
+    "deviceId": "mock-device-1",
+    "user": {
+      "id": "user-1",
+      "provider": "LOCAL",
+      "email": "member@ddubi.app",
+      "nickname": "뚜비 사용자"
+    }
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-auth-1"
+}

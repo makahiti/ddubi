@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "error": {
+    "code": "REALTIME_DATA_UNAVAILABLE",
+    "message": "실시간 데이터를 불러오지 못했습니다.",
+    "fieldErrors": []
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-realtime-1"
+}

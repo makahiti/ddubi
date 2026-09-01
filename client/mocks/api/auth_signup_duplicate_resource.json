@@ -1,0 +1,16 @@
+{
+  "success": false,
+  "error": {
+    "code": "DUPLICATE_RESOURCE",
+    "message": "이미 가입된 이메일입니다.",
+    "fieldErrors": [
+      {
+        "field": "email",
+        "rejectedValue": "member@ddubi.app",
+        "reason": "다른 이메일을 사용해주세요."
+      }
+    ]
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-auth-3"
+}

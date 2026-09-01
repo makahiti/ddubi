@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "data": {
+    "id": "recommendation-1",
+    "scheduleId": "schedule-meeting",
+    "routeId": "route-1",
+    "trigger": "INITIAL",
+    "departAt": "2026-09-01T09:05:00+09:00",
+    "eta": "2026-09-01T09:52:00+09:00",
+    "bufferMin": 8,
+    "confidence": 0.91,
+    "reasonCode": "REALTIME_DELAY_REFLECTED",
+    "fallbackUsed": false,
+    "dataCheckedAt": "2026-09-01T09:00:00+09:00"
+  },
+  "timestamp": "2026-08-31T12:00:00+09:00",
+  "requestId": "request-recommendation-1"
+}
