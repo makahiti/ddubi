@@ -18,6 +18,11 @@ Thumbs.db
 **/build/
 *.class
 
+# Java / Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/timing.properties
+
 # Python
 __pycache__/
 *.py[cod]

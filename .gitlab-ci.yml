@@ -134,7 +134,7 @@ sparkjobs-test:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_HOST: "tcp://docker:2375"
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
       allow_failure: true
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -171,7 +171,9 @@ spark-image:
     - apk add --no-cache openssh-client
     - chmod 600 "$DEPLOY_SSH_KEY"
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    # 배포 기준 브랜치는 develop (팀 브랜치 전략: 기능 -> develop 통합 -> master 릴리스).
+    # develop 이 보호 브랜치여야 Protected 변수(DEPLOY_SSH_KEY)가 주입된다
+    - if: $CI_COMMIT_BRANCH == "develop"
       when: manual
       allow_failure: true   # 안 눌러도 파이프라인은 성공으로 끝난다
 
@@ -180,7 +182,7 @@ deploy-server1:
   environment: { name: server1-data }
   script:
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.15.35
-      "cd ~/S15P21E202 && git fetch origin && git checkout master && git pull --ff-only origin master
+      "cd ~/S15P21E202 && git fetch origin && git checkout $CI_COMMIT_BRANCH && git pull --ff-only origin $CI_COMMIT_BRANCH
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server1.yml
        --profile core --profile collect --profile spark --profile archive --profile hdfs --profile exporters
        up -d --build"
@@ -190,7 +192,7 @@ deploy-server2:
   environment: { name: server2-service }
   script:
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
-      "cd ~/S15P21E202 && git fetch origin && git checkout master && git pull --ff-only origin master
+      "cd ~/S15P21E202 && git fetch origin && git checkout $CI_COMMIT_BRANCH && git pull --ff-only origin $CI_COMMIT_BRANCH
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml
        --profile data --profile hdfs2 --profile monitoring
        up -d --build"

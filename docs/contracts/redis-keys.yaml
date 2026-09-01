@@ -1,23 +1,95 @@
-# Redis 키 계약. 값은 전부 JSON 문자열. Spark 가 쓰고 Backend 가 읽는다 (route:candidates, notification:dedup 은 Backend 가 쓴다).
-# 공간 연산은 Redis·DB 어디서도 하지 않는다. 키는 뚜비 내부 segment_id 또는 소스 고유 단위(격자)로만 잡는다.
+# Redis 키 계약
+#
+# 이 파일이 Redis 키의 진실이다. 코드에 키 문자열을 하드코딩하지 말고
+# 상수/설정으로 분리한다. 키를 추가·변경하면 소유자가 이 파일을 먼저 고친다.
+#
+# owner: 그 키를 쓰는(=포맷을 정하는) 주체
+#   - spark    : 분산 담당 소유. 백엔드는 읽기만 한다.
+#   - backend  : 서비스 백엔드 소유.
 
 keys:
+  # --- 분산 담당 소유 -------------------------------------------------
   segmentStatus:
     pattern: "segment:status:{segmentId}"
     ttlSeconds: 300
-    description: Spark가 계산한 구간별 최신 상태. Backend 는 이 키와 MySQL route_segment 를 조인해 영향받는 일정만 재계산한다
-    schema: events/segment-status.schema.json
+    owner: spark
+    schema: events/segment-status.schema.json # 분산 담당 초안 — 아래 description 대로 확정 전
+    description: >-
+      Spark가 계산한 구간별 최신 상태. 백엔드는 재평가 시 읽기만 한다.
+      값 스키마·직렬화 형식은 분산 담당 확정 대기 —
+      백엔드는 어댑터 인터페이스(SegmentStateReader)로 격리한다.
+      값이 없거나 stale 이면 baseline_serving 폴백 + confidence=LOW.
     valueExample: '{"segmentId":"seg-000123","status":"delayed","delaySeconds":420,"confidence":0.8,"causes":[{"eventId":"...","eventType":"road.incident","source":"seoul.topis"}],"computedAt":"2026-08-27T09:10:00+09:00","validUntil":"2026-08-27T09:15:00+09:00","source":"spark.segment-status"}'
+
   weatherLatest:
     pattern: "weather:latest:{nx}:{ny}"
     ttlSeconds: 7200
-    description: Spark(streaming/weather_latest)가 격자별로 정리한 기상청 초단기실황 최신값. districts 는 이 격자를 공유하는 구 목록
+    owner: spark
+    description: >-
+      Spark(streaming/weather_latest)가 격자별로 정리한 기상청 초단기실황 최신값.
+      districts 는 이 격자를 공유하는 구 목록. 서버에서 가동 중.
     valueExample: '{"districts":["종로구","중구"],"nx":60,"ny":127,"baseDate":"20260827","baseTime":"0900","observations":{"T1H":27.3,"REH":64.0},"occurredAt":"2026-08-27T09:00:00.000+09:00","collectedAt":"2026-08-27T09:10:00.000+09:00","eventId":"...","source":"kma.ultra-srt-ncst"}'
+
+  # --- 백엔드 소유 ----------------------------------------------------
+  authRefresh:
+    pattern: "auth:refresh:{userId}:{deviceId}"
+    ttlSeconds: 1209600 # 14d
+    owner: backend
+    description: >-
+      리프레시 토큰 세션(해시). 회전 시 즉시 교체하고,
+      재사용이 감지되면 해당 기기 세션 전체를 폐기한다.
+
+  idempotency:
+    pattern: "idem:{userId}:{path}:{key}"
+    ttlSeconds: 86400 # 24h
+    owner: backend
+    description: >-
+      Idempotency-Key 헤더로 받은 요청의 최초 응답 캐시.
+      같은 사용자·경로·키로 24h 내 재요청하면 최초 응답을 그대로 반환한다.
+
+  notificationSuppress:
+    pattern: "ntf:suppress:{suppressKey}"
+    ttlSeconds: null # 정책값 (알림 type 별로 다름)
+    owner: backend
+    description: >-
+      알림 재발송 방지 (REQ-NTF-002). suppressKey = 일정·이유·행동 조합 해시로
+      notification.suppress_key 컬럼과 같은 값이다.
+      억제되어도 notification 행은 status=SUPPRESSED 로 반드시 생성한다.
+
+  recalcLock:
+    pattern: "lock:recalc:schedule:{scheduleId}"
+    ttlSeconds: 60
+    owner: backend
+    description: 같은 일정에 대한 재계산이 동시에 돌지 않게 막는 분산 락.
+
+  recalcJob:
+    pattern: "job:recalc:{jobId}"
+    ttlSeconds: 3600
+    owner: backend
+    description: >-
+      2초를 초과해 202 + jobId 로 전환된 재계산 작업의 상태.
+      MySQL에 작업 상태 테이블을 만들지 않는다.
+
   routeCandidates:
     pattern: "route:candidates:{originHash}:{destinationHash}"
     ttlSeconds: 600
-    description: 외부 길찾기 API 후보 경로 단기 캐시 (Backend 가 쓴다)
-  notificationDedup:
-    pattern: "notification:dedup:{deduplicationKey}"
-    ttlSeconds: 86400
-    description: 동일 알림 중복 발송 방지 (Backend 가 쓴다)
+    owner: backend
+    description: 외부 길찾기 API(ODSay) 후보 경로 단기 캐시.
+
+# ---------------------------------------------------------------------
+# segment_id 채번 규칙 — 미확정 (안건 B-1-a)
+# ---------------------------------------------------------------------
+# route_segment.segment_id, baseline_serving.segment_id, segment:status 키,
+# 수집기의 이벤트→구간 매핑이 전부 같은 체계를 써야 성립한다.
+#
+# 제안 형식 (확정 전, 코드 하드코딩 금지 — SegmentIdResolver 로 분리):
+#   BUS:{노선ID}:{정류장A}:{정류장B}
+#   SUB:{호선}:{역A}:{역B}
+#
+# 미해결:
+#   - 최초 채번 주체 (제안: 백엔드가 외부 API 응답을 분해하며 생성)
+#   - WALK 구간 처리 (현재 segment_id = NULL. 도보 가중치를 백엔드가 직접
+#     계산할지, Spark가 도보용 키도 만들지 확정 필요) — B-1-b
+#
+# 단위 (B-1-d): baseline_serving p50/p80/p95 = 초,
+#               route/route_segment/recommendation duration = 분

@@ -1,0 +1,47 @@
+# 백엔드 로컬 개발 전용 — MySQL 8 + Redis 만 띄운다.
+#
+# 배포용 전체 구성은 infra/docker-compose.yml 이며 인프라 담당 소유다.
+# 그쪽이 완성되면 이 파일은 지운다. 테스트는 Testcontainers 를 쓰므로 이 파일에 의존하지 않는다.
+#
+#   docker compose -f backend/docker-compose.dev.yml up -d
+#   docker compose -f backend/docker-compose.dev.yml down -v   # 스키마 초기화
+name: ddubi-dev
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ddubi-dev-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ddubi
+      MYSQL_USER: ddubi
+      MYSQL_PASSWORD: ddubi
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+09:00
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - mysql-dev-data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: ddubi-dev-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-dev-data:
