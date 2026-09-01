@@ -1,0 +1,11 @@
+# json/ 폴더의 대시보드 파일들을 자동 로드한다. 파일이 바뀌면 10초 안에 반영
+apiVersion: 1
+
+providers:
+  - name: ddubi
+    folder: DDUBI
+    type: file
+    updateIntervalSeconds: 10
+    allowUiUpdates: false    # 화면 수정은 임시로만 가능, 저장은 파일(깃)이 기준
+    options:
+      path: /etc/grafana/provisioning/dashboards/json

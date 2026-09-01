@@ -1,0 +1,114 @@
+{
+  "uid": "ddubi-pipeline",
+  "title": "DDUBI 파이프라인",
+  "tags": ["ddubi"],
+  "schemaVersion": 39,
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "수집 대상 생존 (up)",
+      "description": "4가 아니면 어딘가 죽어 있다. prometheus / 서버1·2 node / 서버1 kafka-exporter",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "sum(up)", "legendFormat": "살아있는 대상", "refId": "A" } ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "yellow", "value": 3 },
+            { "color": "green", "value": 4 }
+          ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "아카이버 컨슈머 랙 (1시간 병합 톱니)",
+      "description": "10분마다 14씩 계단, 정시 플러시 때 0으로. 계단이 멈추면 수집 장애, 0으로 안 떨어지면 아카이버 장애",
+      "gridPos": { "x": 4, "y": 0, "w": 12, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (consumergroup) (kafka_consumergroup_lag)", "legendFormat": "{{consumergroup}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "토픽별 유입 (건/초)",
+      "description": "weather 수집기는 10분마다 14건. 0으로 오래 머물면 수집기 확인",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status\"}[5m]))", "legendFormat": "{{topic}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "CPU 사용률",
+      "gridPos": { "x": 0, "y": 10, "w": 8, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "100 - avg by (server) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100", "legendFormat": "{{server}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "메모리 사용률",
+      "description": "기울기가 생기면(우상향 지속) 누수 의심",
+      "gridPos": { "x": 8, "y": 10, "w": 8, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "legendFormat": "{{server}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "디스크 사용률 (/)",
+      "description": "아카이브가 쌓이며 서서히 오른다. 80% 넘으면 Kafka 보존 단축 검토",
+      "gridPos": { "x": 16, "y": 10, "w": 8, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype=\"ext4\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype=\"ext4\"}) * 100", "legendFormat": "{{server}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "네트워크 송신 (서버 간 트래픽 포함)",
+      "description": "Spark→Redis, HDFS 복제, Prometheus 스크랩이 여기 보인다",
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (server) (rate(node_network_transmit_bytes_total{device!=\"lo\"}[5m]))", "legendFormat": "{{server}} 송신", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "토픽별 누적 메시지",
+      "description": "계단형 우상향이 정상. 평평해지면 수집 중단",
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status|notification.request\"})", "legendFormat": "{{topic}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+    }
+  ]
+}
