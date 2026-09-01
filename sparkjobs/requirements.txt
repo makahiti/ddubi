@@ -1,4 +1,4 @@
-# SPARK_IMAGE를 확정할 때 클러스터와 동일한 버전으로 고정합니다.
-pyspark
-pyarrow
-pytest
+# 실행 이미지(infra/spark/Dockerfile)에 설치되는 런타임 의존성.
+# pyspark 는 apache/spark 이미지에 이미 들어 있으므로 여기 넣지 않는다 (개발용은 requirements-dev.txt).
+redis>=5.0,<6
+pyarrow>=17,<19

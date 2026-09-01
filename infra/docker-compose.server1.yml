@@ -1,0 +1,30 @@
+# 서버1(데이터, j15e202a) 전용 오버레이.
+# 사용: docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile <...> up -d
+#
+# 목적
+#  - 서버2에 있는 hdfs-datanode2 를 호스트명으로 찾을 수 있게 사설 IP(extra_hosts)를 박는다
+#    (HDFS 는 데이터노드를 호스트명으로 안내하므로, 클라이언트인 archiver·Spark 전부 필요)
+#  - datanode1 의 데이터 전송 포트를 호스트에 공개해 서버2의 datanode2 와 복제 파이프라인이 이어지게 한다
+# .env 에 SERVER2_PRIVATE_IP 가 반드시 설정되어 있어야 한다
+
+x-dn2-hosts: &dn2-hosts
+  extra_hosts:
+    - "hdfs-datanode2:${SERVER2_PRIVATE_IP:?.env 에 SERVER2_PRIVATE_IP 를 설정하세요}"
+
+services:
+  hdfs-namenode: *dn2-hosts
+
+  hdfs-datanode1:
+    extra_hosts:
+      - "hdfs-datanode2:${SERVER2_PRIVATE_IP:?.env 에 SERVER2_PRIVATE_IP 를 설정하세요}"
+    ports:
+      - "9864:9864"   # DataNode HTTP (WebHDFS 리다이렉트 대상)
+      - "9866:9866"   # DataNode 데이터 전송 (블록 복제 파이프라인)
+      - "9867:9867"   # DataNode IPC
+
+  archiver: *dn2-hosts
+  spark-master: *dn2-hosts
+  spark-worker-1: *dn2-hosts
+  spark-worker-2: *dn2-hosts
+  spark-streaming-weather: *dn2-hosts
+  spark-batch: *dn2-hosts

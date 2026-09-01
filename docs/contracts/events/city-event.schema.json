@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ddubi.local/schemas/city-event.schema.json",
   "title": "CityEvent",
+  "description": "날씨·행사·사고·통제 등 도시 이벤트. 위치는 원본 좌표(location)와 뚜비 내부 구간(segmentIds) 두 형태로 실을 수 있다. 수집기가 변환할 수 있으면 segmentIds를 채우고, 아니면 Spark 전처리가 location을 보고 채운다",
   "type": "object",
   "required": ["eventId", "eventType", "source", "occurredAt", "collectedAt", "payload"],
   "properties": {
@@ -10,6 +11,20 @@
     "source": { "type": "string", "minLength": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
     "collectedAt": { "type": "string", "format": "date-time" },
+    "location": {
+      "type": "object",
+      "description": "원본 좌표. 격자 단위(날씨)처럼 좌표가 없는 소스는 생략",
+      "properties": {
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" }
+      }
+    },
+    "segmentIds": {
+      "type": "array",
+      "description": "영향을 받는 뚜비 내부 구간 ID 목록. 전처리 후 채워진다",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
     "payload": { "type": "object" }
   },
   "additionalProperties": false

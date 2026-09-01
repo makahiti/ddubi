@@ -2,10 +2,25 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Prometheus 는 서버2(서비스)에서 돈다.
+# 서버1 대상은 사설 IP 로 원격 스크랩 (서버1: 172.26.15.35 / 서버2: 172.26.6.220)
 scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["prometheus:9090"]
 
-  # Backend, Kafka, Spark, Redis, PostgreSQL, Node exporter 대상은
-  # Docker Compose 서비스와 서버 사설 IP가 확정된 뒤 추가합니다.
+  # 서버 자원 (CPU/메모리/디스크/네트워크)
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]        # 서버2 (같은 도커 네트워크)
+        labels: { server: server2-service }
+      - targets: ["172.26.15.35:9100"]         # 서버1 (exporters 프로필)
+        labels: { server: server1-data }
+
+  # Kafka 토픽·컨슈머 랙 (서버1의 kafka-exporter)
+  - job_name: kafka
+    static_configs:
+      - targets: ["172.26.15.35:9308"]
+        labels: { server: server1-data }
+
+  # 이후 추가 예정: Spring actuator(backend 가 생기면), mysqld-exporter, redis-exporter

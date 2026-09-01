@@ -45,3 +45,7 @@ logs/
 *.pem
 *.key
 *service-account*.json
+
+# Personal notes (not shared)
+docs/til/
+CLAUDE.md

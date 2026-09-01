@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ddubi.local/schemas/transport-event.schema.json",
   "title": "TransportEvent",
+  "description": "버스·지하철·도로 교통 이벤트. payload 안의 provider ID(노선·역·링크)는 MySQL 매핑으로 segment_id로 번역된다. 수집기가 번역할 수 있으면 segmentIds를 채운다",
   "type": "object",
   "required": ["eventId", "eventType", "source", "occurredAt", "collectedAt", "payload"],
   "properties": {
@@ -17,6 +18,12 @@
         "latitude": { "type": "number" },
         "longitude": { "type": "number" }
       }
+    },
+    "segmentIds": {
+      "type": "array",
+      "description": "영향을 받는 뚜비 내부 구간 ID 목록. 전처리 후 채워진다",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
     },
     "payload": { "type": "object" }
   },

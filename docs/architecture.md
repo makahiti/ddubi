@@ -6,7 +6,7 @@
 Public APIs → Python Collectors → Kafka ─→ PySpark → Redis
                                          └→ Python Archiver → Parquet → HDFS
 
-Flutter Android/Web → Nginx → Java Backend → PostgreSQL / Redis
+Flutter Android/Web → Nginx → Java Backend → MySQL / Redis
                                            └→ Kafka → Java Notification → FCM
 ```
 
@@ -17,5 +17,5 @@ Kafka/Spark exporters
 
 ## Server 2 — Service
 
-Nginx + Flutter Web, Backend, Notification, PostgreSQL/PostGIS, Redis,
+Nginx + Flutter Web, Backend, Notification, MySQL, Redis,
 HDFS DataNode2, Prometheus, Grafana

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ddubi.local/schemas/segment-status.schema.json",
+  "title": "SegmentStatus",
+  "description": "Spark가 계산한 구간(segment_id)별 최신 상태. Kafka segment.status 메시지 값이자 Redis segment:status:{segmentId} 값. 초안 — Spark·Backend 담당 검토 필요",
+  "type": "object",
+  "required": ["segmentId", "status", "computedAt", "source"],
+  "properties": {
+    "segmentId": { "type": "string", "minLength": 1, "description": "뚜비 내부 구간 ID. provider ID와의 매핑은 MySQL이 관리" },
+    "status": {
+      "type": "string",
+      "enum": ["normal", "slow", "delayed", "blocked", "unknown"],
+      "description": "normal 정상 / slow 지연 경미 / delayed 지연 / blocked 통행 불가 / unknown 데이터 없음"
+    },
+    "delaySeconds": { "type": "integer", "minimum": 0, "description": "평시 대비 추가 소요 시간(초)" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "계산 신뢰도. 최근 관측이 없으면 낮아진다" },
+    "causes": {
+      "type": "array",
+      "description": "이 상태에 영향을 준 원본 이벤트들",
+      "items": {
+        "type": "object",
+        "required": ["eventId", "eventType"],
+        "properties": {
+          "eventId": { "type": "string", "format": "uuid" },
+          "eventType": { "type": "string", "minLength": 1 },
+          "source": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "computedAt": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time", "description": "이 시각 이후엔 unknown으로 취급. Redis TTL과 맞춘다" },
+    "source": { "type": "string", "minLength": 1, "description": "계산한 잡 이름 (예: spark.segment-status)" }
+  },
+  "additionalProperties": false
+}

@@ -1,13 +1,23 @@
+# Redis 키 계약. 값은 전부 JSON 문자열. Spark 가 쓰고 Backend 가 읽는다 (route:candidates, notification:dedup 은 Backend 가 쓴다).
+# 공간 연산은 Redis·DB 어디서도 하지 않는다. 키는 뚜비 내부 segment_id 또는 소스 고유 단위(격자)로만 잡는다.
+
 keys:
   segmentStatus:
     pattern: "segment:status:{segmentId}"
     ttlSeconds: 300
-    description: Spark가 계산한 구간별 최신 상태
+    description: Spark가 계산한 구간별 최신 상태. Backend 는 이 키와 MySQL route_segment 를 조인해 영향받는 일정만 재계산한다
+    schema: events/segment-status.schema.json
+    valueExample: '{"segmentId":"seg-000123","status":"delayed","delaySeconds":420,"confidence":0.8,"causes":[{"eventId":"...","eventType":"road.incident","source":"seoul.topis"}],"computedAt":"2026-08-27T09:10:00+09:00","validUntil":"2026-08-27T09:15:00+09:00","source":"spark.segment-status"}'
+  weatherLatest:
+    pattern: "weather:latest:{nx}:{ny}"
+    ttlSeconds: 7200
+    description: Spark(streaming/weather_latest)가 격자별로 정리한 기상청 초단기실황 최신값. districts 는 이 격자를 공유하는 구 목록
+    valueExample: '{"districts":["종로구","중구"],"nx":60,"ny":127,"baseDate":"20260827","baseTime":"0900","observations":{"T1H":27.3,"REH":64.0},"occurredAt":"2026-08-27T09:00:00.000+09:00","collectedAt":"2026-08-27T09:10:00.000+09:00","eventId":"...","source":"kma.ultra-srt-ncst"}'
   routeCandidates:
     pattern: "route:candidates:{originHash}:{destinationHash}"
     ttlSeconds: 600
-    description: 외부 길찾기 API 후보 경로 단기 캐시
+    description: 외부 길찾기 API 후보 경로 단기 캐시 (Backend 가 쓴다)
   notificationDedup:
     pattern: "notification:dedup:{deduplicationKey}"
     ttlSeconds: 86400
-    description: 동일 알림 중복 발송 방지
+    description: 동일 알림 중복 발송 방지 (Backend 가 쓴다)

@@ -1,0 +1,4 @@
+# 로컬·CI 테스트용. pyspark 는 클러스터 이미지(SPARK_VERSION=3.5.3-python3)와 같은 버전으로 고정한다.
+-r requirements.txt
+pyspark==3.5.3
+pytest>=8,<9

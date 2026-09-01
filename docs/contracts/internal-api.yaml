@@ -1,0 +1,82 @@
+# 서버1(데이터) → 서버2(서비스) 내부 API 계약
+# 2026-08-31 회의 확정: 기준선 적재는 Spark 가 MySQL 에 직접 쓰지 않고 이 API 를 경유한다 (방법 2).
+# 원칙: 서비스 DB 쓰기는 전부 Spring 단일 관문을 지난다. 파이프라인은 인증된 내부 API 로만 데이터를 넘긴다.
+#
+# 인증 (이중 잠금)
+#   1) 모든 요청에 X-DDUBI-API-KEY 헤더. 값은 환경변수 INTERNAL_API_KEY (서버1 Spark 배치와 서버2 Spring 만 보유, 커밋 금지)
+#   2) nginx 에서 /internal/ 경로는 서버1 IP 만 허용 (서버 이식 9단계에서 설정. client_max_body_size 도 함께 상향)
+#
+# 버전 운영 규칙 (Spring 이 구현)
+#   - 업로드는 전부 새 dataVersion 으로 쌓인다. 활성 전환은 activate 호출에서만 일어난다
+#   - 중간 실패 시 activate 가 안 오므로 이전 버전이 계속 서빙된다. 재시도 배치는 새 dataVersion 으로 처음부터 다시 올린다
+#   - 삭제는 activate 성공 직후 Spring 만 수행. 활성 버전과 직전 버전은 항상 보호 (조회-전환 찰나 충돌 방지 + 롤백용)
+#   - 활성화되지 못한 채 48시간 지난 고아 버전은 다음 activate 때 함께 삭제
+#   - 마지막 활성화 시각을 기록해 두고, 기준선이 오래되면 추천 confidence 강등 + DATA_STALE 알림에 쓴다
+
+baseUrl: "https://{SERVICE_HOST}/internal"
+
+endpoints:
+
+  uploadBaselineRows:
+    method: POST
+    path: /baselines/{baselineType}/versions/{dataVersion}/rows
+    description: >
+      기준선 행 묶음 업로드. Spark 배치가 결과를 청크로 나눠 여러 번 호출한다.
+      같은 (dataVersion, segmentId, dow, hourSlot, weatherBucket) 재전송은 덮어쓰기(upsert)로 처리해
+      청크 단위 재시도가 안전하다.
+    pathParams:
+      baselineType: "지금은 segment 만. 이후 다른 기준선이 생기면 추가"
+      dataVersion: "배치가 정한 버전 문자열 (예: 2026-09-01). VARCHAR(20)"
+    requestExample: |
+      POST /internal/baselines/segment/versions/2026-09-01/rows
+      X-DDUBI-API-KEY: ***
+      Content-Type: application/json
+      {
+        "rows": [
+          {
+            "segmentId": "seg-000123",
+            "dow": 3,
+            "hourSlot": 8,
+            "weatherBucket": "RAIN",
+            "p50": 540,
+            "p80": 660,
+            "p95": 900,
+            "sampleCount": 21
+          }
+        ]
+      }
+    rowFields:
+      segmentId: "VARCHAR(50). 파이프라인 공용 구간 키"
+      dow: "요일 1(일)~7(토). Spark dayofweek 와 동일"
+      hourSlot: "0~23"
+      weatherBucket: "DRY | RAIN | SNOW"
+      p50: "소요시간 중앙값, 단위 초"
+      p80: "80퍼센타일, 단위 초"
+      p95: "95퍼센타일, 단위 초"
+      sampleCount: "집계에 쓰인 표본 수, 1 이상"
+    constraints:
+      - "한 요청당 rows 최대 5000개"
+      - "검증 실패 시 요청 전체 거부 (부분 저장 없음): p50 ≤ p80 ≤ p95, sampleCount ≥ 1, weatherBucket enum, 필수 필드 누락"
+    responses:
+      "200": '{"accepted": 5000, "dataVersion": "2026-09-01"}'
+      "400": "검증 실패. body 에 어긴 규칙과 첫 위반 행 인덱스"
+      "401": "API 키 없음/불일치"
+      "409": "이미 활성화된 dataVersion 에 추가 업로드 시도"
+
+  activateBaselineVersion:
+    method: POST
+    path: /baselines/{baselineType}/versions/{dataVersion}/activate
+    description: >
+      업로드 완료 선언 겸 활성 전환. Spring 은 저장된 행 수가 totalRows 와 일치하는지,
+      행 수가 직전 활성 버전 대비 절반 미만으로 급감하지 않았는지 확인한 뒤
+      pipeline_config 의 활성 버전(예: baseline_active_version)을 이 dataVersion 으로 바꾼다.
+      성공 시 보호 대상(활성·직전 버전) 밖의 옛 버전과 48시간 지난 고아 버전을 삭제한다.
+    requestExample: |
+      POST /internal/baselines/segment/versions/2026-09-01/activate
+      X-DDUBI-API-KEY: ***
+      Content-Type: application/json
+      {"totalRows": 252000}
+    responses:
+      "200": '{"activated": "2026-09-01", "previous": "2026-08-31", "deletedVersions": ["2026-08-30"]}'
+      "409": "행 수 불일치 또는 급감 감지. 활성 버전은 바뀌지 않음"
+      "401": "API 키 없음/불일치"

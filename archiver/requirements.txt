@@ -1,4 +1,6 @@
 confluent-kafka>=2.5,<3
 pyarrow>=17,<20
-pydantic>=2.8,<3
+# 저장소 추상화. file:// (2단계 로컬) 와 webhdfs:// (3단계 HDFS) 를 같은 코드로 다룬다
+fsspec>=2024.6,<2026
+requests>=2.32,<3
 pytest>=8,<9

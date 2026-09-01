@@ -1,17 +1,62 @@
+# Kafka 토픽 계약. infra/scripts/create-topics.sh 가 이 파일을 기준으로 토픽을 만든다.
+#
+# - partitions       : 기본 3 (compose 의 KAFKA_NUM_PARTITIONS 와 동일)
+# - replicationFactor: 단일 브로커라 1. 브로커를 늘리면 여기서 올린다.
+# - retentionHours   : 원본(raw) 토픽은 21일(504h). HDFS 정착(3단계) 후에만 단축한다.
+# - retentionBytes   : 파티션 하나당 상한. 기본 1GiB (compose 의 KAFKA_RETENTION_BYTES 와 동일).
+#                      시간보다 먼저 용량에 걸리면 삭제되므로 수집량 확인 후 조정 필요.
+# - schema           : 메시지 값이 따라야 하는 JSON Schema (docs/contracts/events/)
+# - key              : 메시지 키. 같은 키는 같은 파티션에 순서대로 들어간다
+# - archive          : archiver 가 Parquet 으로 보관하는 대상인지
+#
+# 위치 처리 원칙: 공간 연산은 DB 에서 하지 않는다. 행사·사고·통제 위치는 수집·전처리 단계에서
+# 뚜비 내부 구간 ID(segmentIds)로 변환되고, 구간 상태는 segment.status 로 흘러 Redis 에 저장된다.
+
 topics:
   transport.raw:
-    description: 정규화 전후 교통 수집 이벤트
+    description: 정규화 전후 교통 수집 이벤트 (bus, subway, traffic 수집기)
     partitions: 3
-    retentionHours: 72
+    replicationFactor: 1
+    retentionHours: 504
+    retentionBytes: 1073741824
+    schema: events/transport-event.schema.json
+    key: provider ID (노선·역·링크 등 소스별 식별자)
+    producer: collector
+    consumers: [spark, archiver]
+    archive: true
+
   city.raw:
-    description: 날씨·행사·도로 돌발 이벤트
+    description: 날씨·행사·사고·통제 이벤트 (weather, event 수집기). 위치는 location 원본 + segmentIds(전처리 후)
     partitions: 3
-    retentionHours: 72
+    replicationFactor: 1
+    retentionHours: 504
+    retentionBytes: 1073741824
+    schema: events/city-event.schema.json
+    key: 소스별 위치 단위 (날씨는 격자 "nx:ny", 행사·사고는 provider ID)
+    producer: collector
+    consumers: [spark, archiver]
+    archive: true
+
   segment.status:
-    description: Spark가 계산한 구간별 최신 상태
+    description: Spark가 계산한 구간(segment_id)별 최신 상태. 최신값만 의미 있어 짧게 보존. Redis segment:status:{segmentId} 와 같은 값
     partitions: 3
+    replicationFactor: 1
     retentionHours: 24
+    retentionBytes: 1073741824
+    schema: events/segment-status.schema.json   # 초안. Spark·Backend 담당 검토 필요
+    key: segmentId
+    producer: spark
+    consumers: [backend]
+    archive: false
+
   notification.requested:
     description: Backend가 발행하는 알림 요청
     partitions: 3
+    replicationFactor: 1
     retentionHours: 72
+    retentionBytes: 1073741824
+    schema: events/notification-event.schema.json
+    key: userId
+    producer: backend
+    consumers: [notification]
+    archive: false

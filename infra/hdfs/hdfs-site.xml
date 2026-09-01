@@ -8,4 +8,40 @@
     <name>dfs.permissions.enabled</name>
     <value>false</value>
   </property>
+  <!-- compose 볼륨과 짝을 맞춘 저장 경로 -->
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>file:///hadoop/dfs/name</value>
+  </property>
+  <property>
+    <name>dfs.datanode.data.dir</name>
+    <value>file:///hadoop/dfs/data</value>
+  </property>
+  <!-- 컨테이너 간 통신은 IP 대신 서비스 이름으로 -->
+  <property>
+    <name>dfs.namenode.datanode.registration.ip-hostname-check</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>dfs.namenode.rpc-bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+  <property>
+    <name>dfs.namenode.http-bind-host</name>
+    <value>0.0.0.0</value>
+  </property>
+  <!-- 데이터노드는 호스트명으로 등록·접근한다. 클라이언트가 받는 주소도 IP 가 아닌 호스트명 -->
+  <property>
+    <name>dfs.datanode.use.datanode.hostname</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>dfs.client.use.datanode.hostname</name>
+    <value>true</value>
+  </property>
+  <!-- archiver 가 쓰는 WebHDFS (NameNode 9870 → DataNode 9864 리다이렉트) -->
+  <property>
+    <name>dfs.webhdfs.enabled</name>
+    <value>true</value>
+  </property>
 </configuration>

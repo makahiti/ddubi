@@ -33,7 +33,7 @@ docs/         아키텍처와 데이터 계약 / TIL 파일 모음
 공공 API → Collector → Kafka ─→ PySpark → Redis
                             └→ Archiver → Parquet → HDFS
 
-Flutter Android/Web → Nginx → Spring Boot → PostgreSQL / Redis
+Flutter Android/Web → Nginx → Spring Boot → MySQL / Redis
                                       └→ Kafka → Notification → FCM
 ```
 
