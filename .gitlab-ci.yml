@@ -8,6 +8,7 @@ stages:
   - validate
   - test
   - build
+  - deploy
 
 workflow:
   rules:
@@ -120,16 +121,18 @@ sparkjobs-test:
         - sparkjobs/**/*
 
 # ---------------------------------------------------------------------------
-# build (수동): dind(privileged) 러너에서만 동작한다. 태그는 커밋 SHA 로 고정
+# build (수동): 이미지 빌드 검증. dind(privileged) 러너 필요
+#  - SSAFY GitLab 은 컨테이너 저장소가 없어(CI_REGISTRY 미제공) push 는 하지 않는다.
+#    배포는 서버가 클론 후 직접 빌드하는 방식 유지. 여기서는 Dockerfile 빌드 가능 여부만 검증
+#  - TLS 없이 2375 로 붙는다 (인증서 공유 볼륨 불필요)
 # ---------------------------------------------------------------------------
 .build-image:
   stage: build
   image: docker:27
   services: [docker:27-dind]
   variables:
-    DOCKER_TLS_CERTDIR: "/certs"
-  before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: "tcp://docker:2375"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
@@ -141,23 +144,57 @@ sparkjobs-test:
 collector-image:
   extends: .build-image
   script:
-    - docker build -f collector/Dockerfile -t "$CI_REGISTRY_IMAGE/collector:$CI_COMMIT_SHORT_SHA" .
-    - docker push "$CI_REGISTRY_IMAGE/collector:$CI_COMMIT_SHORT_SHA"
+    - docker build -f collector/Dockerfile -t "ddubi/collector:ci-$CI_COMMIT_SHORT_SHA" .
 
 archiver-image:
   extends: .build-image
   script:
-    - docker build -f archiver/Dockerfile -t "$CI_REGISTRY_IMAGE/archiver:$CI_COMMIT_SHORT_SHA" .
-    - docker push "$CI_REGISTRY_IMAGE/archiver:$CI_COMMIT_SHORT_SHA"
+    - docker build -f archiver/Dockerfile -t "ddubi/archiver:ci-$CI_COMMIT_SHORT_SHA" .
 
 spark-image:
   extends: .build-image
   script:
     - docker build -f infra/spark/Dockerfile --build-arg SPARK_IMAGE=apache/spark:3.5.3-python3
-      -t "$CI_REGISTRY_IMAGE/spark:$CI_COMMIT_SHORT_SHA" .
-    - docker push "$CI_REGISTRY_IMAGE/spark:$CI_COMMIT_SHORT_SHA"
+      -t "ddubi/spark:ci-$CI_COMMIT_SHORT_SHA" .
+
+# ---------------------------------------------------------------------------
+# deploy (수동 승인): 러너(서버2)가 SSH 로 각 서버에 접속해 git pull + compose up
+#  - master 에서만 버튼이 생긴다. 검증·테스트 통과 후 사람이 눌러야 배포된다
+#  - 준비물: CI/CD 변수 DEPLOY_SSH_KEY(File, Protected) = 서버2의 ~/.ssh/ddubi_deploy 개인키.
+#    공개키는 양 서버 authorized_keys 에 from="서버2 IP" 제한으로 등록되어 있다
+#  - 서버의 git pull 은 읽기 전용 Deploy Token 이 박힌 HTTPS 리모트를 쓴다 (GitLab SSH 포트 차단됨)
+# ---------------------------------------------------------------------------
+.deploy:
+  stage: deploy
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache openssh-client
+    - chmod 600 "$DEPLOY_SSH_KEY"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true   # 안 눌러도 파이프라인은 성공으로 끝난다
+
+deploy-server1:
+  extends: .deploy
+  environment: { name: server1-data }
+  script:
+    - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.15.35
+      "cd ~/S15P21E202 && git fetch origin && git checkout master && git pull --ff-only origin master
+       && cd infra && docker compose -f docker-compose.yml -f docker-compose.server1.yml
+       --profile core --profile collect --profile spark --profile archive --profile hdfs --profile exporters
+       up -d --build"
+
+deploy-server2:
+  extends: .deploy
+  environment: { name: server2-service }
+  script:
+    - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
+      "cd ~/S15P21E202 && git fetch origin && git checkout master && git pull --ff-only origin master
+       && cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml
+       --profile data --profile hdfs2 --profile monitoring
+       up -d --build"
 
 # 후속 작업
 # - client/**: Flutter test + Android/Web build
-# - backend/**, notification/**: Spring test + image build
-# - deploy: 서버 이식(9단계) 후 수동 승인 배포 추가
+# - backend/**, notification/**: Spring test + image build (배포 프로필에 추가)
