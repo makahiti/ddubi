@@ -19,11 +19,11 @@ from typing import Any, Iterable
 
 DATASETS = {
     "bus-segment-time": {
-        "url": "http://t-data.seoul.go.kr/apig/apiman-gateway/tapi/TaimsTpssRouteSectionSpeedH/1.0",
+        "url": "https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/TaimsTpssRouteSectionSpeedH/1.0",
         "date_parameter": "stdrDe",
     },
     "traffic-link-speed": {
-        "url": "http://t-data.seoul.go.kr/apig/apiman-gateway/tapi/TopisIccStTimesLinkTrfSectionStats/1.0",
+        "url": "https://t-data.seoul.go.kr/apig/apiman-gateway/tapi/TopisIccStTimesLinkTrfSectionStats/1.0",
         "date_parameter": "stndDt",
     },
 }
