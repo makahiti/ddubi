@@ -89,12 +89,15 @@ def group_forecasts(items: list[dict[str, Any]]) -> dict[datetime, dict[str, str
     return grouped
 
 
-def fetch(settings: Settings, client: httpx.Client) -> list[Record]:
+def fetch_for_issue(
+    settings: Settings, client: httpx.Client, issued_at: datetime
+) -> list[Record]:
+    """지정 발표 회차를 수집한다. 과거 예보 archive와 실시간 수집이 같은 파서를 쓴다."""
     api_url, key_param, service_key = select_endpoint(settings)
     grids = group_by_grid(
         parse_grid_points(settings.extra.get("WEATHER_GRID_POINTS", DEFAULT_GRID_POINTS))
     )
-    issued_at = latest_issue_datetime(now_kst())
+    issued_at = issued_at.astimezone(KST)
     records: list[Record] = []
     failures = 0
 
@@ -161,6 +164,10 @@ def fetch(settings: Settings, client: httpx.Client) -> list[Record]:
     if failures:
         log.warning("기상청 단기예보 일부 실패 %d/%d 격자", failures, len(grids))
     return records
+
+
+def fetch(settings: Settings, client: httpx.Client) -> list[Record]:
+    return fetch_for_issue(settings, client, latest_issue_datetime(now_kst()))
 
 
 SOURCE = SourceSpec(

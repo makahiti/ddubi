@@ -64,7 +64,7 @@ python sparkjobs/preparation/external_training_data.py \
 특성 후보 생성에는 쓸 수 있지만, `available_at <= prediction_base_at`을 입증해야 하는
 엄격한 과거 재현 실험에는 그대로 사용하면 안 된다.
 
-## 단기예보 실시간 아카이브
+## 단기예보 실시간·과거 아카이브
 
 `collector/src/sources/weather_forecast.py`는 하루 8개 발표 회차 중 공개 지연 15분이
 지난 최신 회차를 읽고 `city.raw`의 `weather.forecast`로 발행한다. 각 레코드는 다음
@@ -73,11 +73,25 @@ python sparkjobs/preparation/external_training_data.py \
 - `occurredAt`, `payload.issuedAt`: 예보가 생산된 회차
 - `payload.validAt`: 예보가 설명하는 미래 시각
 
-실행 시 `COLLECTOR_SOURCE=weather_forecast`를 사용한다. 현재 승인된 API가
+실시간 실행 시 `COLLECTOR_SOURCE=weather_forecast`를 사용한다. 현재 승인된 API가
 `getVilageFcst`까지 포함하는지는 실제 키로 1회 실행하여 확인해야 한다. 403 또는
 활용신청 오류가 나오면 격자 단기예보 API를 별도로 신청하고, 성공 전에는 수집 완료로
-표시하지 않는다. 이 수집기는 시작 시점 이후 자료를 아카이브하는 역할이며 과거분을
-임의 복원하지 않는다.
+표시하지 않는다.
+
+기상청이 보유한 과거 발표 회차는 날짜 범위를 작게 나눠 다음처럼 받는다. 인증키는
+명령행이나 Git 파일에 쓰지 않고 환경변수로만 전달한다. 기본값은 하루 8회 발표본이며,
+이미 완료된 `issued_at=YYYYMMDDHH.jsonl`은 건너뛴다.
+
+```bash
+export KMA_API_KEY='...'
+python collector/src/download_weather_forecast_archive.py \
+  --from-date 2024-01-01 \
+  --to-date 2024-01-31 \
+  --output-dir /home/j-j15e202/ddubi-data/raw/weather_forecast/archive
+```
+
+각 파일은 발표시각과 유효시각을 함께 보존한다. 수년치를 한 번에 요청하지 말고 API
+일일 쿼터와 응답을 확인한 뒤 월 단위로 이어서 수집한다.
 
 운영에서는 GPU 서버가 아니라 Kafka/collector가 있는 EC2(서버1)의 `collect`
 프로필에서 `collector-weather-forecast`를 함께 실행한다. GPU 서버는 이렇게 쌓인
