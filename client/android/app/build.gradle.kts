@@ -6,6 +6,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// The Firebase config is intentionally local-only. Keep non-FCM builds usable
+// when the file has not been provisioned yet.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val localEnv = Properties().apply {
     val envFile = rootProject.file("../.env")
     if (envFile.exists()) {

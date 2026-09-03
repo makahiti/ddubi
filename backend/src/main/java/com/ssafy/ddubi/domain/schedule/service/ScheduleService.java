@@ -11,6 +11,7 @@ import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.common.PageResponse;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.global.util.SeoulArea;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,7 +80,7 @@ public class ScheduleService {
                 .title(request.title())
                 .origin(request.origin().toSnapshot())
                 .destination(request.destination().toSnapshot())
-                .arriveBy(request.arriveBy())
+                .arriveBy(BusinessTime.normalize(request.arriveBy()))
                 .importance(request.importance())
                 .considerLastTrip(Boolean.TRUE.equals(request.considerLastTrip()))
                 .build());
@@ -134,7 +135,7 @@ public class ScheduleService {
             if (!request.getArriveBy().isAfter(LocalDateTime.now())) {
                 throw new BusinessException(ErrorCode.INVALID_REQUEST, "도착 목표 시각은 미래여야 합니다.");
             }
-            schedule.changeArriveBy(request.getArriveBy());
+            schedule.changeArriveBy(BusinessTime.normalize(request.getArriveBy()));
         }
         if (request.isImportancePresent()) {
             requireNotNull(request.getImportance(), "importance");

@@ -3,6 +3,7 @@ package com.ssafy.ddubi.support;
 import com.ssafy.ddubi.domain.auth.client.KakaoOAuthClient;
 import com.ssafy.ddubi.domain.auth.service.EmailVerificationStore;
 import com.ssafy.ddubi.global.mail.EmailSender;
+import com.ssafy.ddubi.global.push.PushSender;
 import com.ssafy.ddubi.domain.auth.entity.AuthProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -71,6 +72,10 @@ public abstract class IntegrationTestSupport {
     /** 테스트가 실제로 메일을 보내지 않게 막는다. 발송 내용 검증에도 쓴다. */
     @MockitoBean
     protected EmailSender emailSender;
+
+    /** 테스트가 실제로 푸시를 보내지 않게 막는다. 발송 결과를 바꿔가며 검증한다. */
+    @MockitoBean
+    protected PushSender pushSender;
 
     @org.springframework.beans.factory.annotation.Autowired
     private DatabaseCleaner databaseCleaner;

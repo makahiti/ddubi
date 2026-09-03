@@ -33,7 +33,8 @@
 |---|---|---|
 | `core` | kafka, kafka-ui | 가장 먼저 띄운다 |
 | `data` | mysql, redis | |
-| `collect` | collector-bus/subway/traffic/weather/event | 지금은 weather만 구현됨 → `collector-weather`만 지정해서 띄운다 |
+| `collect` | collector-weather | 구현된 수집기만. 배포 잡이 이 프로필을 켠다 |
+| `collect-pending` | collector-bus/subway/traffic/event | 미구현. 소스 구현 후 해당 서비스의 profiles 를 `collect` 로 옮긴다 |
 | `hdfs` | hdfs-namenode, hdfs-datanode1 | archiver·spark가 HDFS를 쓰므로 함께 필요 |
 | `hdfs2` | hdfs-datanode2 | 서버2 전용. 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
 | `spark` | spark-master, spark-worker-1/2, spark-streaming-weather | |
@@ -121,6 +122,9 @@ SPARK_CHECKPOINT_DIR=/opt/ddubi/checkpoints
 
 - Spark 워커 메모리(1536m)를 스트리밍 실행기(1g)와 배치 실행기(480m)가 나눠 씁니다. 배치가 자원을 못 받으면 마스터 UI(http://localhost:8080)에서 WAITING으로 보입니다. 워커 메모리를 늘리면 `BATCH_EXECUTOR_MEMORY`도 함께 올립니다.
 - Spark 이미지의 파이썬은 3.8입니다. sparkjobs 코드는 3.8 문법을 지켜야 합니다.
+- **설정 파일 마운트와 반영 시점**: 디렉터리로 마운트한 설정(`infra/spark/conf/`, `infra/monitoring/prometheus/`, nginx templates, grafana provisioning)은 배포(git pull) 뒤 컨테이너를 **재시작**하면 새 내용이 보입니다.
+  파일 하나를 마운트한 HDFS 설정(`infra/hdfs/*.xml`)은 git 이 파일을 교체하면 컨테이너가 옛 파일을 계속 보므로, 고친 뒤에는 **재생성**이 필요합니다: `docker compose ... up -d --force-recreate hdfs-namenode hdfs-datanode1` (서버2는 `hdfs-datanode2`).
+  배포 후에는 바뀐 설정이 컨테이너 안에 실제로 보이는지 `docker exec <컨테이너> cat <경로>` 로 확인합니다.
 
 ## 서버 배포·운영 (2026-08-31 이식 완료)
 

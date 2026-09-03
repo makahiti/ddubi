@@ -29,13 +29,38 @@ class Settings:
     extra: dict[str, str] = field(default_factory=dict)  # 소스별 추가 설정 (예: WEATHER_GRID_POINTS)
 
     API_KEY_NAMES = ("KAKAO_REST_API_KEY", "SEOUL_API_KEY", "DATA_GO_KR_API_KEY", "KMA_API_KEY")
-    EXTRA_NAMES = ("WEATHER_GRID_POINTS",)
+    # 수집 범위는 코드에 박지 않는다. 운영 환경마다 대상 노선·역·도로 링크와 호출 한도가
+    # 다르므로 쉼표 구분 환경변수로 주입하고, 비밀값은 위 API_KEY_NAMES에만 둔다.
+    EXTRA_NAMES = (
+        "WEATHER_GRID_POINTS",
+        "BUS_ROUTE_IDS",
+        "SUBWAY_LINES",
+        "SUBWAY_STATIONS",
+        "TRAFFIC_LINK_IDS",
+        "CITY_AREA_IDENTIFIERS",
+        "CITY_AREA_REGISTRY_PATH",
+        # 기존 배포 설정과의 하위 호환용이다. 신규 설정은 CITY_AREA_IDENTIFIERS를 사용한다.
+        "CITY_AREA_CODES",
+        "SDOT_DISTRICTS",
+        "SDOT_SERVICE_NAME",
+        "SDOT_MAX_PAGES",
+        "SDOT_EXPECTED_SENSOR_COUNT",
+        "SUBWAY_ALERT_API_URL",
+        "SUBWAY_ALERT_SERVICE_NAME",
+        "TRAFFIC_INCIDENT_SERVICE_NAME",
+        "SEOUL_API_PAGE_SIZE",
+    )
 
     @classmethod
     def from_env(cls) -> "Settings":
         source = _env("COLLECTOR_SOURCE")
         if not source:
-            raise ConfigError("COLLECTOR_SOURCE 가 필요합니다 (bus|subway|traffic|weather|event|sample)")
+            raise ConfigError(
+                "COLLECTOR_SOURCE 가 필요합니다 "
+                "(bus|bus_position|bus_arrival|subway|subway_position|subway_arrival|"
+                "traffic|traffic_realtime|traffic_incident|weather|event|subway_alert|"
+                "city_realtime|sdot_population|sample)"
+            )
         bootstrap = _env("KAFKA_BOOTSTRAP_SERVERS")
         if not bootstrap:
             raise ConfigError("KAFKA_BOOTSTRAP_SERVERS 가 필요합니다")

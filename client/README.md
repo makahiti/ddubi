@@ -58,6 +58,15 @@ flutter run -d <android-device-id> --dart-define=API_BASE_URL=http://10.0.2.2:80
 Web의 기본 API 주소는 `http://localhost:8080/api/v1`입니다. 다른 환경에서는
 `--dart-define=API_BASE_URL=<주소>`로 변경할 수 있습니다.
 
+장소·일정 백엔드 API를 붙여 등록→목록→수정 흐름을 확인할 때는 다음 옵션을
+추가합니다. 옵션을 생략하면 기존 화면 확인용 Mock 일정·장소 저장소를 사용합니다.
+
+```sh
+flutter run -d chrome --web-port=3001 \
+  --dart-define-from-file=.env \
+  --dart-define=USE_SCHEDULE_API=true
+```
+
 `build/web`은 Nginx가 제공하는 빌드 산출물이며 Git에 커밋하지 않습니다.
 
 ## API와 Mock

@@ -49,7 +49,7 @@ compose-validate:
   script:
     - cd infra
     - cp .env.example .env
-    - docker compose --profile core --profile collect --profile data --profile serving --profile spark
+    - docker compose --profile core --profile collect --profile collect-pending --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
       --profile exporters config -q
     # 서버 오버레이 검증 (IP 는 필수 변수라 더미 값 주입)

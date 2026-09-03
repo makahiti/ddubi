@@ -77,6 +77,13 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- FCM 푸시 발송. 자격증명이 없으면 로그 발송기로 대체된다(PushConfig) -->
+        <dependency>
+            <groupId>com.google.firebase</groupId>
+            <artifactId>firebase-admin</artifactId>
+            <version>9.4.1</version>
+        </dependency>
+
         <!-- 회원가입 이메일 인증 코드 발송. 자격증명이 없으면 로그 발송기로 대체된다(MailConfig) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

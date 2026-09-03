@@ -6,6 +6,12 @@
 # owner: 그 키를 쓰는(=포맷을 정하는) 주체
 #   - spark    : 분산 담당 소유. 백엔드는 읽기만 한다.
 #   - backend  : 서비스 백엔드 소유.
+#
+# 메모리 정책 (infra/docker-compose.yml redis): maxmemory 384mb, maxmemory-policy volatile-ttl
+#   - 상한에 닿으면 TTL 이 있는 키 중 만료가 가까운 것부터 지운다 → 캐시성 키(짧은 TTL)가 먼저,
+#     상태성 키(auth:refresh, idem 등 긴 TTL)는 마지막까지 보호된다.
+#   - TTL 없는 키는 절대 퇴출되지 않고 메모리를 계속 차지한다. TTL 없이 넣는 키는 반드시 이 파일에
+#     ttlSeconds: null 로 명시하고 사유를 적는다 (지금은 notificationSuppress 만 정책값).
 
 keys:
   # --- 분산 담당 소유 -------------------------------------------------

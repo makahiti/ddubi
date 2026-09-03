@@ -85,6 +85,25 @@ def test_limit_stops_early(tmp_path):
     assert len(fake.produced) == 4
 
 
+def test_repeat_replays_archive_n_times(tmp_path):
+    storage = Storage.from_uri(f"file://{tmp_path}")
+    write_fake_parquet(storage, "city.raw", "2026-09-01", 10,
+                       [("k1", "v1", ts(10, 0)), ("k2", "v2", ts(10, 10))])
+    fake = FakeProducer()
+    counters = run(make_args(repeat=3), storage, fake)
+    assert [p[1] for p in fake.produced] == ["k1", "k2"] * 3   # 같은 순서로 3번
+    assert counters == {"sent": 6, "failed": 0}
+
+
+def test_limit_caps_total_across_repeats(tmp_path):
+    storage = Storage.from_uri(f"file://{tmp_path}")
+    write_fake_parquet(storage, "city.raw", "2026-09-01", 10,
+                       [(f"k{i}", "v", ts(10, i)) for i in range(4)])
+    fake = FakeProducer()
+    run(make_args(repeat=10, limit=7), storage, fake)
+    assert len(fake.produced) == 7   # 4 + 3, 반복 포함 총량에서 멈춘다
+
+
 def test_dry_run_produces_nothing(tmp_path):
     storage = Storage.from_uri(f"file://{tmp_path}")
     write_fake_parquet(storage, "city.raw", "2026-09-01", 10, [("k", "v", ts(10, 0))])

@@ -56,3 +56,7 @@ docs/til/
 CLAUDE.md
 /AGENTS.md
 /.local-tools/
+
+# Firebase 서비스 계정 키 — 이 파일 하나로 우리 프로젝트 이름의 푸시를 보낼 수 있다
+**/firebase-service-account.json
+**/*-firebase-adminsdk-*.json

@@ -14,6 +14,7 @@ import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.common.PageResponse;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.global.util.SeoulArea;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,7 +75,7 @@ public class ScheduleRepeatService {
                 .user(userRepository.getReferenceById(userId))
                 .title(request.title())
                 .daysOfWeek(rule.toCsv())
-                .arriveTime(request.localTime())
+                .arriveTime(BusinessTime.normalize(request.localTime()))
                 .startDate(request.startDate())
                 .untilDate(request.endDate())
                 .origin(request.origin().toSnapshot())
@@ -147,7 +148,8 @@ public class ScheduleRepeatService {
         WeeklyRepeatRule rule = request.isRrulePresent()
                 ? WeeklyRepeatRule.fromRrule(request.getRrule())
                 : WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek());
-        var arriveTime = request.isLocalTimePresent() ? request.getLocalTime() : repeat.getArriveTime();
+        var arriveTime = request.isLocalTimePresent()
+                ? BusinessTime.normalize(request.getLocalTime()) : repeat.getArriveTime();
         var startDate = request.isStartDatePresent() ? request.getStartDate() : repeat.getStartDate();
         // endDate 는 명시적 null = "무기한으로 변경" 이라 present 면 null 도 그대로 반영한다.
         var untilDate = request.isEndDatePresent() ? request.getEndDate() : repeat.getUntilDate();

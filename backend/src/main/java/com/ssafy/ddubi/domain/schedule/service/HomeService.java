@@ -1,5 +1,6 @@
 package com.ssafy.ddubi.domain.schedule.service;
 
+import com.ssafy.ddubi.domain.notification.service.NotificationQueryService;
 import com.ssafy.ddubi.domain.schedule.dto.response.HomeResponse;
 import com.ssafy.ddubi.domain.schedule.dto.response.ScheduleResponse;
 import com.ssafy.ddubi.domain.schedule.entity.ScheduleStatus;
@@ -16,21 +17,23 @@ import java.util.List;
 /**
  * HOME-001 홈 요약.
  *
- * unreadNotificationCount 와 dataState 는 아직 엔티티가 없는 테이블
- * (notification — Phase 4, pipeline_config — Phase 5)을 읽는다. 도메인이 만들어지기
- * 전에 홈 화면이 먼저 필요해서, 여기서만 JdbcTemplate 단순 조회로 앞당겨 구현했다.
- * 각 Phase 에서 도메인이 생기면 그쪽 서비스 호출로 바꾼다.
+ * dataState 는 아직 엔티티가 없는 pipeline_config(Phase 5)를 읽으므로 여기서만
+ * JdbcTemplate 단순 조회로 앞당겨 구현했다. 해당 도메인이 생기면 그쪽 호출로 바꾼다.
  */
 @Service
 public class HomeService {
 
     private final ScheduleRepository scheduleRepository;
+    private final NotificationQueryService notificationQueryService;
     private final JdbcTemplate jdbcTemplate;
     private final Duration staleThreshold;
 
-    public HomeService(ScheduleRepository scheduleRepository, JdbcTemplate jdbcTemplate,
+    public HomeService(ScheduleRepository scheduleRepository,
+                       NotificationQueryService notificationQueryService,
+                       JdbcTemplate jdbcTemplate,
                        @Value("${ddubi.baseline.stale-threshold}") Duration staleThreshold) {
         this.scheduleRepository = scheduleRepository;
+        this.notificationQueryService = notificationQueryService;
         this.jdbcTemplate = jdbcTemplate;
         this.staleThreshold = staleThreshold;
     }
@@ -55,15 +58,8 @@ public class HomeService {
                 .map(s -> ScheduleResponse.from(s, now))
                 .toList();
 
-        return new HomeResponse(next, today, unreadCount(userId), dataState(now));
-    }
-
-    /** read_at IS NULL 개수 = 안읽음 뱃지 (도메인 규칙 9). */
-    private long unreadCount(Long userId) {
-        Long count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM notification WHERE user_id = ? AND read_at IS NULL",
-                Long.class, userId);
-        return count == null ? 0 : count;
+        return new HomeResponse(next, today,
+                notificationQueryService.unreadCount(userId), dataState(now));
     }
 
     /**

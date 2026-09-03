@@ -3,17 +3,24 @@ import 'package:dio/dio.dart';
 import '../core/network/api_error_response.dart';
 import '../domain/auth.dart';
 import 'auth_api.dart';
+import 'device_token_service.dart';
 
 class ApiAuthRepository implements AuthRepository {
   const ApiAuthRepository({
     required AuthApi api,
     required AuthSessionStore sessionStore,
-  }) : this._(api, sessionStore);
+    required DeviceTokenService deviceTokenService,
+  }) : this._(api, sessionStore, deviceTokenService);
 
-  const ApiAuthRepository._(this._api, this._sessionStore);
+  const ApiAuthRepository._(
+    this._api,
+    this._sessionStore,
+    this._deviceTokenService,
+  );
 
   final AuthApi _api;
   final AuthSessionStore _sessionStore;
+  final DeviceTokenService _deviceTokenService;
 
   @override
   Future<void> login({required String email, required String password}) async {
@@ -87,6 +94,7 @@ class ApiAuthRepository implements AuthRepository {
       );
     }
     _sessionStore.save(AuthSession.fromJson(data));
+    _deviceTokenService.registerAfterAuthentication();
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/constants/layout_constants.dart';
 import '../core/theme.dart';
 import '../domain/models.dart';
 
@@ -141,9 +142,16 @@ class StatusBadge extends StatelessWidget {
 }
 
 class RouteCard extends StatelessWidget {
-  const RouteCard(this.route, {super.key, this.compact = false, this.onTap});
+  const RouteCard(
+    this.route, {
+    super.key,
+    this.compact = false,
+    this.fillWidth = false,
+    this.onTap,
+  });
   final RouteOption route;
   final bool compact;
+  final bool fillWidth;
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext c) {
@@ -156,7 +164,7 @@ class RouteCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: compact ? 150 : double.infinity,
+        width: compact && !fillWidth ? 150 : double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           border: Border.all(color: tone),
@@ -246,10 +254,12 @@ class MonthlyCalendar extends StatelessWidget {
     required this.selectedDate,
     required this.schedules,
     required this.onSelected,
+    this.expanded = false,
   });
   final DateTime selectedDate;
   final List<Schedule> schedules;
   final ValueChanged<DateTime> onSelected;
+  final bool expanded;
 
   bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -257,116 +267,180 @@ class MonthlyCalendar extends StatelessWidget {
   Widget build(BuildContext context) {
     final month = DateTime(selectedDate.year, selectedDate.month);
     final firstOffset = month.weekday % 7;
-    final days = DateTime(month.year, month.month + 1, 0).day;
+    final gridStart = month.subtract(Duration(days: firstOffset));
     final today = DateTime.now();
     return InfoCard(
       child: Column(
         children: [
           Row(
             children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${month.year}년 ${month.month}월',
+                      style: expanded
+                          ? Theme.of(context).textTheme.headlineMedium
+                          : Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if (expanded) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        '날짜를 선택해 일정을 확인하세요.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: () => onSelected(today),
+                child: const Text('오늘'),
+              ),
               IconButton(
                 onPressed: () =>
                     onSelected(DateTime(month.year, month.month - 1, 1)),
                 icon: const Icon(Icons.chevron_left),
-              ),
-              Expanded(
-                child: Text(
-                  '${month.year}년 ${month.month}월',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                tooltip: '이전 달',
               ),
               IconButton(
                 onPressed: () =>
                     onSelected(DateTime(month.year, month.month + 1, 1)),
                 icon: const Icon(Icons.chevron_right),
+                tooltip: '다음 달',
               ),
             ],
           ),
-          Row(
-            children: [
-              for (final label in ['일', '월', '화', '수', '목', '금', '토'])
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
+          SizedBox(height: expanded ? 20 : 12),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            decoration: BoxDecoration(
+              color: DdubiColors.surface,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                for (var index = 0; index < 7; index++)
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        const ['일', '월', '화', '수', '목', '금', '토'][index],
+                        style: TextStyle(
+                          color: index == 0
+                              ? DdubiColors.red
+                              : index == 6
+                              ? const Color(0xFF2377E8)
+                              : const Color(0xFF667085),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 8),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: 42,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
-              mainAxisExtent: 43,
+              mainAxisExtent: expanded ? 68 : 48,
             ),
             itemBuilder: (_, index) {
-              final day = index - firstOffset + 1;
-              if (day < 1 || day > days) return const SizedBox.shrink();
-              final date = DateTime(month.year, month.month, day);
+              final date = gridStart.add(Duration(days: index));
+              final inMonth = date.month == month.month;
               final selected = _sameDay(date, selectedDate),
                   isToday = _sameDay(date, today);
               final count = schedules
                   .where((item) => _sameDay(item.date, date))
                   .length;
-              return InkWell(
-                onTap: () => onSelected(date),
-                borderRadius: BorderRadius.circular(12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 31,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: selected ? DdubiColors.blue : null,
-                        border: isToday && !selected
-                            ? Border.all(color: DdubiColors.blue)
-                            : null,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        '$day',
-                        style: TextStyle(
-                          color: selected ? Colors.white : DdubiColors.navy,
-                          fontWeight: isToday
-                              ? FontWeight.w800
-                              : FontWeight.w500,
-                        ),
-                      ),
+              return Padding(
+                padding: const EdgeInsets.all(2),
+                child: InkWell(
+                  onTap: () => onSelected(date),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: expanded ? 8 : 2,
+                      vertical: expanded ? 7 : 5,
                     ),
-                    SizedBox(
-                      height: 4,
-                      child: count == 0
-                          ? null
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(
-                                count.clamp(1, 3),
-                                (_) => Container(
-                                  width: 4,
-                                  height: 4,
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 1,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? DdubiColors.blue
+                          : isToday
+                          ? DdubiColors.blue.withValues(alpha: .08)
+                          : null,
+                      border: isToday && !selected
+                          ? Border.all(
+                              color: DdubiColors.blue.withValues(alpha: .55),
+                            )
+                          : null,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: expanded
+                          ? CrossAxisAlignment.start
+                          : CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          '${date.day}',
+                          style: TextStyle(
+                            color: selected
+                                ? Colors.white
+                                : inMonth
+                                ? DdubiColors.navy
+                                : const Color(0xFFB7C0CC),
+                            fontWeight: isToday || selected
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (count > 0)
+                          expanded
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
                                   ),
-                                  decoration: const BoxDecoration(
-                                    color: DdubiColors.orange,
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? Colors.white.withValues(alpha: .22)
+                                        : DdubiColors.orange.withValues(
+                                            alpha: .12,
+                                          ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '일정 $count',
+                                    style: TextStyle(
+                                      color: selected
+                                          ? Colors.white
+                                          : DdubiColors.orange,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  width: 5,
+                                  height: 5,
+                                  decoration: BoxDecoration(
+                                    color: selected
+                                        ? Colors.white
+                                        : DdubiColors.orange,
                                     shape: BoxShape.circle,
                                   ),
-                                ),
-                              ),
-                            ),
+                                )
+                        else
+                          const SizedBox(height: 5),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               );
             },
@@ -386,6 +460,8 @@ class AppPage extends StatelessWidget {
     this.onNav,
     this.actions,
     this.fab,
+    this.webTitle,
+    this.webSubtitle,
   });
   final String title;
   final Widget child;
@@ -393,24 +469,358 @@ class AppPage extends StatelessWidget {
   final ValueChanged<int>? onNav;
   final List<Widget>? actions;
   final Widget? fab;
+  final String? webTitle;
+  final String? webSubtitle;
+
   @override
-  Widget build(BuildContext c) => Scaffold(
-    appBar: AppBar(
-      title: Text(title, style: Theme.of(c).textTheme.titleMedium),
-      centerTitle: false,
-      actions: actions,
-    ),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: SizedBox(width: double.infinity, child: child),
+  Widget build(BuildContext context) {
+    final isWide =
+        MediaQuery.sizeOf(context).width >=
+        LayoutConstants.dashboardScreenBreakpoint;
+    if (isWide) {
+      return Scaffold(
+        backgroundColor: DdubiColors.surface,
+        body: SafeArea(
+          child: Column(
+            children: [
+              _WebPageHeader(
+                title: webTitle ?? title,
+                subtitle: webSubtitle,
+                actions: actions,
+              ),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: LayoutConstants.maxContentWidth,
+                    ),
+                    child: SizedBox(width: double.infinity, child: child),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+        floatingActionButton: fab,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        centerTitle: false,
+        actions: actions,
+      ),
+      body: SafeArea(child: child),
+      floatingActionButton: fab,
+      bottomNavigationBar: index == null
+          ? null
+          : DdubiBottomNav(index: index!, onTap: onNav!),
+    );
+  }
+}
+
+class _WebPageHeader extends StatelessWidget {
+  const _WebPageHeader({
+    required this.title,
+    required this.subtitle,
+    required this.actions,
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<Widget>? actions;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 82,
+    padding: const EdgeInsets.symmetric(horizontal: 28),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(bottom: BorderSide(color: DdubiColors.border)),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              if (subtitle != null) ...[
+                const SizedBox(height: 3),
+                Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAFBF8),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const StatusBadge(
+            '서비스 정상',
+            tone: DdubiColors.green,
+            icon: Icons.cloud_done_outlined,
+          ),
+        ),
+        if (actions != null) ...[const SizedBox(width: 10), ...actions!],
+      ],
+    ),
+  );
+}
+
+class DashboardMetricCard extends StatelessWidget {
+  const DashboardMetricCard({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.tone = DdubiColors.blue,
+    this.caption,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color tone;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) => InfoCard(
+    child: Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: tone.withValues(alpha: .1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: tone),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 2),
+              Text(value, style: Theme.of(context).textTheme.titleLarge),
+              if (caption != null)
+                Text(caption!, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class PlaceSearchField extends StatelessWidget {
+  const PlaceSearchField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.searchService,
+    required this.onSelected,
+  });
+
+  final String label;
+  final PlaceLocation? value;
+  final PlaceSearchService searchService;
+  final ValueChanged<PlaceLocation> onSelected;
+
+  @override
+  Widget build(BuildContext context) => FormField<PlaceLocation>(
+    initialValue: value,
+    validator: (selected) => selected == null ? '$label를 검색해 선택해주세요.' : null,
+    builder: (field) => Padding(
+      padding: const EdgeInsets.only(bottom: 15),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () async {
+              final selected = await showDialog<PlaceLocation>(
+                context: context,
+                builder: (_) => _PlaceSearchDialog(
+                  title: '$label 검색',
+                  searchService: searchService,
+                ),
+              );
+              if (selected == null) return;
+              field.didChange(selected);
+              onSelected(selected);
+            },
+            child: InputDecorator(
+              decoration: InputDecoration(
+                errorText: field.errorText,
+                suffixIcon: const Icon(Icons.search),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(value?.name ?? '$label를 검색해주세요.'),
+                  if (value?.address case final address?)
+                    Text(
+                      address,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     ),
-    floatingActionButton: fab,
-    bottomNavigationBar: index == null
-        ? null
-        : DdubiBottomNav(index: index!, onTap: onNav!),
   );
+}
+
+class TransportPreferenceSelector extends StatelessWidget {
+  const TransportPreferenceSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final TransportPreferenceChoice value;
+  final ValueChanged<TransportPreferenceChoice> onChanged;
+
+  @override
+  Widget build(BuildContext context) => RadioGroup<TransportPreferenceChoice>(
+    groupValue: value,
+    onChanged: (choice) {
+      if (choice != null) onChanged(choice);
+    },
+    child: Column(
+      children: TransportPreferenceChoice.values
+          .map(
+            (choice) => RadioListTile<TransportPreferenceChoice>(
+              key: Key('transportPreference-${choice.name}'),
+              contentPadding: EdgeInsets.zero,
+              value: choice,
+              title: Text(choice.label),
+            ),
+          )
+          .toList(growable: false),
+    ),
+  );
+}
+
+class _PlaceSearchDialog extends StatefulWidget {
+  const _PlaceSearchDialog({required this.title, required this.searchService});
+
+  final String title;
+  final PlaceSearchService searchService;
+
+  @override
+  State<_PlaceSearchDialog> createState() => _PlaceSearchDialogState();
+}
+
+class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
+  final _query = TextEditingController();
+  List<PlaceLocation> _results = const [];
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    final query = _query.text.trim();
+    if (query.isEmpty || _loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await widget.searchService.search(query);
+      if (!mounted) return;
+      setState(() {
+        _results = results;
+        if (results.isEmpty) _error = '서울 안에서 검색 결과를 찾지 못했어요.';
+      });
+    } on Object {
+      if (!mounted) return;
+      setState(() => _error = '장소 검색에 실패했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height * .55;
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 520,
+        height: height.clamp(300, 480),
+        child: Column(
+          children: [
+            TextField(
+              key: const Key('placeSearchQuery'),
+              controller: _query,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _search(),
+              decoration: InputDecoration(
+                hintText: '예: 잠실야구장',
+                suffixIcon: IconButton(
+                  key: const Key('placeSearchButton'),
+                  onPressed: _search,
+                  icon: const Icon(Icons.search),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_loading) const LinearProgressIndicator(),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+            Expanded(
+              child: ListView.separated(
+                itemCount: _results.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final place = _results[index];
+                  return ListTile(
+                    key: Key('placeSearchResult$index'),
+                    leading: const Icon(Icons.place_outlined),
+                    title: Text(place.name),
+                    subtitle: Text(place.address ?? '주소 정보 없음'),
+                    onTap: () => Navigator.pop(context, place),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('닫기'),
+        ),
+      ],
+    );
+  }
 }

@@ -1,0 +1,109 @@
+### 알림 API 시나리오 (NTF-001~004)
+#
+# 사용법: auth.http 로 로그인해 accessToken 을 @token 에 넣는다.
+#
+# ⚠️ 알림 행을 만드는 API 는 없다. 추천 엔진이 NotificationService.create() 로 만든다
+#    (S15P21E202-38). 조회를 시험하려면 아래 SQL 로 직접 넣는다.
+#
+#   docker exec ddubi-dev-mysql mysql -uddubi -pddubi ddubi -e "
+#     INSERT INTO notification (user_id, type, title, body, status, sent_at) VALUES
+#      (1,'DEPART_SOON','곧 출발하세요','10분 뒤 출발','SENT',NOW()),
+#      (1,'LAST_TRIP','막차 주의','막차가 20분 뒤','SENT',NOW()),
+#      (1,'MORNING_BRIEF','아침 브리핑','오늘 일정 2건','SUPPRESSED',NULL);"
+
+@host = http://localhost:8080
+@token = 여기에-액세스-토큰
+
+### ① 목록 — unreadCount 가 함께 온다
+GET {{host}}/api/v1/notifications?page=0&size=20
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("200 + unreadCount", function () {
+        client.assert(response.status === 200);
+        client.assert(response.body.data.unreadCount !== undefined);
+        if (response.body.data.content.length > 0) {
+            client.global.set("notificationId", response.body.data.content[0].id);
+        }
+    });
+%}
+
+### ② 안읽음만
+GET {{host}}/api/v1/notifications?unreadOnly=true
+Authorization: Bearer {{token}}
+
+### ③ 종류 필터 — 목록은 줄어도 unreadCount 는 그대로다
+# unreadCount 는 뱃지 숫자라 필터와 무관한 "안읽음 전체" 다.
+GET {{host}}/api/v1/notifications?type=LAST_TRIP
+Authorization: Bearer {{token}}
+
+### ④ 잘못된 종류 — 400
+GET {{host}}/api/v1/notifications?type=존재하지않음
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("400", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ⑤ 상세
+GET {{host}}/api/v1/notifications/{{notificationId}}
+Authorization: Bearer {{token}}
+
+### ⑥ 읽음 처리
+PATCH {{host}}/api/v1/notifications/{{notificationId}}/read
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("200", function () {
+        client.assert(response.status === 200);
+        client.global.set("firstReadAt", response.body.data.readAt);
+    });
+%}
+
+### ⑦ 같은 알림 또 읽음 — 멱등. readAt 이 안 바뀐다
+PATCH {{host}}/api/v1/notifications/{{notificationId}}/read
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("최초 읽은 시각이 유지된다", function () {
+        client.assert(response.status === 200);
+        client.assert(response.body.data.readAt === client.global.get("firstReadAt"));
+    });
+%}
+
+### ⑧ 전체 읽음 — 안읽음이던 건수만 센다
+PATCH {{host}}/api/v1/notifications/read-all
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("200 + updatedCount", function () {
+        client.assert(response.status === 200);
+        client.assert(response.body.data.updatedCount !== undefined);
+    });
+%}
+
+### ⑨ 안읽음 없을 때 전체 읽음 — 0 건
+PATCH {{host}}/api/v1/notifications/read-all
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("updatedCount = 0", function () {
+        client.assert(response.body.data.updatedCount === 0);
+    });
+%}
+
+### ⑩ 홈의 안읽음 수도 0 이 된다 (알림 도메인 경유)
+GET {{host}}/api/v1/home
+Authorization: Bearer {{token}}
+
+### ⑪ 없는 알림 — 404
+GET {{host}}/api/v1/notifications/999999
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("404", function () {
+        client.assert(response.status === 404);
+    });
+%}

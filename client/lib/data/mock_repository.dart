@@ -2,18 +2,22 @@ import '../domain/models.dart';
 
 class MockDdubiRepository implements DdubiRepository {
   final List<Schedule> _addedSchedules = [];
+  final Map<String, Schedule> _updatedSchedules = {};
   final List<RepeatScheduleRule> _repeatRules = [];
+  static const home = PlaceLocation(
+    name: '집 (서울 강남구 역삼동)',
+    address: '서울 강남구 역삼동',
+    lat: 37.5001,
+    lng: 127.0364,
+  );
+  static const baseballStadium = PlaceLocation(
+    name: '잠실야구장',
+    address: '서울 송파구 올림픽로 25',
+    providerPlaceId: '18577297',
+    lat: 37.5121,
+    lng: 127.0719,
+  );
   static const _weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-  static String _label(DateTime date, DateTime today) {
-    final difference = DateTime(
-      date.year,
-      date.month,
-      date.day,
-    ).difference(DateTime(today.year, today.month, today.day)).inDays;
-    if (difference == 0) return '오늘';
-    if (difference == 1) return '내일';
-    return '${date.month}.${date.day} (${_weekdays[date.weekday - 1]})';
-  }
 
   static List<Schedule> get scheduleData {
     final now = DateTime.now();
@@ -21,29 +25,36 @@ class MockDdubiRepository implements DdubiRepository {
       Schedule(
         id: 'schedule-baseball',
         title: '잠실야구장',
-        place: '잠실야구장',
-        departurePlace: '집 (서울 강남구 역삼동)',
-        time: '19:30',
-        dateLabel: _label(now, now),
-        date: now,
+        origin: home,
+        destination: baseballStadium,
+        arriveBy: DateTime(now.year, now.month, now.day, 19, 30),
+        updatedAt: now.subtract(const Duration(days: 1)),
       ),
       Schedule(
         id: 'schedule-meeting',
         title: '팀 회의',
-        place: '강남역 인근',
-        departurePlace: '집 (서울 강남구 역삼동)',
-        time: '09:00',
-        dateLabel: _label(now.add(const Duration(days: 1)), now),
-        date: now.add(const Duration(days: 1)),
+        origin: home,
+        destination: const PlaceLocation(
+          name: '강남역 인근',
+          address: '서울 강남구 강남대로 396',
+          lat: 37.4979,
+          lng: 127.0276,
+        ),
+        arriveBy: DateTime(now.year, now.month, now.day + 1, 9),
+        updatedAt: now.subtract(const Duration(hours: 12)),
       ),
       Schedule(
         id: 'schedule-dinner',
         title: '저녁 약속',
-        place: '홍대입구역 인근',
-        departurePlace: '집 (서울 강남구 역삼동)',
-        time: '18:00',
-        dateLabel: _label(now.add(const Duration(days: 2)), now),
-        date: now.add(const Duration(days: 2)),
+        origin: home,
+        destination: const PlaceLocation(
+          name: '홍대입구역 인근',
+          address: '서울 마포구 양화로 188',
+          lat: 37.5572,
+          lng: 126.9254,
+        ),
+        arriveBy: DateTime(now.year, now.month, now.day + 2, 18),
+        updatedAt: now.subtract(const Duration(hours: 6)),
       ),
     ];
   }
@@ -81,9 +92,15 @@ class MockDdubiRepository implements DdubiRepository {
     ),
   ];
   @override
-  Future<List<Schedule>> schedules() async =>
-      [...scheduleData, ..._addedSchedules]
-        ..sort((a, b) => a.date.compareTo(b.date));
+  Future<List<Schedule>> schedules() async {
+    final schedules = [
+      ...scheduleData,
+      ..._addedSchedules,
+    ].map((schedule) => _updatedSchedules[schedule.id] ?? schedule).toList();
+    schedules.sort((a, b) => a.date.compareTo(b.date));
+    return schedules;
+  }
+
   @override
   Future<Schedule?> scheduleById(String id) async {
     for (final schedule in await schedules()) {
@@ -97,9 +114,15 @@ class MockDdubiRepository implements DdubiRepository {
       _addedSchedules.add(schedule);
 
   @override
+  Future<void> updateSchedule(Schedule schedule) async {
+    _updatedSchedules[schedule.id] = schedule.copyWith(
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  @override
   Future<void> addRepeatSchedule(RepeatScheduleRule rule) async {
     _repeatRules.add(rule);
-    final today = DateTime.now();
     final lastDate =
         rule.untilDate ?? rule.startDate.add(const Duration(days: 84));
     for (
@@ -118,12 +141,21 @@ class MockDdubiRepository implements DdubiRepository {
         Schedule(
           id: '${rule.id}-$dateId',
           title: rule.title,
-          place: rule.place,
-          departurePlace: rule.departurePlace,
-          time: rule.time,
-          dateLabel: _label(date, today),
-          date: date,
+          origin: home,
+          destination: PlaceLocation(
+            name: rule.place,
+            lat: baseballStadium.lat,
+            lng: baseballStadium.lng,
+          ),
+          arriveBy: DateTime(
+            date.year,
+            date.month,
+            date.day,
+            int.parse(rule.time.split(':').first),
+            int.parse(rule.time.split(':').last),
+          ),
           importance: rule.importance,
+          considerLastTrip: rule.considerLastTrip,
           preferredTransport: rule.preferredTransport,
           repeatLabel: _repeatLabel(rule.weekdays),
         ),
@@ -143,4 +175,50 @@ class MockDdubiRepository implements DdubiRepository {
   @override
   Future<List<RouteOption>> routes({RouteSearchCondition? condition}) async =>
       routeData;
+}
+
+class MockPlaceSearchService implements PlaceSearchService {
+  const MockPlaceSearchService();
+
+  static const _places = [
+    MockDdubiRepository.home,
+    MockDdubiRepository.baseballStadium,
+    PlaceLocation(
+      providerPlaceId: 'mock-gangnam-station',
+      name: '강남역',
+      address: '서울 강남구 강남대로 396',
+      lat: 37.4979,
+      lng: 127.0276,
+    ),
+    PlaceLocation(
+      providerPlaceId: 'mock-ssafy-seoul',
+      name: 'SSAFY 서울캠퍼스',
+      address: '서울 강남구 테헤란로 212',
+      lat: 37.5012,
+      lng: 127.0396,
+    ),
+  ];
+
+  @override
+  Future<List<PlaceLocation>> search(
+    String query, {
+    int page = 0,
+    int size = 10,
+  }) async {
+    final normalized = query.replaceAll(' ', '').toLowerCase();
+    return _places
+        .where(
+          (place) =>
+              place.name
+                  .replaceAll(' ', '')
+                  .toLowerCase()
+                  .contains(normalized) ||
+              (place.address ?? '')
+                  .replaceAll(' ', '')
+                  .toLowerCase()
+                  .contains(normalized),
+        )
+        .take(size)
+        .toList(growable: false);
+  }
 }

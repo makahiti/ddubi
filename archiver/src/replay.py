@@ -18,7 +18,10 @@ def parse_args(argv):
     speed = p.add_mutually_exclusive_group(required=True)    # 둘 중 하나만
     speed.add_argument("--rate", type=float, help="초당 발행 건수")
     speed.add_argument("--speed", type=float, help="원본 대비 배속")
-    p.add_argument("--limit", type=int, default=100_000, help="안전장치: 최대 발행 수")
+    p.add_argument("--limit", type=int, default=100_000, help="안전장치: 최대 발행 수 (반복 포함 총량)")
+    # 아카이브 1회 통과 분량(수천 건)으로는 부하 실험이 안 되어 같은 파일들을 N번 반복 재생한다.
+    # speed 모드에서는 회차 경계에서 원본 시각이 되돌아가므로 그 지점만 간격 없이 이어진다
+    p.add_argument("--repeat", type=int, default=1, help="아카이브 반복 재생 횟수 (부하 실험용)")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args(argv)
 
@@ -108,24 +111,30 @@ def run(args, storage, producer):
         counters["failed" if err else "sent"] += 1
 
     files = list_archive_files(storage, args.source_topic, args.from_date, args.to_date)
-    log.info("파일 %d개에서 재생 시작 (limit=%d, %s)", len(files), args.limit,
+    repeat = max(1, getattr(args, "repeat", 1))
+    log.info("파일 %d개에서 재생 시작 (limit=%d, repeat=%d, %s)", len(files), args.limit, repeat,
              "rate={}/s".format(args.rate) if args.rate else "speed=x{}".format(args.speed))
     pacer = Pacer(rate=args.rate, speed=args.speed)
 
     published = 0
     started = time.monotonic()
-    for key, value, ts in iter_events(storage, files):
+    for pass_no in range(1, repeat + 1):
+        if repeat > 1:
+            log.info("회차 %d/%d 시작", pass_no, repeat)
+        for key, value, ts in iter_events(storage, files):
+            if published >= args.limit:
+                break
+            pacer.wait(ts)
+            if producer is not None:
+                producer.produce(args.target_topic, key=key, value=value, on_delivery=on_delivery)
+                producer.poll(0)            # 영수증(콜백) 수거 — 안 하면 내부 큐가 찬다
+            published += 1
+            if published % 1000 == 0:
+                elapsed = time.monotonic() - started
+                log.info("진행 %d건 (평균 %.0f건/초)", published, published / max(elapsed, 0.001))
         if published >= args.limit:
             log.info("limit %d 도달, 중단", args.limit)
             break
-        pacer.wait(ts)
-        if producer is not None:
-            producer.produce(args.target_topic, key=key, value=value, on_delivery=on_delivery)
-            producer.poll(0)            # 영수증(콜백) 수거 — 안 하면 내부 큐가 찬다
-        published += 1
-        if published % 1000 == 0:
-            elapsed = time.monotonic() - started
-            log.info("진행 %d건 (평균 %.0f건/초)", published, published / max(elapsed, 0.001))
 
     if producer is not None:
         producer.flush(30)              # 남은 묶음을 마저 보내고 대기

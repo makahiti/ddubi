@@ -115,6 +115,14 @@ ddubi:
   schedule:
     # 반복 일정 인스턴스 선생성 지평선. 연장은 Phase 4 일일 잡이 맡는다.
     repeat-horizon-days: 14
+  notification:
+    # 같은 suppress_key 재발송 차단 시간. 상황이 실제로 바뀌면 키가 달라지므로
+    # 이 값이 길어도 새 정보는 막히지 않는다.
+    suppress-ttl: 10m
+  push:
+    # 둘 다 비우면 로그 발송기로 대체된다(PushConfig). 키 없이도 개발이 된다.
+    credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+    credentials-base64: ${FIREBASE_CREDENTIALS_BASE64:}
   baseline:
     # 마지막 기준선 활성화가 이보다 오래되면 HOME dataState=STALE.
     stale-threshold: 48h
