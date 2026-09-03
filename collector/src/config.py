@@ -35,7 +35,10 @@ class Settings:
     def from_env(cls) -> "Settings":
         source = _env("COLLECTOR_SOURCE")
         if not source:
-            raise ConfigError("COLLECTOR_SOURCE 가 필요합니다 (bus|subway|traffic|weather|event|sample)")
+            raise ConfigError(
+                "COLLECTOR_SOURCE 가 필요합니다 "
+                "(bus|subway|traffic|weather|weather_forecast|event|sample)"
+            )
         bootstrap = _env("KAFKA_BOOTSTRAP_SERVERS")
         if not bootstrap:
             raise ConfigError("KAFKA_BOOTSTRAP_SERVERS 가 필요합니다")

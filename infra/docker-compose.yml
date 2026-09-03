@@ -19,7 +19,7 @@ x-common: &common
   networks:
     - ddubi-network
 
-# 수집기 5개가 공유하는 정의. 소스별로 COLLECTOR_SOURCE 만 다르다.
+# 수집기가 공유하는 정의. 소스별로 COLLECTOR_SOURCE 만 다르다.
 x-collector: &collector
   <<: *common
   build:
@@ -158,6 +158,14 @@ services:
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: weather
+
+  # 학습용 예보 snapshot. 관측(weather)과 별도로 issuedAt/validAt을 보존한다.
+  collector-weather-forecast:
+    <<: *collector
+    container_name: collector-weather-forecast
+    environment:
+      <<: *collector-env
+      COLLECTOR_SOURCE: weather_forecast
 
   collector-event:
     <<: *collector
