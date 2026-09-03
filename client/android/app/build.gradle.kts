@@ -1,13 +1,43 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val localEnv = Properties().apply {
+    val envFile = rootProject.file("../.env")
+    if (envFile.exists()) {
+        envFile.inputStream().use(::load)
+    }
+}
+
+val kakaoNativeAppKey = System.getenv("KAKAO_NATIVE_APP_KEY")
+    ?: localEnv.getProperty("KAKAO_NATIVE_APP_KEY")
+    ?: "NOT_CONFIGURED"
+
+val naverClientId = System.getenv("NAVER_CLIENT_ID")
+    ?: localEnv.getProperty("NAVER_CLIENT_ID")
+    ?: ""
+val naverClientSecret = System.getenv("NAVER_CLIENT_SECRET")
+    ?: localEnv.getProperty("NAVER_CLIENT_SECRET")
+    ?: ""
+val naverClientName = System.getenv("NAVER_CLIENT_NAME")
+    ?: localEnv.getProperty("NAVER_CLIENT_NAME")
+    ?: "DDUBI"
+
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
     namespace = "com.ssafy.ddubi"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -27,6 +57,10 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoNativeAppKey
+        buildConfigField("String", "NAVER_CLIENT_ID", naverClientId.asBuildConfigString())
+        buildConfigField("String", "NAVER_CLIENT_SECRET", naverClientSecret.asBuildConfigString())
+        buildConfigField("String", "NAVER_CLIENT_NAME", naverClientName.asBuildConfigString())
     }
 
     buildTypes {
@@ -36,6 +70,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    implementation("com.navercorp.nid:oauth:5.12.0")
 }
 
 kotlin {

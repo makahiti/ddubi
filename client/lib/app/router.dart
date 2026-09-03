@@ -10,6 +10,9 @@ import '../providers/app_providers.dart';
 final appRouterProvider = Provider<GoRouter>((ref) {
   final repository = ref.watch(ddubiRepositoryProvider);
   final authRepository = ref.watch(authRepositoryProvider);
+  final kakaoLoginService = ref.watch(kakaoLoginServiceProvider);
+  final googleLoginService = ref.watch(googleLoginServiceProvider);
+  final naverLoginService = ref.watch(naverLoginServiceProvider);
 
   return GoRouter(
     initialLocation: '/login',
@@ -17,8 +20,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', redirect: (context, state) => '/login'),
       GoRoute(
         path: '/login',
-        builder: (context, state) =>
-            LoginScreen(authRepository: authRepository),
+        builder: (context, state) => LoginScreen(
+          authRepository: authRepository,
+          kakaoLoginService: kakaoLoginService,
+          googleLoginService: googleLoginService,
+          naverLoginService: naverLoginService,
+        ),
       ),
       ShellRoute(
         builder: (context, state, child) =>
@@ -36,6 +43,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'new',
                 builder: (context, state) => ScheduleFormScreen(
+                  repository: repository,
+                  initialDate: state.extra as DateTime?,
+                ),
+              ),
+              GoRoute(
+                path: 'repeat/new',
+                builder: (context, state) => RepeatScheduleFormScreen(
                   repository: repository,
                   initialDate: state.extra as DateTime?,
                 ),

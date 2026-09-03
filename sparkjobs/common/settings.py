@@ -28,7 +28,7 @@ class Settings:
     redis_password: str | None
     checkpoint_dir: str  # 1단계: 로컬 볼륨, 3단계: hdfs://... (값만 바뀐다)
     starting_offsets: str = "latest"  # 체크포인트가 없을 때만 적용된다
-    max_offsets_per_trigger: int = 10000
+    max_offsets_per_trigger: int = 10000  # 트리거(10s)당 최대 소비 건수 = 처리량 상한. 부하 실험 때 올린다
 
     @classmethod
     def from_env(cls) -> "Settings":

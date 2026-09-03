@@ -34,7 +34,7 @@ endpoints:
       {
         "rows": [
           {
-            "segmentId": "seg-000123",
+            "segmentId": "BUS:100100609:123456:123789",
             "dow": 3,
             "hourSlot": 8,
             "weatherBucket": "RAIN",
@@ -46,7 +46,7 @@ endpoints:
         ]
       }
     rowFields:
-      segmentId: "VARCHAR(50). 파이프라인 공용 구간 키"
+      segmentId: "VARCHAR(180). ^(BUS|SUB):[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$ 파이프라인 공용 구간 키"
       dow: "요일 1(일)~7(토). Spark dayofweek 와 동일"
       hourSlot: "0~23"
       weatherBucket: "DRY | RAIN | SNOW"

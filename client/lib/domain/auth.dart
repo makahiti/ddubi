@@ -1,12 +1,87 @@
-enum AuthErrorCode { invalidCredentials, emailAlreadyExists, serverError }
+enum AuthErrorCode {
+  invalidCredentials,
+  emailAlreadyExists,
+  connectionFailed,
+  registrationRequiresVerification,
+  serverError,
+}
 
 class AuthException implements Exception {
-  const AuthException(this.code);
+  const AuthException(this.code, {this.message});
+
   final AuthErrorCode code;
+  final String? message;
+}
+
+class AuthUser {
+  const AuthUser({
+    required this.id,
+    required this.provider,
+    required this.email,
+    required this.nickname,
+  });
+
+  final int id;
+  final String provider;
+  final String? email;
+  final String nickname;
+
+  factory AuthUser.fromJson(Map<String, dynamic> json) {
+    return AuthUser(
+      id: (json['id'] as num).toInt(),
+      provider: json['provider'] as String,
+      email: json['email'] as String?,
+      nickname: json['nickname'] as String,
+    );
+  }
+}
+
+class AuthSession {
+  const AuthSession({
+    required this.accessToken,
+    required this.refreshToken,
+    required this.tokenType,
+    required this.deviceId,
+    required this.user,
+  });
+
+  final String accessToken;
+  final String refreshToken;
+  final String tokenType;
+  final String deviceId;
+  final AuthUser user;
+
+  factory AuthSession.fromJson(Map<String, dynamic> json) {
+    return AuthSession(
+      accessToken: json['accessToken'] as String,
+      refreshToken: json['refreshToken'] as String,
+      tokenType: json['tokenType'] as String? ?? 'Bearer',
+      deviceId: json['deviceId'] as String,
+      user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
+    );
+  }
+}
+
+class AuthSessionStore {
+  AuthSession? _session;
+
+  AuthSession? get session => _session;
+  String? get accessToken => _session?.accessToken;
+
+  void save(AuthSession session) => _session = session;
+  void clear() => _session = null;
 }
 
 abstract interface class AuthRepository {
   Future<void> login({required String email, required String password});
+  Future<void> loginWithOAuthToken({
+    required String provider,
+    required String accessToken,
+  });
+  Future<void> loginWithOAuthIdToken({
+    required String provider,
+    required String idToken,
+  });
   Future<void> signUp({required String email, required String password});
 }
 
@@ -17,6 +92,22 @@ class MockAuthRepository implements AuthRepository {
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (_credentials[email.toLowerCase()] == password) return;
     throw const AuthException(AuthErrorCode.invalidCredentials);
+  }
+
+  @override
+  Future<void> loginWithOAuthToken({
+    required String provider,
+    required String accessToken,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
+  @override
+  Future<void> loginWithOAuthIdToken({
+    required String provider,
+    required String idToken,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
   }
 
   @override

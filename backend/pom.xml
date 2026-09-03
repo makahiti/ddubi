@@ -22,6 +22,13 @@
         <java.version>17</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <springdoc.version>2.7.0</springdoc.version>
+        <!--
+          Spring Boot 3.4.0 BOM 의 1.20.4 는 Docker Engine 29 와 API 협상이 깨져
+          /info 요청이 400 으로 떨어진다("Could not find a valid Docker environment").
+          Testcontainers 를 올려 해결한다.
+        -->
+        <testcontainers.version>1.21.4</testcontainers.version>
+        <apache-poi.version>5.5.1</apache-poi.version>
     </properties>
 
     <dependencies>
@@ -46,6 +53,12 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- 서울 버스 공식 XLSX 마스터를 관리 명령으로 적재할 때만 사용한다. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${apache-poi.version}</version>
+        </dependency>
 
         <!-- 스키마 마이그레이션: Flyway (docs/ddubi_erd_v2.sql 이 원천) -->
         <dependency>
@@ -62,6 +75,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- 회원가입 이메일 인증 코드 발송. 자격증명이 없으면 로그 발송기로 대체된다(MailConfig) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
         <!-- Security + JWT -->

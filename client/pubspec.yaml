@@ -34,6 +34,9 @@ dependencies:
   flutter_riverpod: ^3.4.2
   dio: ^5.11.0
   go_router: ^18.0.0
+  kakao_maps_flutter: ^0.2.2
+  kakao_flutter_sdk_user: ^2.0.0+1
+  google_sign_in: ^7.2.0
   cupertino_icons: ^1.0.9
 
 dev_dependencies:
@@ -60,6 +63,7 @@ flutter:
   assets:
     - assets/images/ttubee-guide.png
     - assets/images/ttubee-moving.png
+    - assets/images/ttubee/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

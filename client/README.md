@@ -1,5 +1,45 @@
 # DDUBI Client
 
+## Kakao Maps
+
+지도 앱 키는 저장소에 커밋하지 않고 `--dart-define`으로 전달합니다. 키가 없거나 초기화에 실패하면 기존 Mock 지도가 표시됩니다.
+
+Android는 Kakao Developers에 패키지명 `com.ssafy.ddubi`를 등록한 뒤 Native App Key로 실행합니다.
+
+```sh
+flutter run -d <android-device-id> --dart-define-from-file=.env
+```
+
+Web은 Kakao Developers에 실행 도메인을 등록한 뒤 JavaScript Key로 실행합니다. 로컬 개발 포트는 팀에서 동일하게 사용할 수 있도록 `3001`을 권장합니다.
+
+```sh
+flutter run -d chrome --web-port=3001 --dart-define-from-file=.env
+```
+
+카카오 모바일 로그인도 같은 Native App Key를 사용합니다. `client/.env.example`을
+`client/.env`로 복사해 키를 넣고 실행합니다. 실제 `.env`는 Git에서 제외됩니다.
+Android에서는 카카오 개발자 콘솔에 패키지명 `com.ssafy.ddubi`와 빌드에 사용한
+서명 키 해시를 등록해야 합니다. 앱이 받은 카카오 액세스 토큰은
+`POST /api/v1/auth/oauth/token`으로 보내며, 백엔드는 `KAKAO_APP_ID`와 대조합니다.
+
+## Google / Naver 로그인
+
+Google과 Naver의 화면 확인용 Mock 성공 흐름은 사용하지 않습니다. 현재 실제 공급자 로그인은 Android 앱에서 지원하며, Web에서 버튼을 누르면 Android 지원 안내를 표시합니다.
+
+`client/.env`에 다음 값을 설정하고 `--dart-define-from-file=.env`로 실행합니다.
+
+```text
+GOOGLE_WEB_CLIENT_ID=
+NAVER_CLIENT_ID=
+NAVER_CLIENT_SECRET=
+NAVER_CLIENT_NAME=DDUBI
+```
+
+- Google: Android OAuth 클라이언트에 `com.ssafy.ddubi`와 빌드 SHA-1을 등록합니다. `GOOGLE_WEB_CLIENT_ID`는 백엔드의 `GOOGLE_CLIENT_ID`와 같은 Web OAuth 클라이언트 ID여야 합니다. 앱의 ID 토큰은 `POST /api/v1/auth/oauth/id-token`으로 전달합니다.
+- Naver: 개발자 콘솔의 Android 환경에 `com.ssafy.ddubi`를 등록합니다. 공식 Android SDK가 요구하는 Client ID와 Client Secret은 Android 빌드 설정에 포함되므로 `.env`를 커밋하지 말고 콘솔의 앱 제한 설정도 함께 관리합니다. 앱의 액세스 토큰은 `POST /api/v1/auth/oauth/token`으로 전달합니다.
+
+현재 출발·현재·도착 마커는 화면 확인용 강남권 Mock 좌표입니다. 백엔드 경로 API에 좌표와 경로 형상이 추가되면 `lib/presentation/screens.dart`의 `_RouteMapView`에서 교체합니다.
+
 Flutter 코드 하나로 Android 앱과 Web을 함께 개발합니다.
 
 ## 실행

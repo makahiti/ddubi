@@ -2,7 +2,9 @@ package com.ssafy.ddubi.global.config;
 
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.global.common.ApiResponse;
+import com.ssafy.ddubi.global.security.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,10 +23,11 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Phase 0 보안 골격.
+ * 인증·인가 설정.
  *
- * JWT 인증 필터는 Phase 1(인증·회원)에서 이 체인에 끼운다. 지금은
- * "공개 경로만 열고 나머지는 401" 상태이며, 도메인 엔드포인트가 아직 없어 문제되지 않는다.
+ * 공개 경로 외에는 전부 인증이 필요하다. 토큰 해석은 {@link JwtAuthenticationFilter} 가 하고,
+ * 이 체인은 "인증이 채워졌는가"만 본다.
+ *
  * 인증 실패·인가 실패도 공통 오류 형식으로 내려야 하므로 EntryPoint/DeniedHandler 를 직접 지정한다
  * (여기서 처리하지 않으면 Security 가 @RestControllerAdvice 를 타지 않고 빈 401 을 반환한다).
  */
@@ -32,9 +35,21 @@ import java.util.List;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    /** 인증 없이 열어두는 경로. internal API 는 여기 넣지 않는다(서비스 계정 전용). */
+    /**
+     * 인증 없이 열어두는 경로.
+     *
+     * /auth/** 를 통째로 열지 않는다 — logout 은 명세서상 "로그인 사용자" 전용이라
+     * 인증이 걸려야 한다. internal API 도 여기 넣지 않는다(서비스 계정 전용).
+     */
     private static final String[] PUBLIC_PATHS = {
-            "/api/v1/auth/**",
+            "/api/v1/auth/email/verification",
+            "/api/v1/auth/email/verification/confirm",
+            "/api/v1/auth/local/signup",
+            "/api/v1/auth/local/login",
+            "/api/v1/auth/oauth",
+            "/api/v1/auth/oauth/token",
+            "/api/v1/auth/oauth/id-token",
+            "/api/v1/auth/refresh",
             "/actuator/health",
             "/actuator/health/**",
             "/actuator/prometheus",
@@ -42,6 +57,12 @@ public class SecurityConfig {
             "/swagger-ui.html",
             "/v3/api-docs/**"
     };
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
@@ -54,6 +75,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .anyRequest().authenticated())
+                // 표준 폼 로그인 필터 자리에 JWT 해석을 끼운다.
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((req, res, e) ->
                                 write(res, objectMapper, ErrorCode.UNAUTHORIZED))

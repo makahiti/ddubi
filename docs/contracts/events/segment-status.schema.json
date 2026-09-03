@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["segmentId", "status", "computedAt", "source"],
   "properties": {
-    "segmentId": { "type": "string", "minLength": 1, "description": "뚜비 내부 구간 ID. provider ID와의 매핑은 MySQL이 관리" },
+    "segmentId": { "type": "string", "minLength": 9, "maxLength": 180, "pattern": "^(BUS|SUB):[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$", "description": "서울 공식 정적 ID로 구성한 인접구간 ID" },
     "status": {
       "type": "string",
       "enum": ["normal", "slow", "delayed", "blocked", "unknown"],

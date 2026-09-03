@@ -9,6 +9,7 @@ import com.ssafy.ddubi.domain.route.model.RouteSegment;
 import com.ssafy.ddubi.domain.route.model.RouteType;
 import com.ssafy.ddubi.domain.route.model.TransportMode;
 import com.ssafy.ddubi.domain.route.model.VehicleInfo;
+import com.ssafy.ddubi.domain.route.mapping.TransitMappingResult;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import org.springframework.stereotype.Component;
@@ -25,11 +26,11 @@ import java.util.Objects;
 @Component
 public class KakaoRouteMapper {
 
-    // 버스·지하철 구간을 우리 파이프라인의 segment_id와 연결하는 별도 담당자다.
-    private final SegmentIdResolver segmentIdResolver;
+    // 공식 마스터 대조, 캐시 조회와 공식 인접 구간 segment_id 발급을 담당한다.
+    private final TransitMappingResolver transitMappingResolver;
 
-    public KakaoRouteMapper(SegmentIdResolver segmentIdResolver) {
-        this.segmentIdResolver = segmentIdResolver;
+    public KakaoRouteMapper(TransitMappingResolver transitMappingResolver) {
+        this.transitMappingResolver = transitMappingResolver;
     }
 
     /**
@@ -128,14 +129,23 @@ public class KakaoRouteMapper {
         // 첫 정류장을 출발지, 마지막 정류장을 도착지로 사용한다.
         String fromName = stopNames.isEmpty() ? null : stopNames.get(0);
         String toName = stopNames.isEmpty() ? null : stopNames.get(stopNames.size() - 1);
+        // 좌표는 버스의 동명 정류장·반대 방향 후보를 교차 검증할 때도 사용하므로 한 번만 변환한다.
+        List<Coordinate> geometry = mapGeometry(step.path());
 
-        String segmentId = null;
-        if (mode != TransportMode.WALK) {
-            // ID 형식을 이 Mapper에 하드코딩하지 않는다. 현재 기본 Resolver는 미확정이라 빈 값을 준다.
-            segmentId = segmentIdResolver.resolve(new SegmentResolveRequest(
-                    mode, providerRouteKey, fromName, toName, stopNames, vehicles
-            )).orElse(null);
-        }
+        SegmentResolveRequest resolveRequest = new SegmentResolveRequest(
+                mode, providerRouteKey, fromName, toName, stopNames, vehicles, geometry
+        );
+        // WALK는 공식 버스·지하철 마스터 대상이 아니다. 대중교통만 매칭기를 호출한다.
+        TransitMappingResult mapping = mode == TransportMode.WALK
+                ? TransitMappingResult.notApplicable()
+                : transitMappingResolver.resolve(resolveRequest);
+
+        // route step 하나가 공식 인접 구간 하나와 정확히 같을 때만 단일 segmentId를 채운다.
+        // 여러 정거장을 지나는 step은 mapping.segments의 각 ID를 사용해야 하며 임의 집계 ID를 만들지 않는다.
+        String segmentId = mapping.status() == com.ssafy.ddubi.domain.route.mapping.TransitMappingStatus.EXACT
+                && mapping.segments().size() == 1
+                ? mapping.segments().get(0).segmentId()
+                : null;
 
         return new RouteSegment(
                 sequence,
@@ -149,7 +159,8 @@ public class KakaoRouteMapper {
                 requiredNonNegative(properties.time(), "step.time"),
                 stopNames,
                 vehicles,
-                mapGeometry(step.path())
+                geometry,
+                mapping
         );
     }
 

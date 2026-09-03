@@ -1,5 +1,7 @@
 package com.ssafy.ddubi.domain.route.model;
 
+import com.ssafy.ddubi.domain.route.mapping.TransitMappingResult;
+
 import java.util.List;
 
 /**
@@ -22,7 +24,9 @@ public record RouteSegment(
         long durationSeconds,
         List<String> stopNames,
         List<VehicleInfo> vehicles,
-        List<Coordinate> geometry
+        List<Coordinate> geometry,
+        // 카카오 step을 서울 공식 마스터의 인접 구간들로 전개한 결과와 실패 근거다.
+        TransitMappingResult mapping
 ) {
     public RouteSegment {
         // 내부 모델이 만들어진 뒤 목록이 몰래 변경되지 않게 불변 복사한다.

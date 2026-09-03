@@ -22,7 +22,7 @@
     "segmentIds": {
       "type": "array",
       "description": "영향을 받는 뚜비 내부 구간 ID 목록. 전처리 후 채워진다",
-      "items": { "type": "string", "minLength": 1 },
+      "items": { "type": "string", "minLength": 9, "maxLength": 180, "pattern": "^(BUS|SUB):[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$" },
       "uniqueItems": true
     },
     "payload": { "type": "object" }

@@ -31,4 +31,4 @@ docker compose -f backend/docker-compose.dev.yml down -v && docker compose -f ba
 ```
 
 팀 공유·서버 배포가 시작된 뒤부터는 V1을 수정하지 않고 `V2__`부터 누적합니다.
-자세한 규칙은 `CLAUDE.md` 3.2장.
+자세한 규칙은 `BACKEND_CONVENTION.md` 3.2장.

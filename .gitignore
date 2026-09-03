@@ -54,3 +54,5 @@ logs/
 # Personal notes (not shared)
 docs/til/
 CLAUDE.md
+/AGENTS.md
+/.local-tools/

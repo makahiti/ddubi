@@ -49,7 +49,7 @@ compose-validate:
   script:
     - cd infra
     - cp .env.example .env
-    - docker compose --profile core --profile collect --profile data --profile spark
+    - docker compose --profile core --profile collect --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
       --profile exporters config -q
     # 서버 오버레이 검증 (IP 는 필수 변수라 더미 값 주입)
@@ -194,7 +194,7 @@ deploy-server2:
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
       "cd ~/S15P21E202 && git fetch origin && git checkout $CI_COMMIT_BRANCH && git pull --ff-only origin $CI_COMMIT_BRANCH
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml
-       --profile data --profile hdfs2 --profile monitoring
+       --profile data --profile serving --profile hdfs2 --profile monitoring
        up -d --build"
 
 # 후속 작업

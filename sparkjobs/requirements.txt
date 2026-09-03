@@ -2,3 +2,4 @@
 # pyspark 는 apache/spark 이미지에 이미 들어 있으므로 여기 넣지 않는다 (개발용은 requirements-dev.txt).
 redis>=5.0,<6
 pyarrow>=17,<19
+requests>=2.31,<3   # 기준선 업로드 클라이언트(common/baseline_upload.py)

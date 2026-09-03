@@ -17,9 +17,15 @@
   - 수집기가 변환할 수 있으면(provider ID 가 곧 구간인 경우) 이벤트에 `segmentIds` 를 바로 채운다.
   - 아니면 원본 좌표 `location` 만 싣고, Spark 전처리가 `segmentIds` 를 채운다.
 - Spark 는 구간별 상태를 `segment.status` 토픽과 Redis `segment:status:{segmentId}` 에 쓴다 (`events/segment-status.schema.json`).
-- MySQL 에는 `schedule_segment`(일정 ↔ 구간) 와 provider ID ↔ `segment_id` 매핑을 둔다. Backend 는 Redis 의 구간 상태와 이 두 표를 조인해
-  영향을 받는 일정만 다시 계산한다.
-- 미결: 좌표 → segmentIds 변환을 어느 컴포넌트가 맡는지(수집기 vs Spark), 매핑 표를 Spark 가 어떻게 읽는지.
+- 외부 길찾기의 step은 `route_segment`, 그 step에서 확정된 모든 공식 인접 구간은
+  `route_segment_edge`에 1:N으로 저장한다. Backend는
+  `route_segment_edge.segment_id → route_segment → route(is_selected) → schedule`로
+  영향을 받는 일정만 역조회한다. 별도 `schedule_segment`는 만들지 않는다.
+- `provider_segment_mapping`은 카카오 요청 판정 캐시이며 Collector/Spark의 공용 crosswalk
+  레지스트리가 아니다. Collector/Spark가 활성 canonical topology와 실시간 provider ID 대응표를
+  읽는 방법(인증 내부 API, versioned artifact, compacted topic 중 하나)은 팀 계약 확정 대기다.
+- 좌표 → segmentIds 변환 주체와 위 crosswalk 배포 경계가 구현되기 전에는 Backend의 로컬
+  `EXACT` 결과만으로 end-to-end 실시간 매핑이 완성됐다고 보지 않는다.
 
 ## 계약 파일
 

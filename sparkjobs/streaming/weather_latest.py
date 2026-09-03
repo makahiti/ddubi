@@ -8,6 +8,7 @@ Kafka → Spark → Redis 실시간 경로의 첫 잡. 마이크로배치마다 
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 from pyspark.sql import DataFrame, SparkSession, Window
@@ -18,10 +19,12 @@ from common.kafka_source import read_events_stream
 from common.redis_sink import KEY_COL, VALUE_COL, write_with_ttl
 from common.settings import Settings
 
-JOB_NAME = "weather_latest"
-TOPIC = "city.raw"
+# 실험(부하 시험)용 인스턴스는 환경변수로 토픽·잡 이름·키 접두사를 바꿔 띄운다.
+# 기본값은 운영 잡(city.raw -> weather:latest) 과 같다.
+JOB_NAME = os.environ.get("SPARK_JOB_NAME", "weather_latest")          # 체크포인트 경로·쿼리 이름
+TOPIC = os.environ.get("SPARK_JOB_TOPIC", "city.raw")                    # 읽을 토픽 (실험: city.replay)
 EVENT_TYPE = "weather.observation"
-REDIS_KEY_PREFIX = "weather:latest"
+REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "weather:latest")  # 실험: weather:replay (운영 키 보호)
 TTL_SECONDS = 7200  # redis-keys.yaml weatherLatest.ttlSeconds
 TRIGGER = "10 seconds"
 

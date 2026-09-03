@@ -8,6 +8,9 @@ import com.ssafy.ddubi.domain.route.model.RouteSegment;
 import com.ssafy.ddubi.domain.route.model.RouteType;
 import com.ssafy.ddubi.domain.route.model.TransportMode;
 import com.ssafy.ddubi.domain.route.model.VehicleInfo;
+import com.ssafy.ddubi.domain.route.mapping.TransitMappingResult;
+import com.ssafy.ddubi.domain.route.mapping.TransitMappingStatus;
+import com.ssafy.ddubi.domain.route.mapping.RealtimeMappingCoverage;
 
 import java.time.Instant;
 import java.util.List;
@@ -45,6 +48,8 @@ public record RouteSearchResponse(
             // 전체값에서 구간 합을 뺀 차이. 대기·환승 등 독립 구간으로 나오지 않은 부분이다.
             long unassignedDistanceMeters,
             long unassignedDurationSeconds,
+            // 후보별 매핑 성공·실패 수. 실패율을 숨기지 않고 운영 지표와 수동 검증에 사용한다.
+            MappingSummary mappingSummary,
             List<Segment> segments
     ) {
         private static Candidate from(RouteCandidate candidate) {
@@ -57,8 +62,54 @@ public record RouteSearchResponse(
                     candidate.fare(),
                     candidate.unassignedDistanceMeters(),
                     candidate.unassignedDurationSeconds(),
+                    MappingSummary.from(candidate.segments()),
                     candidate.segments().stream().map(Segment::from).toList()
             );
+        }
+    }
+
+    /** WALK를 제외한 대중교통 step의 마스터 매핑 품질 집계다. */
+    public record MappingSummary(
+            int transitStepCount,
+            int exactCount,
+            int partialCount,
+            int ambiguousCount,
+            int unmappedCount,
+            int realtimeFullStepCount,
+            int realtimePartialStepCount,
+            int realtimeUnavailableStepCount
+    ) {
+        private static MappingSummary from(List<RouteSegment> segments) {
+            int exact = 0;
+            int partial = 0;
+            int ambiguous = 0;
+            int unmapped = 0;
+            int realtimeFull = 0;
+            int realtimePartial = 0;
+            int realtimeUnavailable = 0;
+            for (RouteSegment segment : segments) {
+                TransitMappingStatus status = segment.mapping().status();
+                switch (status) {
+                    case EXACT -> exact++;
+                    case PARTIAL -> partial++;
+                    case AMBIGUOUS -> ambiguous++;
+                    case UNMAPPED -> unmapped++;
+                    // WALK는 대중교통 마스터의 성공률 분모에 넣지 않는다.
+                    case NOT_APPLICABLE -> { }
+                }
+                if (status != TransitMappingStatus.NOT_APPLICABLE) {
+                    RealtimeMappingCoverage coverage = segment.mapping().realtimeCoverage();
+                    switch (coverage) {
+                        case FULL -> realtimeFull++;
+                        case PARTIAL -> realtimePartial++;
+                        case NONE -> realtimeUnavailable++;
+                        case NOT_APPLICABLE -> { }
+                    }
+                }
+            }
+            return new MappingSummary(exact + partial + ambiguous + unmapped,
+                    exact, partial, ambiguous, unmapped,
+                    realtimeFull, realtimePartial, realtimeUnavailable);
         }
     }
 
@@ -79,7 +130,9 @@ public record RouteSearchResponse(
             List<String> stopNames,
             List<VehicleInfo> vehicles,
             // 카카오 path.points를 [경도, 위도] 순서로 변환한 지도 표시용 좌표다.
-            List<Coordinate> geometry
+            List<Coordinate> geometry,
+            // 공식 마스터 매핑 상태·ID·인접 구간. EXACT만 시간 연산에 사용한다.
+            TransitMappingResult mapping
     ) {
         private static Segment from(RouteSegment segment) {
             return new Segment(
@@ -94,7 +147,8 @@ public record RouteSearchResponse(
                     segment.durationSeconds(),
                     segment.stopNames(),
                     segment.vehicles(),
-                    segment.geometry()
+                    segment.geometry(),
+                    segment.mapping()
             );
         }
     }

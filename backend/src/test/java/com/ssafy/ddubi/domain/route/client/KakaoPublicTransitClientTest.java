@@ -5,6 +5,7 @@ import com.ssafy.ddubi.domain.route.model.Coordinate;
 import com.ssafy.ddubi.domain.route.model.RouteSearchQuery;
 import com.ssafy.ddubi.domain.route.model.RouteSearchResult;
 import com.ssafy.ddubi.domain.route.service.KakaoRouteMapper;
+import com.ssafy.ddubi.domain.route.mapping.TransitMappingResult;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +19,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,7 +42,9 @@ class KakaoPublicTransitClientTest {
                 builder,
                 new ObjectMapper(),
                 properties,
-                new KakaoRouteMapper(request -> Optional.empty())
+                new KakaoRouteMapper(
+                        request -> TransitMappingResult.masterDataNotConfigured()
+                )
         );
     }
 

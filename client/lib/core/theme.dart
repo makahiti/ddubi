@@ -76,3 +76,15 @@ abstract final class DdubiTheme {
     ),
   );
 }
+
+/// Keeps scroll content stable when the user drags past either end of a list.
+class DdubiScrollBehavior extends MaterialScrollBehavior {
+  const DdubiScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) => child;
+}

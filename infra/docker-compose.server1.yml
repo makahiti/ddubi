@@ -23,8 +23,11 @@ services:
       - "9867:9867"   # DataNode IPC
 
   archiver: *dn2-hosts
+  replay-producer: *dn2-hosts   # 아카이브를 읽을 때 WebHDFS 가 dn2 로 리다이렉트할 수 있다
   spark-master: *dn2-hosts
   spark-worker-1: *dn2-hosts
   spark-worker-2: *dn2-hosts
+  spark-worker-3: *dn2-hosts
   spark-streaming-weather: *dn2-hosts
+  spark-streaming-replay: *dn2-hosts
   spark-batch: *dn2-hosts

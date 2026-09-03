@@ -1,9 +1,9 @@
 -- =====================================================================
 -- 뚜비(DDUBI) 서비스 DB 스키마 — ERD_master (구 ERD v2)
 -- =====================================================================
--- 원천: Notion「ERD_master」(mermaid) + 「ERD 설명서」 + backend/CLAUDE.md
+-- 원천: Notion「ERD_master」(mermaid) + 「ERD 설명서」 + backend/BACKEND_CONVENTION.md
 -- 대상: MySQL 8.0+ / InnoDB / utf8mb4
--- 소유: 백엔드(서비스) — 단, 15~17번 테이블은 분산 담당 소유(아래 주석 참조)
+-- 소유: 백엔드(서비스) — 단, 16번 detection_log 는 분산 담당 소유(15~17번 주석 참조)
 --
 -- 이 파일이 Flyway `backend/src/main/resources/db/migration/V1__init.sql`의
 -- 원천이다. 두 파일은 항상 동일해야 하며, 스키마 변경 시
@@ -49,7 +49,7 @@ CREATE TABLE `user` (
 CREATE TABLE user_auth (
     id               BIGINT       NOT NULL AUTO_INCREMENT,
     user_id          BIGINT       NOT NULL,
-    provider         ENUM('LOCAL','KAKAO','GOOGLE','NAVER') NOT NULL COMMENT 'v1 구현 범위는 LOCAL + KAKAO',
+    provider         ENUM('LOCAL','KAKAO','GOOGLE','NAVER') NOT NULL COMMENT '로그인 수단 4종. SSAFY·APPLE 은 팀 합의로 제외',
     provider_user_id VARCHAR(100) NULL     COMMENT '소셜 외부 고유 ID(카카오 회원번호 등). LOCAL은 NULL',
     password_hash    VARCHAR(255) NULL     COMMENT 'bcrypt 해시. LOCAL 행에만 값 존재',
     created_at       DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -122,7 +122,8 @@ CREATE TABLE schedule_repeat (
     title        VARCHAR(100)  NOT NULL COMMENT '일정 이름 (예: 출근)',
     days_of_week VARCHAR(30)   NOT NULL COMMENT '반복 요일 CSV (예: MON,TUE,WED,THU,FRI)',
     arrive_time  TIME          NOT NULL COMMENT '도착 목표 시각',
-    until_date   DATE          NULL     COMMENT '반복 종료일. NULL = 무기한',
+    start_date   DATE          NOT NULL COMMENT '반복 시작일 — 이 날짜부터 인스턴스를 만든다 (REPEAT-001 startDate)',
+    until_date   DATE          NULL     COMMENT '반복 종료일. NULL = 무기한 (REPEAT-001 endDate)',
     origin_name  VARCHAR(100)  NOT NULL COMMENT '출발지 스냅샷 (schedule 과 동일 구조)',
     origin_lat   DECIMAL(10,7) NOT NULL,
     origin_lng   DECIMAL(10,7) NOT NULL,
@@ -130,6 +131,7 @@ CREATE TABLE schedule_repeat (
     dest_lat     DECIMAL(10,7) NOT NULL,
     dest_lng     DECIMAL(10,7) NOT NULL,
     importance   ENUM('NORMAL','HIGH','CRITICAL') NOT NULL DEFAULT 'NORMAL' COMMENT '생성될 인스턴스의 기본 중요도',
+    consider_last_trip BOOLEAN NOT NULL DEFAULT FALSE COMMENT '생성될 인스턴스의 막차 고려 기본값 — 없으면 연장 잡이 값을 정할 수 없다',
     is_active    BOOLEAN       NOT NULL DEFAULT TRUE COMMENT 'FALSE = 신규 인스턴스 생성 중단(기존 인스턴스는 유지)',
     created_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -174,7 +176,7 @@ CREATE TABLE schedule (
 CREATE TABLE route_request (
     id           BIGINT      NOT NULL AUTO_INCREMENT,
     schedule_id  BIGINT      NOT NULL,
-    provider     ENUM('ODSAY') NOT NULL DEFAULT 'ODSAY',
+    provider     ENUM('ODSAY','KAKAO') NOT NULL DEFAULT 'KAKAO',
     raw_response JSON        NULL COMMENT '외부 응답 원본 전체 — 재현성 확보용. 응답/로그 노출 금지',
     requested_at DATETIME    NOT NULL COMMENT '호출 시각',
     created_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -188,7 +190,7 @@ CREATE TABLE route_request (
 --    [서비스 계층 보장 1] schedule_id 는 route_request.schedule_id 와 항상 같아야 한다
 --                        (성능 목적 비정규화. DB로 강제 불가)
 --    [서비스 계층 보장 2] 한 schedule 에 is_selected=TRUE 는 최대 1건
---                        (CLAUDE.md 규칙 6. PUT .../selection 트랜잭션에서 나머지 FALSE)
+--                        (BACKEND_CONVENTION.md 규칙 6. PUT .../selection 트랜잭션에서 나머지 FALSE)
 --    ※ 팀 합의 시 아래로 DB 강제 가능(별도 마이그레이션 안건):
 --        selected_schedule_id BIGINT GENERATED ALWAYS AS (IF(is_selected, schedule_id, NULL)) VIRTUAL,
 --        UNIQUE KEY UK_ROUTE_SELECTED (selected_schedule_id)
@@ -211,15 +213,15 @@ CREATE TABLE route (
 
 -- ---------------------------------------------------------------------
 -- 10. route_segment — 경로의 이동 구간
---     IX_RSEG_SEGMENT 하나가 F-05(영향 일정 역조회)의 전부다:
---       segment_id → route_segment → route(is_selected=TRUE) → schedule(status=UPCOMING)
+--     provider step 하나가 여러 canonical edge로 전개되므로 실제 F-05 역조회는
+--       route_segment_edge.segment_id → route_segment → route → schedule 경로를 사용한다.
 -- ---------------------------------------------------------------------
 CREATE TABLE route_segment (
     id                 BIGINT       NOT NULL AUTO_INCREMENT,
     route_id           BIGINT       NOT NULL,
     seq                INT          NOT NULL COMMENT '구간 순서 (1부터)',
     mode               ENUM('WALK','BUS','SUBWAY') NOT NULL,
-    segment_id         VARCHAR(50)  NULL COMMENT '파이프라인 공용 구간 ID = Redis 조회 키. WALK 는 NULL. 채번 규칙은 docs/contracts 계약이 진실 — 코드 하드코딩 금지',
+    segment_id         VARCHAR(180) NULL COMMENT '레거시 단일-edge 호환 열. 신규 저장은 route_segment_edge를 단일 진실로 사용',
     provider_route_key VARCHAR(100) NULL COMMENT '외부 API 노선·역 식별자 — segment_id 매핑 근거',
     from_name          VARCHAR(100) NOT NULL,
     to_name            VARCHAR(100) NOT NULL,
@@ -229,9 +231,25 @@ CREATE TABLE route_segment (
     updated_at         DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY UK_RSEG_ROUTE_SEQ (route_id, seq),
-    KEY IX_RSEG_SEGMENT (segment_id) COMMENT 'F-05 영향 일정 역조회의 핵심 인덱스',
+    KEY IX_RSEG_SEGMENT (segment_id) COMMENT '레거시 단일-edge 역조회 인덱스',
     CONSTRAINT FK_RSEG_ROUTE FOREIGN KEY (route_id) REFERENCES route (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '경로 구간 분해';
+
+-- provider step의 시간·geometry를 임의 분할하지 않고, 매핑된 모든 공식 인접 edge를 1:N으로 보존한다.
+CREATE TABLE route_segment_edge (
+    route_segment_id BIGINT       NOT NULL,
+    edge_seq         INT          NOT NULL COMMENT 'provider step 안 canonical edge 순서 (1부터)',
+    segment_id       VARCHAR(180) NOT NULL COMMENT 'Redis·baseline_serving과 같은 공용 인접구간 ID',
+    mapping_version  VARCHAR(50)  NOT NULL COMMENT '사용한 서울 교통 마스터 버전',
+    policy_version   VARCHAR(30)  NOT NULL COMMENT '매핑·segment ID 정책 버전',
+    created_at       DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (route_segment_id, edge_seq),
+    KEY IX_RSEG_EDGE_SEGMENT (segment_id, route_segment_id)
+        COMMENT 'F-05: 영향 segment에서 선택 경로·일정 역조회',
+    CONSTRAINT FK_RSEG_EDGE_SEGMENT FOREIGN KEY (route_segment_id)
+        REFERENCES route_segment (id) ON DELETE CASCADE,
+    CONSTRAINT CK_RSEG_EDGE_SEQ CHECK (edge_seq >= 1)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'provider 이동구간의 canonical 인접구간 목록';
 
 -- ---------------------------------------------------------------------
 -- 11. recommendation — 추천 결과 스냅샷 (불변 INSERT, 절대 UPDATE 금지)
@@ -327,9 +345,12 @@ CREATE TABLE report_detail (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '일정별 이동 결과 (P3)';
 
 -- =====================================================================
--- 파이프라인 서빙 테이블 (15~17)
---   소유: 분산 담당. 백엔드는 스키마 초안만 제공하고 읽기 전용으로 쓴다.
---   배치 적재 주체는 Spark. 스키마 수정 권한은 분산 담당에게 있다.
+-- 파이프라인 서빙 테이블 (15~17) — 소유가 표마다 다르다
+--   15 baseline_serving · 17 pipeline_config: **백엔드(서비스) 소유.**
+--     Spark 는 MySQL 에 직접 쓰지 않고 internal API(방법 2, docs/contracts/
+--     internal-api.yaml)로 업로드하며, 검증·적재·버전 전환은 백엔드가 한다.
+--     (2026-09-01 인프라 합의. 이전에는 분산 담당 소유였다)
+--   16 detection_log: 분산 담당 소유. 감지 주체가 Spark 라 그쪽이 직접 쓴다.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -338,8 +359,8 @@ CREATE TABLE report_detail (
 -- ---------------------------------------------------------------------
 CREATE TABLE baseline_serving (
     id             BIGINT      NOT NULL AUTO_INCREMENT,
-    segment_id     VARCHAR(50) NOT NULL COMMENT 'route_segment·Redis 와 동일 체계',
-    dow            TINYINT     NOT NULL COMMENT '요일 1~7 (월=1)',
+    segment_id     VARCHAR(180) NOT NULL COMMENT 'route_segment·Redis 와 동일 체계',
+    dow            TINYINT     NOT NULL COMMENT '요일 1~7. 일=1, 토=7 (Spark dayofweek 기준). Java LocalDate 는 월=1 이므로 변환 필요',
     hour_slot      TINYINT     NOT NULL COMMENT '시간대 0~23',
     weather_bucket ENUM('DRY','RAIN','SNOW') NOT NULL,
     p50            INT         NOT NULL COMMENT '단위: 초',
@@ -351,14 +372,14 @@ CREATE TABLE baseline_serving (
     updated_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY UK_BASELINE_KEY (segment_id, dow, hour_slot, weather_bucket, data_version)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '평소 이동시간 baseline (소유: 분산 담당)';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '평소 이동시간 baseline (소유: 백엔드 — Spark 가 internal API 로 업로드)';
 
 -- ---------------------------------------------------------------------
 -- 16. detection_log — 이상 감지 선행 검증 (REQ-PIP-003, 발표 근거)
 -- ---------------------------------------------------------------------
 CREATE TABLE detection_log (
     id                 BIGINT      NOT NULL AUTO_INCREMENT,
-    segment_id         VARCHAR(50) NOT NULL,
+    segment_id         VARCHAR(180) NOT NULL,
     detected_at        DATETIME    NOT NULL COMMENT '뚜비 감지 시각',
     official_notice_at DATETIME    NULL     COMMENT '공식 공지 시각. 없으면 NULL',
     lead_min           INT         NULL     COMMENT '선행 분 = 공지 − 감지',
@@ -372,13 +393,190 @@ CREATE TABLE detection_log (
 
 -- ---------------------------------------------------------------------
 -- 17. pipeline_config — 파이프라인 설정 포인터 (Key-Value)
---     ※ 공통 규칙(BIGINT AUTO_INCREMENT PK)의 **유일한 예외**.
---       ERD_master 정의를 그대로 따른다(소유: 분산 담당).
---     대표 용도: baseline_active_version = 백엔드가 읽어야 할 data_version
+--     ※ 공통 규칙(BIGINT AUTO_INCREMENT PK)의 **유일한 예외**. ERD_master 정의를 따른다.
+--     소유: 백엔드. internal API 의 activate 가 아래 두 키를 트랜잭션으로 갱신한다.
+--       baseline_active_version    = 서빙 중인 data_version (예: 2026-09-01)
+--       baseline_last_activated_at = 마지막 활성화 시각 — 이 값이 오래되면
+--         confidence 강등·DATA_STALE 알림의 근거가 된다 (internal-api-review 3-2)
 -- ---------------------------------------------------------------------
 CREATE TABLE pipeline_config (
     config_key   VARCHAR(50)  NOT NULL COMMENT '설정 이름 (예: baseline_active_version)',
     config_value VARCHAR(100) NOT NULL COMMENT '설정 값 (예: 2026-08-29)',
     updated_at   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (config_key)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '파이프라인 설정 포인터 (소유: 분산 담당)';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '파이프라인 설정 포인터 (소유: 백엔드 — internal API 활성화 시점에 갱신)';
+
+-- =====================================================================
+-- 서울 공식 대중교통 마스터 (18~24)
+--   카카오 이름 기반 경로를 공식 노선·정류장·역 ID로 매핑하기 위한 읽기 전용 기준정보다.
+--   운행 이력은 저장하지 않으며, 새 버전을 전부 적재한 뒤
+--   pipeline_config.seoul_transit_master_active_version 포인터만 교체한다.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 18. seoul_transit_master_version — 마스터 적재·활성화 이력
+-- ---------------------------------------------------------------------
+CREATE TABLE seoul_transit_master_version (
+    data_version VARCHAR(50) NOT NULL COMMENT '공식 파일 기준일 또는 적재 버전',
+    status       ENUM('STAGING','ACTIVE','RETIRED') NOT NULL DEFAULT 'STAGING',
+    source_name  VARCHAR(200) NOT NULL COMMENT '서울시 원본 데이터셋 또는 파일명',
+    loaded_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    activated_at DATETIME(6) NULL,
+    PRIMARY KEY (data_version),
+    KEY IX_SEOUL_MASTER_STATUS (status, activated_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 교통 마스터 버전';
+
+-- ---------------------------------------------------------------------
+-- 19~21. 버스 노선·정류장·노선별 운행 순서
+-- ---------------------------------------------------------------------
+CREATE TABLE seoul_bus_route (
+    data_version VARCHAR(50)  NOT NULL,
+    route_id     VARCHAR(50)  NOT NULL COMMENT '서울시 공식 버스 노선 ID',
+    route_name   VARCHAR(100) NOT NULL COMMENT '공식 노선명',
+    PRIMARY KEY (data_version, route_id),
+    KEY IX_SEOUL_BUS_ROUTE_NAME (data_version, route_name),
+    CONSTRAINT FK_SEOUL_BUS_ROUTE_VERSION FOREIGN KEY (data_version)
+        REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 버스 노선 마스터';
+
+CREATE TABLE seoul_bus_stop (
+    data_version VARCHAR(50)  NOT NULL,
+    stop_id      VARCHAR(50)  NOT NULL COMMENT '서울시 NODE_ID 등 공식 정류장 ID',
+    ars_id       VARCHAR(20)  NULL COMMENT '시민 안내용 ARS 정류장 번호',
+    stop_name    VARCHAR(150) NOT NULL COMMENT '공식 정류장명',
+    longitude    DECIMAL(10,7) NULL COMMENT 'WGS84 경도',
+    latitude     DECIMAL(10,7) NULL COMMENT 'WGS84 위도',
+    PRIMARY KEY (data_version, stop_id),
+    KEY IX_SEOUL_BUS_STOP_NAME (data_version, stop_name),
+    KEY IX_SEOUL_BUS_STOP_ARS (data_version, ars_id),
+    CONSTRAINT FK_SEOUL_BUS_STOP_VERSION FOREIGN KEY (data_version)
+        REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE,
+    CONSTRAINT CK_SEOUL_BUS_STOP_LONGITUDE CHECK (longitude IS NULL OR longitude BETWEEN 124 AND 132),
+    CONSTRAINT CK_SEOUL_BUS_STOP_LATITUDE CHECK (latitude IS NULL OR latitude BETWEEN 33 AND 39)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 버스 정류장 마스터';
+
+CREATE TABLE seoul_bus_route_stop (
+    data_version VARCHAR(50) NOT NULL,
+    route_id     VARCHAR(50) NOT NULL,
+    stop_id      VARCHAR(50) NOT NULL,
+    stop_sequence INT        NOT NULL COMMENT '노선 안 운행 순번. 같은 정류장 재방문은 다른 순번으로 보존',
+    PRIMARY KEY (data_version, route_id, stop_sequence),
+    KEY IX_SEOUL_BUS_ROUTE_STOP (data_version, route_id, stop_id),
+    KEY IX_SEOUL_BUS_STOP_ROUTE (data_version, stop_id, route_id),
+    CONSTRAINT FK_SEOUL_BUS_RS_ROUTE FOREIGN KEY (data_version, route_id)
+        REFERENCES seoul_bus_route (data_version, route_id) ON DELETE CASCADE,
+    CONSTRAINT FK_SEOUL_BUS_RS_STOP FOREIGN KEY (data_version, stop_id)
+        REFERENCES seoul_bus_stop (data_version, stop_id) ON DELETE CASCADE,
+    CONSTRAINT CK_SEOUL_BUS_STOP_SEQUENCE CHECK (stop_sequence >= 1)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 버스 노선별 정류장 순서';
+
+-- ---------------------------------------------------------------------
+-- 22~24. 지하철 호선·역·방향별 운행 순서
+-- ---------------------------------------------------------------------
+CREATE TABLE seoul_subway_line (
+    data_version VARCHAR(50)  NOT NULL,
+    subway_id    VARCHAR(50)  NOT NULL COMMENT '정적 마스터 호선 코드',
+    realtime_subway_id VARCHAR(50) NULL COMMENT '서울 실시간 API subwayId. 대응 미확인 시 NULL',
+    direction    VARCHAR(30)  NOT NULL COMMENT 'UP/DOWN/INNER/OUTER 등 공식 운행 방향',
+    service_pattern_id VARCHAR(64) NOT NULL COMMENT '본선·지선·단축운행을 구분하는 역 순서 해시',
+    line_name    VARCHAR(100) NOT NULL COMMENT '공식 호선명',
+    PRIMARY KEY (data_version, subway_id, direction, service_pattern_id),
+    KEY IX_SEOUL_SUBWAY_LINE_NAME (data_version, line_name),
+    KEY IX_SEOUL_SUBWAY_REALTIME_LINE (data_version, realtime_subway_id),
+    CONSTRAINT FK_SEOUL_SUBWAY_LINE_VERSION FOREIGN KEY (data_version)
+        REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 지하철 호선·방향 마스터';
+
+CREATE TABLE seoul_subway_station (
+    data_version VARCHAR(50)  NOT NULL,
+    station_id   VARCHAR(50)  NOT NULL COMMENT '정적 역 마스터의 STATION_CD',
+    external_code VARCHAR(30) NULL COMMENT '승객 안내용 FR_CODE',
+    realtime_station_id VARCHAR(50) NULL COMMENT '서울 실시간 API statnId. 대응 미확인 시 NULL',
+    station_name VARCHAR(150) NOT NULL COMMENT '공식 역명',
+    longitude    DECIMAL(10,7) NULL COMMENT 'WGS84 경도',
+    latitude     DECIMAL(10,7) NULL COMMENT 'WGS84 위도',
+    PRIMARY KEY (data_version, station_id),
+    KEY IX_SEOUL_SUBWAY_STATION_NAME (data_version, station_name),
+    UNIQUE KEY UK_SEOUL_SUBWAY_REALTIME_STATION (data_version, realtime_station_id),
+    CONSTRAINT FK_SEOUL_SUBWAY_STATION_VERSION FOREIGN KEY (data_version)
+        REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE,
+    CONSTRAINT CK_SEOUL_SUBWAY_LONGITUDE CHECK (longitude IS NULL OR longitude BETWEEN 124 AND 132),
+    CONSTRAINT CK_SEOUL_SUBWAY_LATITUDE CHECK (latitude IS NULL OR latitude BETWEEN 33 AND 39)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 지하철 역 마스터';
+
+CREATE TABLE seoul_subway_line_station (
+    data_version   VARCHAR(50) NOT NULL,
+    subway_id      VARCHAR(50) NOT NULL,
+    direction      VARCHAR(30) NOT NULL,
+    service_pattern_id VARCHAR(64) NOT NULL,
+    station_id     VARCHAR(50) NOT NULL,
+    station_sequence INT       NOT NULL COMMENT '해당 방향의 실제 운행 순번',
+    PRIMARY KEY (data_version, subway_id, direction, service_pattern_id, station_sequence),
+    KEY IX_SEOUL_SUBWAY_LINE_STATION (data_version, subway_id, direction, service_pattern_id, station_id),
+    KEY IX_SEOUL_SUBWAY_STATION_LINE (data_version, station_id, subway_id),
+    CONSTRAINT FK_SEOUL_SUBWAY_LS_LINE FOREIGN KEY
+        (data_version, subway_id, direction, service_pattern_id)
+        REFERENCES seoul_subway_line
+        (data_version, subway_id, direction, service_pattern_id) ON DELETE CASCADE,
+    CONSTRAINT FK_SEOUL_SUBWAY_LS_STATION FOREIGN KEY (data_version, station_id)
+        REFERENCES seoul_subway_station (data_version, station_id) ON DELETE CASCADE,
+    CONSTRAINT CK_SEOUL_SUBWAY_SEQUENCE CHECK (station_sequence >= 1)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '서울 지하철 방향별 역 순서';
+
+-- ---------------------------------------------------------------------
+-- 25. transit_alias — 제공자 표기와 공식 마스터 표기의 검증된 대응
+-- ---------------------------------------------------------------------
+CREATE TABLE transit_alias (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    data_version    VARCHAR(50)  NOT NULL,
+    provider        VARCHAR(30)  NOT NULL COMMENT 'KAKAO, SEOUL 등 외부 표기 제공자',
+    mode            ENUM('BUS','SUBWAY') NOT NULL,
+    alias_type      ENUM('ROUTE','STOP','LINE','STATION') NOT NULL,
+    alias_name      VARCHAR(150) NOT NULL COMMENT '외부 제공자 원문 표기',
+    normalized_name VARCHAR(150) NOT NULL COMMENT '기본 정규화 규칙을 적용한 조회 키',
+    canonical_id    VARCHAR(50)  NOT NULL COMMENT '공식 노선·정류장·호선·역 ID',
+    canonical_name  VARCHAR(150) NOT NULL COMMENT 'canonical_id에서 역조회한 공식 표기. 표시·감사용이며 Matcher는 ID를 사용',
+    verified        BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '사람 또는 검증 배치가 확인한 별칭만 자동 매칭에 사용',
+    active          BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at      DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at      DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY UK_TRANSIT_ALIAS
+        (data_version, provider, mode, alias_type, normalized_name, canonical_id),
+    KEY IX_TRANSIT_ALIAS_CANONICAL (data_version, mode, canonical_id),
+    CONSTRAINT FK_TRANSIT_ALIAS_VERSION FOREIGN KEY (data_version)
+        REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '외부 교통 명칭 별칭';
+
+-- ---------------------------------------------------------------------
+-- 26. provider_segment_mapping — 실제 등장한 외부 구간의 매핑 결과 캐시
+-- ---------------------------------------------------------------------
+CREATE TABLE provider_segment_mapping (
+    id                  BIGINT       NOT NULL AUTO_INCREMENT,
+    provider            VARCHAR(30)  NOT NULL,
+    mode                ENUM('BUS','SUBWAY') NOT NULL,
+    provider_signature  CHAR(64)     NOT NULL COMMENT '교통수단·노선·승하차·통과순서·BUS endpoint 좌표의 SHA-256',
+    mapping_version     VARCHAR(50)  NOT NULL COMMENT '판정에 사용한 활성 서울 마스터 버전',
+    policy_version      VARCHAR(30)  NOT NULL COMMENT '정규화·판정·segment_id 알고리즘 버전',
+    mapping_status      ENUM('EXACT','PARTIAL','AMBIGUOUS','UNMAPPED') NOT NULL,
+    canonical_route_id  VARCHAR(50)  NULL,
+    from_node_id        VARCHAR(50)  NULL,
+    to_node_id          VARCHAR(50)  NULL,
+    evidence_json       JSON         NOT NULL COMMENT '재검증용 이름·순서와 BUS 첫/끝 좌표. 전체 polyline은 저장하지 않음',
+    result_json         JSON         NOT NULL COMMENT '인접 구간별 segment_id를 포함한 전체 판정 결과',
+    resolved_at         DATETIME(6)  NULL COMMENT 'EXACT 자동 판정 시각. 수동 검증을 의미하지 않음',
+    review_status       ENUM('UNREVIEWED','APPROVED','REJECTED') NOT NULL DEFAULT 'UNREVIEWED'
+                                     COMMENT '수동 확인 결과. 자동 계산이 이 값을 덮어쓰지 않음',
+    review_note         VARCHAR(500) NULL,
+    reviewed_at         DATETIME(6)  NULL,
+    active              BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at          DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    UNIQUE KEY UK_PROVIDER_SEGMENT_SIGNATURE
+        (provider, mode, provider_signature, mapping_version, policy_version),
+    KEY IX_PROVIDER_SEGMENT_STATUS (mapping_version, mapping_status, active),
+    KEY IX_PROVIDER_SEGMENT_REVIEW (mapping_version, review_status, mapping_status),
+    CONSTRAINT FK_PROVIDER_SEGMENT_VERSION FOREIGN KEY (mapping_version)
+        REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '외부 경로 구간 매핑 캐시';

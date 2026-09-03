@@ -1,0 +1,167 @@
+### 일정·반복·홈 API 시나리오 (SCH-001~006, REPEAT-001~005, HOME-001)
+#
+# 사용법: auth.http 로 로그인해 accessToken 을 받아 @token 에 넣는다.
+# ⚠️ 날짜가 하드코딩이다 — arriveBy·from·to 를 실행일 기준 미래로 바꿔서 쓴다.
+
+@host = http://localhost:8080
+@token = 여기에-액세스-토큰
+
+### ① 일정 등록 — 201, recommendationStatus=PENDING
+POST {{host}}/api/v1/schedules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "부트캠프 발표",
+  "origin": { "name": "강남역", "lat": 37.4979526, "lng": 127.0276241 },
+  "destination": { "name": "광화문", "lat": 37.5716229, "lng": 126.9767879 },
+  "arriveBy": "2026-09-10T09:00:00",
+  "importance": "HIGH"
+}
+
+> {%
+    client.test("201", function () {
+        client.assert(response.status === 201);
+        client.global.set("scheduleId", response.body.data.id);
+        client.global.set("scheduleUpdatedAt", response.body.data.updatedAt);
+    });
+%}
+
+### ② 과거 도착 시각 — 400
+POST {{host}}/api/v1/schedules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "과거 일정",
+  "origin": { "name": "강남역", "lat": 37.4979526, "lng": 127.0276241 },
+  "destination": { "name": "광화문", "lat": 37.5716229, "lng": 126.9767879 },
+  "arriveBy": "2020-01-01T09:00:00"
+}
+
+> {%
+    client.test("400", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ③ 목록 — from·to 필수
+GET {{host}}/api/v1/schedules?from=2026-09-01T00:00:00&to=2026-09-30T23:59:59&size=50
+Authorization: Bearer {{token}}
+
+### ④ 상세
+GET {{host}}/api/v1/schedules/{{scheduleId}}
+Authorization: Bearer {{token}}
+
+### ⑤ 수정 — updatedAt 은 ①에서 받은 값 그대로 (낙관적 잠금)
+PATCH {{host}}/api/v1/schedules/{{scheduleId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "발표 리허설 포함",
+  "updatedAt": "{{scheduleUpdatedAt}}"
+}
+
+### ⑥ 같은 updatedAt 으로 또 수정 — 409 (⑤가 값을 갱신했다)
+PATCH {{host}}/api/v1/schedules/{{scheduleId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "낡은 수정",
+  "updatedAt": "{{scheduleUpdatedAt}}"
+}
+
+> {%
+    client.test("409 — 낙관적 잠금", function () {
+        client.assert(response.status === 409);
+    });
+%}
+
+### ⑦ 취소 — 204 (soft). 한 번 더 보내도 204(멱등)
+DELETE {{host}}/api/v1/schedules/{{scheduleId}}
+Authorization: Bearer {{token}}
+
+###############################################################################
+# 반복 일정
+###############################################################################
+
+### ⑧ 반복 생성 — 주중 매일, 14일치 인스턴스 선생성
+POST {{host}}/api/v1/schedule-repeats
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "출근",
+  "origin": { "name": "집", "lat": 37.5013068, "lng": 127.0396597 },
+  "destination": { "name": "회사", "lat": 37.5716229, "lng": 126.9767879 },
+  "localTime": "09:00",
+  "startDate": "2026-09-03",
+  "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+  "importance": "HIGH",
+  "considerLastTrip": false
+}
+
+> {%
+    client.test("201 — 인스턴스 개수 확인", function () {
+        client.assert(response.status === 201);
+        client.assert(response.body.data.generatedScheduleCount > 0);
+        client.global.set("repeatId", response.body.data.repeatId);
+    });
+%}
+
+### ⑨ 격주 반복 — 400 (FREQ=WEEKLY 단일 주기만 지원)
+POST {{host}}/api/v1/schedule-repeats
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "격주 모임",
+  "origin": { "name": "집", "lat": 37.5013068, "lng": 127.0396597 },
+  "destination": { "name": "회사", "lat": 37.5716229, "lng": 126.9767879 },
+  "localTime": "19:00",
+  "startDate": "2026-09-03",
+  "rrule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=SA"
+}
+
+> {%
+    client.test("400", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ⑩ 반복 목록
+GET {{host}}/api/v1/schedule-repeats?activeOnly=true
+Authorization: Bearer {{token}}
+
+### ⑪ 반복 상세 — rrule 이 복원돼 온다
+GET {{host}}/api/v1/schedule-repeats/{{repeatId}}
+Authorization: Bearer {{token}}
+
+### ⑫ 반복 수정 — 시각 변경 → 미래 미수정 인스턴스 재생성
+# 개별 수정(customized)된 인스턴스는 살아남는다. regeneratedScheduleCount 확인.
+PATCH {{host}}/api/v1/schedule-repeats/{{repeatId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "localTime": "08:30"
+}
+
+### ⑬ 반복 중지 — 204. 기존 인스턴스는 남는다
+DELETE {{host}}/api/v1/schedule-repeats/{{repeatId}}
+Authorization: Bearer {{token}}
+
+###############################################################################
+# 홈 · 충돌
+###############################################################################
+
+### ⑭ 홈 요약 — 다음 일정·오늘 일정·안읽음 수·데이터 신선도
+GET {{host}}/api/v1/home
+Authorization: Bearer {{token}}
+
+### ⑮ 연속 일정 충돌 — 이동 불가능한 쌍만 온다
+# requiredMin 은 Phase 3 전까지 직선거리 추정치다.
+GET {{host}}/api/v1/schedules/conflicts?from=2026-09-01T00:00:00&to=2026-09-30T23:59:59
+Authorization: Bearer {{token}}

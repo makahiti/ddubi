@@ -143,3 +143,21 @@ SPARK_CHECKPOINT_DIR=/opt/ddubi/checkpoints
   ssh -i <pem> -L 3000:localhost:3000 ubuntu@j15e202.p.ssafy.io   # 켜둔 채 브라우저에서 localhost:3000
   ```
 - **GitLab 러너는 서버2의 단독 컨테이너**(gitlab-runner, docker executor, privileged)로 돌고 있습니다. compose 소속이 아니며, `docker compose down` 의 영향을 받지 않습니다.
+
+## HTTPS (Let's Encrypt)
+
+- 인증서는 certbot 컨테이너(serving 프로필)가 **자동 갱신**합니다: 12시간마다 깨어나 만료 30일 전이면
+  webroot 방식(80 의 `/.well-known/acme-challenge/`)으로 갱신. nginx 는 인증서 볼륨(certbot-certs)을 읽기 전용으로 공유합니다.
+- **최초 발급만 수동 1회** (서버2에서). nginx 가 80 을 점유 중이므로 잠깐 내리고 standalone 으로 발급합니다 (~1분 중단):
+  ```
+  cd ~/S15P21E202/infra
+  docker compose -f docker-compose.yml -f docker-compose.server2.yml stop nginx
+  docker run --rm -p 80:80 \
+    -v ddubi_certbot-certs:/etc/letsencrypt \
+    certbot/certbot:v2.11.0 certonly --standalone \
+    -d <도메인> -m <이메일> --agree-tos --no-eff-email
+  # 이후 serving 프로필을 다시 올리면 nginx 가 443 으로 기동한다
+  ```
+- 갱신 리허설: `docker exec certbot certbot renew --dry-run`
+- 주의: 인증서가 없는 환경(로컬 등)에서는 443 설정 때문에 nginx 가 뜨지 못합니다.
+  로컬 개발은 nginx 없이 backend 만 띄우고 8080 을 직접 호출하세요.

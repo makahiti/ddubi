@@ -73,10 +73,12 @@ class TtubeeGuideCard extends StatelessWidget {
     super.key,
     this.compact = false,
     this.asset = 'assets/images/ttubee-guide.png',
+    this.character,
   });
   final String message;
   final bool compact;
   final String asset;
+  final Widget? character;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -91,11 +93,9 @@ class TtubeeGuideCard extends StatelessWidget {
         SizedBox(
           width: compact ? 58 : 76,
           height: compact ? 58 : 76,
-          child: Image.asset(
-            asset,
-            fit: BoxFit.contain,
-            semanticLabel: '뚜비 캐릭터',
-          ),
+          child:
+              character ??
+              Image.asset(asset, fit: BoxFit.contain, semanticLabel: '뚜비 캐릭터'),
         ),
         const SizedBox(width: 12),
         Expanded(

@@ -1,11 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 
+import '../core/maps/kakao_map_config.dart';
 import '../core/theme.dart';
 import '../data/mock_repository.dart';
 import '../domain/auth.dart';
 import '../domain/models.dart';
+import '../services/kakao_login_service.dart';
+import '../services/google_login_service.dart';
+import '../services/naver_login_service.dart';
 import 'auth_screens.dart';
+import 'micro_animations.dart';
 import 'widgets.dart';
 
 void _open(BuildContext c, Widget page) =>
@@ -17,10 +24,27 @@ String _fullDate(DateTime date) =>
     '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')} (${_weekdays[date.weekday - 1]})';
 
 class LoginScreen extends StatelessWidget {
-  const LoginScreen({super.key, required this.authRepository});
+  const LoginScreen({
+    super.key,
+    required this.authRepository,
+    required this.kakaoLoginService,
+    required this.googleLoginService,
+    required this.naverLoginService,
+  });
   final AuthRepository authRepository;
+  final KakaoLoginService kakaoLoginService;
+  final GoogleLoginService googleLoginService;
+  final NaverLoginService naverLoginService;
   @override
   Widget build(BuildContext c) => Scaffold(
+    floatingActionButton: kDebugMode
+        ? FloatingActionButton.extended(
+            key: const Key('debugHomeButton'),
+            onPressed: () => _completeLogin(c),
+            icon: const Icon(Icons.home_outlined),
+            label: const Text('홈 바로가기'),
+          )
+        : null,
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -30,22 +54,9 @@ class LoginScreen extends StatelessWidget {
             child: Column(
               children: [
                 const Spacer(),
-                TweenAnimationBuilder<double>(
-                  duration: const Duration(milliseconds: 650),
-                  curve: Curves.easeOutBack,
-                  tween: Tween(begin: .82, end: 1),
-                  builder: (_, value, child) => Opacity(
-                    opacity: value.clamp(0, 1),
-                    child: Transform.scale(scale: value, child: child),
-                  ),
-                  child: SizedBox(
-                    height: 120,
-                    child: Image.asset(
-                      'assets/images/ttubee-guide.png',
-                      fit: BoxFit.contain,
-                      semanticLabel: '반갑게 인사하는 뚜비',
-                    ),
-                  ),
+                const TtubeeEntrance(
+                  asset: 'assets/images/ttubee/welcome.png',
+                  semanticLabel: '반갑게 인사하는 뚜비',
                 ),
                 const SizedBox(height: 8),
                 Text('뚜비', style: Theme.of(c).textTheme.headlineLarge),
@@ -71,10 +82,10 @@ class LoginScreen extends StatelessWidget {
                 ),
                 _login(
                   c,
-                  '●  Apple로 시작하기',
+                  'N  네이버로 시작하기',
+                  const Color(0xFF03C75A),
                   Colors.white,
-                  Colors.black,
-                  () => _social(c, 'Apple'),
+                  () => _social(c, '네이버'),
                 ),
                 _login(
                   c,
@@ -120,6 +131,10 @@ class LoginScreen extends StatelessWidget {
     c,
     SocialAuthScreen(
       provider: provider,
+      repository: authRepository,
+      kakaoLoginService: provider == '카카오' ? kakaoLoginService : null,
+      googleLoginService: provider == 'Google' ? googleLoginService : null,
+      naverLoginService: provider == '네이버' ? naverLoginService : null,
       onAuthenticated: () => _completeLogin(c),
     ),
   );
@@ -264,11 +279,27 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
     if (saved == true && mounted) setState(() {});
   }
 
+  Future<void> _addRepeat(BuildContext context) async {
+    final saved = await context.push<bool>(
+      '/schedules/repeat/new',
+      extra: selectedDate,
+    );
+    if (saved == true && mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '전체 일정',
     index: widget.go == null ? null : 0,
     onNav: widget.go,
+    actions: [
+      IconButton(
+        key: const Key('addRepeatScheduleButton'),
+        tooltip: '반복 일정 추가',
+        onPressed: () => _addRepeat(c),
+        icon: const Icon(Icons.repeat_rounded),
+      ),
+    ],
     fab: FloatingActionButton(
       onPressed: () => _add(c),
       child: const Icon(Icons.add),
@@ -309,9 +340,28 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
             if (!s.hasData)
               const Center(child: CircularProgressIndicator())
             else if (selectedSchedules.isEmpty)
-              const TtubeeGuideCard(
-                '선택한 날짜에는 일정이 없어요.\n새로운 일정을 추가해볼까요?',
-                compact: true,
+              InfoCard(
+                color: const Color(0xFFF4FCFA),
+                child: Column(
+                  children: [
+                    const TtubeeIdle(
+                      asset: 'assets/images/ttubee/empty-schedule.png',
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '아직 등록된 일정이 없어요.',
+                      style: Theme.of(c).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('뚜비에게 중요한 일정을 알려주세요!'),
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      onPressed: () => _add(c),
+                      icon: const Icon(Icons.add),
+                      label: const Text('일정 등록하기'),
+                    ),
+                  ],
+                ),
               )
             else
               ...selectedSchedules.map(
@@ -325,7 +375,11 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
                     '${v.time}  ${v.title}',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  subtitle: Text(v.place),
+                  subtitle: Text(
+                    v.repeatLabel == null
+                        ? v.place
+                        : '${v.place} · ${v.repeatLabel}',
+                  ),
                   trailing: Text(v.dateLabel),
                   onTap: () => c.push('/schedules/${v.id}'),
                 ),
@@ -347,6 +401,342 @@ class ScheduleFormScreen extends StatefulWidget {
   final DateTime? initialDate;
   @override
   State<ScheduleFormScreen> createState() => _ScheduleFormScreenState();
+}
+
+class RepeatScheduleFormScreen extends StatefulWidget {
+  const RepeatScheduleFormScreen({
+    super.key,
+    required this.repository,
+    this.initialDate,
+  });
+
+  final DdubiRepository repository;
+  final DateTime? initialDate;
+
+  @override
+  State<RepeatScheduleFormScreen> createState() =>
+      _RepeatScheduleFormScreenState();
+}
+
+class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
+  final formKey = GlobalKey<FormState>();
+  final title = TextEditingController();
+  final place = TextEditingController();
+  final time = TextEditingController(text: '09:00');
+  final departure = TextEditingController(text: '집');
+  final weekdays = <int>{1, 2, 3, 4, 5};
+
+  late DateTime startDate;
+  late DateTime endDate;
+  bool hasEndDate = false;
+  int importance = 1;
+  int transport = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    startDate = widget.initialDate ?? DateTime.now();
+    endDate = startDate.add(const Duration(days: 84));
+  }
+
+  @override
+  void dispose() {
+    title.dispose();
+    place.dispose();
+    time.dispose();
+    departure.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+    title: '반복 일정 등록',
+    child: Form(
+      key: formKey,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 760;
+          final basic = _basicCard(context);
+          final repeat = _repeatCard(context);
+          final preference = _preferenceCard(context);
+          return ListView(
+            padding: _pad,
+            children: [
+              const TtubeeGuideCard(
+                '출근이나 수업처럼 정해진 요일에 반복되는 일정을 한 번에 등록해요.',
+                compact: true,
+              ),
+              const SizedBox(height: 16),
+              if (isWide)
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: basic),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          repeat,
+                          const SizedBox(height: 16),
+                          preference,
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                basic,
+                const SizedBox(height: 12),
+                repeat,
+                const SizedBox(height: 12),
+                preference,
+              ],
+              const SizedBox(height: 16),
+              PrimaryButton('반복 일정 저장하기', onPressed: _save),
+              const SizedBox(height: 24),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+
+  Widget _basicCard(BuildContext context) => InfoCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('일정 정보', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        _field('일정 제목', title, key: const Key('repeatTitleField')),
+        _field(
+          '도착지',
+          place,
+          key: const Key('repeatPlaceField'),
+          icon: Icons.search,
+        ),
+        _field(
+          '반드시 도착해야 하는 시간',
+          time,
+          key: const Key('repeatTimeField'),
+          icon: Icons.schedule,
+          timeField: true,
+        ),
+        _field(
+          '출발지',
+          departure,
+          key: const Key('repeatDepartureField'),
+          icon: Icons.my_location,
+        ),
+      ],
+    ),
+  );
+
+  Widget _repeatCard(BuildContext context) => InfoCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('반복 설정', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        const Text('반복 요일', style: TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: List.generate(7, (index) {
+            final weekday = index + 1;
+            return FilterChip(
+              key: Key('repeatWeekday$weekday'),
+              label: Text(_weekdays[index]),
+              selected: weekdays.contains(weekday),
+              onSelected: (selected) => setState(() {
+                selected ? weekdays.add(weekday) : weekdays.remove(weekday);
+              }),
+            );
+          }),
+        ),
+        if (weekdays.isEmpty) ...[
+          const SizedBox(height: 8),
+          const Text(
+            '반복할 요일을 하나 이상 선택해주세요.',
+            style: TextStyle(color: DdubiColors.red, fontSize: 12),
+          ),
+        ],
+        const SizedBox(height: 18),
+        _dateRow(
+          context,
+          label: '시작일',
+          date: startDate,
+          key: const Key('repeatStartDateButton'),
+          onPressed: () => _pickStartDate(context),
+        ),
+        const SizedBox(height: 14),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('종료일 설정'),
+          subtitle: Text(hasEndDate ? _fullDate(endDate) : '종료일 없음'),
+          value: hasEndDate,
+          onChanged: (value) => setState(() => hasEndDate = value),
+        ),
+        if (hasEndDate)
+          _dateRow(
+            context,
+            label: '종료일',
+            date: endDate,
+            key: const Key('repeatEndDateButton'),
+            onPressed: () => _pickEndDate(context),
+          ),
+      ],
+    ),
+  );
+
+  Widget _preferenceCard(BuildContext context) => InfoCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('이동 설정', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 16),
+        const Text('중요도', style: TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        SegmentedButton<int>(
+          segments: const [
+            ButtonSegment(value: 0, label: Text('일반')),
+            ButtonSegment(value: 1, label: Text('중요')),
+            ButtonSegment(value: 2, label: Text('절대 지각 불가')),
+          ],
+          selected: {importance},
+          onSelectionChanged: (value) =>
+              setState(() => importance = value.first),
+        ),
+        const SizedBox(height: 18),
+        const Text('교통수단 선호', style: TextStyle(fontWeight: FontWeight.w700)),
+        RadioGroup<int>(
+          groupValue: transport,
+          onChanged: (value) => setState(() => transport = value!),
+          child: Column(
+            children: ['지하철 우선', '버스 + 지하철', '버스 우선']
+                .asMap()
+                .entries
+                .map(
+                  (entry) => RadioListTile<int>(
+                    contentPadding: EdgeInsets.zero,
+                    value: entry.key,
+                    title: Text(entry.value),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _field(
+    String label,
+    TextEditingController controller, {
+    required Key key,
+    IconData? icon,
+    bool timeField = false,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 15),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        TextFormField(
+          key: key,
+          controller: controller,
+          keyboardType: timeField ? TextInputType.datetime : TextInputType.text,
+          validator: (value) {
+            final text = (value ?? '').trim();
+            if (text.isEmpty) return '필수 입력 항목입니다.';
+            if (timeField &&
+                !RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(text)) {
+              return '시간을 HH:mm 형식으로 입력해주세요.';
+            }
+            return null;
+          },
+          decoration: InputDecoration(
+            suffixIcon: icon == null ? null : Icon(icon),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _dateRow(
+    BuildContext context, {
+    required String label,
+    required DateTime date,
+    required Key key,
+    required VoidCallback onPressed,
+  }) => Row(
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(_fullDate(date)),
+          ],
+        ),
+      ),
+      OutlinedButton.icon(
+        key: key,
+        onPressed: onPressed,
+        icon: const Icon(Icons.calendar_month_outlined),
+        label: const Text('변경'),
+      ),
+    ],
+  );
+
+  Future<void> _pickStartDate(BuildContext context) async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: startDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      startDate = selected;
+      if (endDate.isBefore(startDate)) {
+        endDate = startDate.add(const Duration(days: 84));
+      }
+    });
+  }
+
+  Future<void> _pickEndDate(BuildContext context) async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: endDate.isBefore(startDate) ? startDate : endDate,
+      firstDate: startDate,
+      lastDate: startDate.add(const Duration(days: 365 * 2)),
+    );
+    if (selected != null && mounted) setState(() => endDate = selected);
+  }
+
+  Future<void> _save() async {
+    setState(() {});
+    if (weekdays.isEmpty || !(formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+    await widget.repository.addRepeatSchedule(
+      RepeatScheduleRule(
+        id: 'repeat-${DateTime.now().microsecondsSinceEpoch}',
+        title: title.text.trim(),
+        place: place.text.trim(),
+        departurePlace: departure.text.trim(),
+        time: time.text.trim(),
+        startDate: startDate,
+        weekdays: {...weekdays},
+        untilDate: hasEndDate ? endDate : null,
+        importance: importance,
+        preferredTransport: transport,
+      ),
+    );
+    if (mounted) context.pop(true);
+  }
 }
 
 class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
@@ -693,7 +1083,16 @@ class RouteResultsScreen extends StatelessWidget {
             if (!s.hasData)
               const Center(child: CircularProgressIndicator())
             else ...[
-              const TtubeeGuideCard('이 경로가 지금 가장 안정적이에요!', compact: true),
+              const TtubeeGuideCard(
+                '이 경로가 지금 가장 안정적이에요!',
+                compact: true,
+                character: TtubeeEntrance(
+                  asset: 'assets/images/ttubee/route-guide.png',
+                  height: 62,
+                  fromRight: true,
+                  semanticLabel: '지도를 든 뚜비',
+                ),
+              ),
               const SizedBox(height: 12),
               ...s.data!.map(
                 (r) => Padding(
@@ -963,7 +1362,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final isWide = constraints.maxWidth >= 760;
-            final map = _MockRouteMap(
+            final map = _RouteMapView(
               routes: routes,
               selectedKind: selected.kind,
               departureLabel: widget.condition?.departurePlace ?? '역삼역 입구',
@@ -1010,8 +1409,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   );
 }
 
-class _MockRouteMap extends StatelessWidget {
-  const _MockRouteMap({
+class _RouteMapView extends StatefulWidget {
+  const _RouteMapView({
     required this.routes,
     required this.selectedKind,
     required this.departureLabel,
@@ -1026,18 +1425,112 @@ class _MockRouteMap extends StatelessWidget {
   final ValueChanged<RouteKind> onSelected;
 
   @override
+  State<_RouteMapView> createState() => _RouteMapViewState();
+}
+
+class _RouteMapViewState extends State<_RouteMapView> {
+  KakaoMapController? _mapController;
+
+  static const _departure = LatLng(latitude: 37.5089, longitude: 127.0631);
+  static const _current = LatLng(latitude: 37.5045, longitude: 127.0490);
+  static const _destination = LatLng(latitude: 37.5006, longitude: 127.0364);
+  static const _center = LatLng(latitude: 37.5048, longitude: 127.0498);
+  static const _cameraAnimation = CameraAnimation(
+    duration: 450,
+    autoElevation: true,
+    isConsecutive: false,
+  );
+
+  int get _entireRouteLevel => kIsWeb ? 5 : 13;
+
+  @override
+  void didUpdateWidget(covariant _RouteMapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedKind != widget.selectedKind) {
+      _showEntireRoute();
+    }
+  }
+
+  Future<void> _onMapCreated(KakaoMapController controller) async {
+    _mapController = controller;
+    try {
+      if (!kIsWeb) {
+        await controller.addMarkerLayer(
+          layerId: KakaoMapController.defaultLabelLayerId,
+          zOrder: 1000,
+          clickable: false,
+        );
+      }
+      await controller.addMarkers(
+        markerOptions: [
+          MarkerOption(id: 'departure', latLng: _departure, text: '출발'),
+          MarkerOption(id: 'current', latLng: _current, text: '현재 위치'),
+          MarkerOption(id: 'destination', latLng: _destination, text: '도착'),
+        ],
+      );
+      await _showEntireRoute();
+    } catch (error) {
+      debugPrint('Kakao Maps marker setup failed: $error');
+    }
+  }
+
+  Future<void> _showEntireRoute() =>
+      _moveCamera(position: _center, zoomLevel: _entireRouteLevel);
+
+  Future<void> _showCurrentLocation() async {
+    final controller = _mapController;
+    if (controller == null) return;
+    try {
+      final currentZoomLevel = await controller.getZoomLevel();
+      if (currentZoomLevel == null) return;
+      await _moveCamera(position: _current, zoomLevel: currentZoomLevel);
+    } catch (error) {
+      debugPrint('Kakao Maps zoom level lookup failed: $error');
+    }
+  }
+
+  Future<void> _moveCamera({
+    required LatLng position,
+    required int zoomLevel,
+  }) async {
+    final controller = _mapController;
+    if (controller == null) return;
+    try {
+      await controller.moveCamera(
+        cameraUpdate: CameraUpdate(position: position, zoomLevel: zoomLevel),
+        animation: _cameraAnimation,
+      );
+    } catch (error) {
+      debugPrint('Kakao Maps camera move failed: $error');
+    }
+  }
+
+  void _handleRouteSelected(RouteKind kind) {
+    widget.onSelected(kind);
+    if (kind == widget.selectedKind) {
+      _showEntireRoute();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(16),
     child: LayoutBuilder(
       builder: (context, constraints) => Stack(
         children: [
           Positioned.fill(
-            child: ColoredBox(
-              color: const Color(0xFFEAF2EC),
-              child: CustomPaint(
-                painter: _MapPainter(selectedKind: selectedKind),
-              ),
-            ),
+            child: KakaoMapConfig.isReady
+                ? KakaoMap(
+                    initialPosition: _center,
+                    initialLevel: _entireRouteLevel,
+                    onMapCreated: _onMapCreated,
+                  )
+                : ColoredBox(
+                    color: const Color(0xFFEAF2EC),
+                    child: CustomPaint(
+                      painter: _MapPainter(selectedKind: widget.selectedKind),
+                    ),
+                  ),
           ),
           Positioned(
             left: 12,
@@ -1051,16 +1544,16 @@ class _MockRouteMap extends StatelessWidget {
                 child: Wrap(
                   spacing: 6,
                   runSpacing: 6,
-                  children: routes
+                  children: widget.routes
                       .map(
                         (route) => ChoiceChip(
                           label: Text(route.label),
-                          selected: route.kind == selectedKind,
+                          selected: route.kind == widget.selectedKind,
                           avatar: CircleAvatar(
                             backgroundColor: _routeTone(route.kind),
                             radius: 5,
                           ),
-                          onSelected: (_) => onSelected(route.kind),
+                          onSelected: (_) => _handleRouteSelected(route.kind),
                         ),
                       )
                       .toList(),
@@ -1068,38 +1561,92 @@ class _MockRouteMap extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
-            key: const Key('mapCurrentMarker'),
-            left: constraints.maxWidth * .42,
-            top: constraints.maxHeight * .54,
-            child: const _MapMarker(
-              label: '현재 위치 (Mock)',
-              icon: Icons.my_location,
-              tone: DdubiColors.blue,
+          if (!KakaoMapConfig.isReady) ...[
+            Positioned(
+              key: const Key('mapCurrentMarker'),
+              left: constraints.maxWidth * .42,
+              top: constraints.maxHeight * .54,
+              child: const _MapMarker(
+                label: '현재 위치 (Mock)',
+                icon: Icons.my_location,
+                tone: DdubiColors.blue,
+              ),
             ),
-          ),
-          Positioned(
-            key: const Key('mapDepartureMarker'),
-            left: 12,
-            bottom: 14,
-            child: _MapMarker(
-              label: '출발 · $departureLabel',
-              icon: Icons.trip_origin,
-              tone: DdubiColors.green,
+            Positioned(
+              key: const Key('mapDepartureMarker'),
+              left: 12,
+              bottom: 14,
+              child: _MapMarker(
+                label: '출발 · ${widget.departureLabel}',
+                icon: Icons.trip_origin,
+                tone: DdubiColors.green,
+              ),
             ),
-          ),
+            Positioned(
+              key: const Key('mapDestinationMarker'),
+              right: 12,
+              top: constraints.maxHeight * .22,
+              child: _MapMarker(
+                label: '도착 · ${widget.destinationLabel}',
+                icon: Icons.location_on,
+                tone: DdubiColors.red,
+              ),
+            ),
+          ],
           Positioned(
-            key: const Key('mapDestinationMarker'),
             right: 12,
-            top: constraints.maxHeight * .22,
-            child: _MapMarker(
-              label: '도착 · $destinationLabel',
-              icon: Icons.location_on,
-              tone: DdubiColors.red,
+            bottom: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  key: const Key('mapEntireRouteButton'),
+                  heroTag: 'map-entire-route',
+                  tooltip: '전체 경로 보기',
+                  onPressed: KakaoMapConfig.isReady ? _showEntireRoute : null,
+                  backgroundColor: Colors.white,
+                  foregroundColor: DdubiColors.blue,
+                  child: const Icon(Icons.route),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  key: const Key('mapCurrentLocationButton'),
+                  heroTag: 'map-current-location',
+                  tooltip: '현재 위치로 이동',
+                  onPressed: KakaoMapConfig.isReady
+                      ? _showCurrentLocation
+                      : null,
+                  backgroundColor: Colors.white,
+                  foregroundColor: DdubiColors.blue,
+                  child: const Icon(Icons.my_location),
+                ),
+                const SizedBox(height: 8),
+                _MapModeBadge(isKakaoMap: KakaoMapConfig.isReady),
+              ],
             ),
           ),
         ],
       ),
+    ),
+  );
+}
+
+class _MapModeBadge extends StatelessWidget {
+  const _MapModeBadge({required this.isKakaoMap});
+
+  final bool isKakaoMap;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const Key('mapModeBadge'),
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .92),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      isKakaoMap ? 'Kakao Map · Mock 좌표' : 'Mock 지도 · Kakao 키 미설정',
+      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
     ),
   );
 }
@@ -1216,7 +1763,10 @@ class _RouteMapDetail extends StatelessWidget {
         ),
         PrimaryButton(
           '이동 안내 시작',
-          onPressed: () => _open(context, MovingScreen(repository: repository)),
+          onPressed: () => _open(
+            context,
+            MovingScreen(repository: repository, route: route),
+          ),
         ),
       ],
     ),
@@ -1404,69 +1954,162 @@ class SpacerBox extends StatelessWidget {
   Widget build(BuildContext context) => const SizedBox(height: 24);
 }
 
-class MovingScreen extends StatelessWidget {
-  const MovingScreen({super.key, required this.repository});
+class MovingScreen extends StatefulWidget {
+  const MovingScreen({super.key, required this.repository, this.route});
+
   final DdubiRepository repository;
+
+  final RouteOption? route;
+
   @override
-  Widget build(BuildContext c) => AppPage(
-    title: '출발 · 이동 중',
+  State<MovingScreen> createState() => _MovingScreenState();
+}
+
+class _MovingScreenState extends State<MovingScreen> {
+  bool _hasDeparted = false;
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+    title: _hasDeparted ? '이동 중' : '출발 안내',
     actions: const [
       IconButton(onPressed: null, icon: Icon(Icons.notifications_none)),
     ],
     child: ListView(
       padding: _pad,
-      children: [
-        const TtubeeGuideCard(
-          '지금 출발하면 딱 좋아요!',
-          compact: true,
-          asset: 'assets/images/ttubee-moving.png',
-        ),
-        const SizedBox(height: 12),
-        InfoCard(
-          color: const Color(0xFFF0FAF7),
-          child: Column(
-            children: [
-              const CircleAvatar(
-                radius: 32,
-                backgroundColor: Colors.white,
-                child: Icon(
-                  Icons.directions_walk,
-                  size: 36,
-                  color: DdubiColors.navy,
-                ),
-              ),
-              const SizedBox(height: 15),
-              Text('지금 출발하세요', style: Theme.of(c).textTheme.titleLarge),
-              const Text('여유 있게 이동하면 제시간 도착해요.'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        const InfoCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(child: Icon(Icons.directions_walk)),
-            title: Text('다음 단계'),
-            subtitle: Text('강남역까지 도보 6분\n450m'),
-          ),
-        ),
-        const SizedBox(height: 12),
-        const InfoCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.check_circle, color: DdubiColors.green),
-            title: Text('현재 지연 상태'),
-            subtitle: StatusBadge('지연 위험 낮음 · 제시간 도착 예상'),
-          ),
-        ),
-        const SizedBox(height: 28),
-        PrimaryButton(
-          '출발 안내 시작',
-          onPressed: () => _open(c, ArrivalScreen(repository: repository)),
-        ),
-      ],
+      children: _hasDeparted
+          ? _movingContent(context)
+          : _departureContent(context),
     ),
   );
+
+  List<Widget> _departureContent(BuildContext context) => [
+    const TtubeeGuideCard(
+      '지금 출발하면 딱 좋아요!',
+      compact: true,
+      character: TtubeeRunning(asset: 'assets/images/ttubee/running.png'),
+    ),
+    const SizedBox(height: 12),
+    InfoCard(
+      color: const Color(0xFFF0FAF7),
+      child: Column(
+        children: [
+          const CircleAvatar(
+            radius: 32,
+            backgroundColor: Colors.white,
+            child: Icon(
+              Icons.directions_walk,
+              size: 36,
+              color: DdubiColors.navy,
+            ),
+          ),
+          const SizedBox(height: 15),
+          Text('지금 출발하세요', style: Theme.of(context).textTheme.titleLarge),
+          const Text('여유 있게 이동하면 제시간 도착해요.'),
+        ],
+      ),
+    ),
+    const SizedBox(height: 12),
+    const InfoCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: CircleAvatar(child: Icon(Icons.directions_walk)),
+        title: Text('첫 번째 단계'),
+        subtitle: Text('강남역까지 도보 6분\n450m'),
+      ),
+    ),
+    const SizedBox(height: 12),
+    const InfoCard(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.check_circle, color: DdubiColors.green),
+        title: Text('현재 지연 상태'),
+        subtitle: StatusBadge('지연 위험 낮음 · 제시간 도착 예상'),
+      ),
+    ),
+    const SizedBox(height: 28),
+    PrimaryButton(
+      '출발했어요',
+      onPressed: () => setState(() => _hasDeparted = true),
+    ),
+  ];
+
+  List<Widget> _movingContent(BuildContext context) {
+    final route = widget.route;
+    final transport = route?.transport ?? '지하철 2호선';
+    final arrival = route?.arrival ?? '18:45';
+    return [
+      const TtubeeGuideCard(
+        '목적지까지 뚜비가 함께할게요!',
+        compact: true,
+        character: TtubeeRunning(asset: 'assets/images/ttubee/running.png'),
+      ),
+      const SizedBox(height: 12),
+      InfoCard(
+        color: const Color(0xFFF0FAF7),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const StatusBadge(
+              '현재 이동 단계',
+              tone: DdubiColors.green,
+              icon: Icons.directions_walk,
+            ),
+            const SizedBox(height: 12),
+            Text('강남역으로 이동 중', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            const Text('도보 6분 · 450m'),
+            const SizedBox(height: 14),
+            const LinearProgressIndicator(value: .18),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      InfoCard(
+        child: Row(
+          children: [
+            const Icon(Icons.schedule, color: DdubiColors.blue),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('예상 도착'),
+                  Text(
+                    '$arrival · 제시간 도착 예상',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      InfoCard(
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.subway)),
+          title: const Text('다음 단계'),
+          subtitle: Text('강남역에서 $transport 탑승'),
+        ),
+      ),
+      const SizedBox(height: 12),
+      const InfoCard(
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.check_circle, color: DdubiColors.green),
+          title: Text('현재 지연 상태'),
+          subtitle: StatusBadge('지연 위험 낮음 · 제시간 도착 예상'),
+        ),
+      ),
+      const SizedBox(height: 28),
+      PrimaryButton(
+        '도착했어요',
+        onPressed: () =>
+            _open(context, ArrivalScreen(repository: widget.repository)),
+      ),
+    ];
+  }
 }
 
 class ArrivalScreen extends StatelessWidget {
@@ -1478,7 +2121,13 @@ class ArrivalScreen extends StatelessWidget {
     child: ListView(
       padding: _pad,
       children: [
-        const TtubeeGuideCard('제시간에 도착했어요!\n오늘 이동도 정말 잘했어요.'),
+        const TtubeeGuideCard(
+          '제시간에 도착했어요!\n오늘 이동도 정말 잘했어요.',
+          character: TtubeeCelebrate(
+            asset: 'assets/images/ttubee/celebrate.png',
+            height: 82,
+          ),
+        ),
         const SizedBox(height: 18),
         const Icon(Icons.check_circle, color: Color(0xFF12B89A), size: 70),
         Center(

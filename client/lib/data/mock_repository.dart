@@ -2,6 +2,7 @@ import '../domain/models.dart';
 
 class MockDdubiRepository implements DdubiRepository {
   final List<Schedule> _addedSchedules = [];
+  final List<RepeatScheduleRule> _repeatRules = [];
   static const _weekdays = ['월', '화', '수', '목', '금', '토', '일'];
   static String _label(DateTime date, DateTime today) {
     final difference = DateTime(
@@ -94,6 +95,51 @@ class MockDdubiRepository implements DdubiRepository {
   @override
   Future<void> addSchedule(Schedule schedule) async =>
       _addedSchedules.add(schedule);
+
+  @override
+  Future<void> addRepeatSchedule(RepeatScheduleRule rule) async {
+    _repeatRules.add(rule);
+    final today = DateTime.now();
+    final lastDate =
+        rule.untilDate ?? rule.startDate.add(const Duration(days: 84));
+    for (
+      var date = DateTime(
+        rule.startDate.year,
+        rule.startDate.month,
+        rule.startDate.day,
+      );
+      !date.isAfter(lastDate);
+      date = date.add(const Duration(days: 1))
+    ) {
+      if (!rule.weekdays.contains(date.weekday)) continue;
+      final dateId =
+          '${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}';
+      _addedSchedules.add(
+        Schedule(
+          id: '${rule.id}-$dateId',
+          title: rule.title,
+          place: rule.place,
+          departurePlace: rule.departurePlace,
+          time: rule.time,
+          dateLabel: _label(date, today),
+          date: date,
+          importance: rule.importance,
+          preferredTransport: rule.preferredTransport,
+          repeatLabel: _repeatLabel(rule.weekdays),
+        ),
+      );
+    }
+  }
+
+  static String _repeatLabel(Set<int> weekdays) {
+    if (weekdays.length == 7) return '매일';
+    if (weekdays.length == 5 && weekdays.containsAll({1, 2, 3, 4, 5})) {
+      return '평일 반복';
+    }
+    final sorted = weekdays.toList()..sort();
+    return '매주 ${sorted.map((day) => _weekdays[day - 1]).join('·')}';
+  }
+
   @override
   Future<List<RouteOption>> routes({RouteSearchCondition? condition}) async =>
       routeData;

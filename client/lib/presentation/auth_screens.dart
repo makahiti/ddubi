@@ -2,20 +2,52 @@ import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
 import '../domain/auth.dart';
+import '../services/kakao_login_service.dart';
+import '../services/google_login_service.dart';
+import '../services/naver_login_service.dart';
 import 'widgets.dart';
+import 'micro_animations.dart';
 
-class SocialAuthScreen extends StatelessWidget {
+class SocialAuthScreen extends StatefulWidget {
   const SocialAuthScreen({
     super.key,
     required this.provider,
     required this.onAuthenticated,
+    required this.repository,
+    this.kakaoLoginService,
+    this.googleLoginService,
+    this.naverLoginService,
   });
   final String provider;
   final VoidCallback onAuthenticated;
+  final AuthRepository repository;
+  final KakaoLoginService? kakaoLoginService;
+  final GoogleLoginService? googleLoginService;
+  final NaverLoginService? naverLoginService;
+
+  @override
+  State<SocialAuthScreen> createState() => _SocialAuthScreenState();
+}
+
+class _SocialAuthScreenState extends State<SocialAuthScreen> {
+  bool _loading = false;
+  String? _error;
 
   @override
   Widget build(BuildContext context) {
+    final provider = widget.provider;
     final isKakao = provider == '카카오';
+    final isNaver = provider == '네이버';
+    final buttonBackground = isKakao
+        ? const Color(0xFFFFD600)
+        : isNaver
+        ? const Color(0xFF03C75A)
+        : Colors.white;
+    final buttonForeground = isKakao
+        ? Colors.black
+        : isNaver
+        ? Colors.white
+        : DdubiColors.navy;
     return Scaffold(
       appBar: AppBar(title: Text('$provider 로그인')),
       body: SafeArea(
@@ -30,43 +62,49 @@ class SocialAuthScreen extends StatelessWidget {
                   Image.asset('assets/images/ttubee-guide.png', height: 180),
                   const SizedBox(height: 20),
                   Text(
-                    '$provider 계정으로 계속하기',
+                    '$provider 공식 로그인',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '$provider OAuth 앱 키와 Redirect URI가 연결되면\n이 화면에서 공식 인증 화면으로 이동합니다.',
+                    '$provider 공식 로그인 화면에서 인증한 뒤\n뚜비 계정으로 안전하게 로그인합니다.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const Spacer(),
+                  if (_error != null) ...[
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: DdubiColors.red),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   SizedBox(
                     width: double.infinity,
                     height: 52,
                     child: FilledButton(
                       style: FilledButton.styleFrom(
-                        backgroundColor: isKakao
-                            ? const Color(0xFFFFD600)
-                            : Colors.white,
-                        foregroundColor: isKakao
-                            ? Colors.black
-                            : DdubiColors.navy,
+                        backgroundColor: buttonBackground,
+                        foregroundColor: buttonForeground,
                         side: BorderSide(
-                          color: isKakao
-                              ? const Color(0xFFFFD600)
+                          color: isKakao || isNaver
+                              ? buttonBackground
                               : DdubiColors.border,
                         ),
                       ),
-                      onPressed: onAuthenticated,
+                      onPressed: _loading ? null : _login,
                       child: Text(
-                        '개발용 $provider 인증 완료',
+                        _loading ? '로그인 중...' : '$provider 계정으로 계속하기',
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '실서비스에서는 공식 SDK 인증 성공 후에만 진행돼요.',
+                    isKakao || isNaver
+                        ? '액세스 토큰은 백엔드에서 다시 검증해요.'
+                        : 'ID 토큰은 백엔드에서 다시 검증해요.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -77,6 +115,344 @@ class SocialAuthScreen extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _login() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      switch (widget.provider) {
+        case '카카오':
+          final service = widget.kakaoLoginService;
+          if (service == null) {
+            throw const KakaoLoginException('카카오 로그인 설정을 확인해주세요.');
+          }
+          final accessToken = await service.login(context);
+          await widget.repository.loginWithOAuthToken(
+            provider: 'KAKAO',
+            accessToken: accessToken,
+          );
+          break;
+        case 'Google':
+          final service = widget.googleLoginService;
+          if (service == null) {
+            throw const GoogleLoginException('Google 로그인 설정을 확인해주세요.');
+          }
+          final idToken = await service.login(context);
+          await widget.repository.loginWithOAuthIdToken(
+            provider: 'GOOGLE',
+            idToken: idToken,
+          );
+          break;
+        case '네이버':
+          final service = widget.naverLoginService;
+          if (service == null) {
+            throw const NaverLoginException('네이버 로그인 설정을 확인해주세요.');
+          }
+          final accessToken = await service.login(context);
+          await widget.repository.loginWithOAuthToken(
+            provider: 'NAVER',
+            accessToken: accessToken,
+          );
+          break;
+        default:
+          throw const AuthException(
+            AuthErrorCode.serverError,
+            message: '지원하지 않는 로그인 방식이에요.',
+          );
+      }
+      if (mounted) widget.onAuthenticated();
+    } on KakaoLoginException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on GoogleLoginException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on NaverLoginException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on AuthException catch (error) {
+      if (mounted) {
+        setState(() => _error = error.message ?? '소셜 로그인에 실패했어요.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+}
+
+class AccountLinkPromptScreen extends StatelessWidget {
+  const AccountLinkPromptScreen({
+    super.key,
+    required this.provider,
+    required this.email,
+    required this.repository,
+    required this.onLinked,
+  });
+
+  final String provider;
+  final String email;
+  final AuthRepository repository;
+  final VoidCallback onLinked;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('계정 연동')),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Icon(
+                Icons.link_rounded,
+                size: 72,
+                color: DdubiColors.green,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '이미 가입된 이메일이 있어요',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '$provider에서 확인된 이메일과 같은 뚜비 계정을 찾았어요.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              InfoCard(
+                color: const Color(0xFFF0FAF7),
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(
+                    child: Icon(Icons.email_outlined),
+                  ),
+                  title: const Text('기존 이메일 계정'),
+                  subtitle: Text(email),
+                  trailing: const StatusBadge('연동 가능'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '계정을 연동하면 이메일 또는 소셜 로그인 중 어떤 방법을 사용해도 같은 일정과 설정을 이용할 수 있어요.',
+              ),
+              const SizedBox(height: 28),
+              FilledButton(
+                key: const Key('startEmailLinkButton'),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EmailAccountLinkScreen(
+                      provider: provider,
+                      email: email,
+                      repository: repository,
+                      onLinked: onLinked,
+                    ),
+                  ),
+                ),
+                child: const Text('이메일 계정 확인하고 연동하기'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('지금은 연동하지 않기'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class EmailAccountLinkScreen extends StatefulWidget {
+  const EmailAccountLinkScreen({
+    super.key,
+    required this.provider,
+    required this.email,
+    required this.repository,
+    required this.onLinked,
+  });
+
+  final String provider;
+  final String email;
+  final AuthRepository repository;
+  final VoidCallback onLinked;
+
+  @override
+  State<EmailAccountLinkScreen> createState() => _EmailAccountLinkScreenState();
+}
+
+class _EmailAccountLinkScreenState extends State<EmailAccountLinkScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _password = TextEditingController();
+  bool _obscure = true;
+  bool _loading = false;
+  String? _serverError;
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('이메일 계정 확인')),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                const TtubeeGuideCard(
+                  '기존 이메일 계정이 본인 계정인지 확인할게요.',
+                  compact: true,
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  key: const Key('linkEmailField'),
+                  initialValue: widget.email,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: '이메일',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('linkPasswordField'),
+                  controller: _password,
+                  obscureText: _obscure,
+                  validator: validatePassword,
+                  decoration: InputDecoration(
+                    labelText: '기존 계정 비밀번호',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                      icon: Icon(
+                        _obscure
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                    ),
+                  ),
+                ),
+                if (_serverError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(
+                      _serverError!,
+                      style: const TextStyle(color: DdubiColors.red),
+                    ),
+                  ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  key: const Key('completeEmailLinkButton'),
+                  onPressed: _loading ? null : _submit,
+                  child: _loading
+                      ? const SizedBox.square(
+                          dimension: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('확인하고 계정 연동'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _submit() async {
+    setState(() => _serverError = null);
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _loading = true);
+    try {
+      await widget.repository.login(
+        email: widget.email,
+        password: _password.text,
+      );
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AccountLinkCompleteScreen(
+            provider: widget.provider,
+            email: widget.email,
+            onContinue: widget.onLinked,
+          ),
+        ),
+      );
+    } on AuthException {
+      if (mounted) {
+        setState(() => _serverError = '기존 이메일 계정의 비밀번호를 확인해주세요.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+}
+
+class AccountLinkCompleteScreen extends StatelessWidget {
+  const AccountLinkCompleteScreen({
+    super.key,
+    required this.provider,
+    required this.email,
+    required this.onContinue,
+  });
+
+  final String provider;
+  final String email;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('계정 연동 완료')),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.check_circle,
+                  size: 88,
+                  color: DdubiColors.green,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  '계정 연동이 완료됐어요!',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '$provider 또는 $email로\n같은 뚜비 계정을 이용할 수 있어요.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: const Key('linkedAccountHomeButton'),
+                    onPressed: onContinue,
+                    child: const Text('홈으로 이동'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class EmailLoginScreen extends StatefulWidget {
@@ -242,8 +618,10 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
         password: password.text,
       );
       if (mounted) widget.onAuthenticated();
-    } on AuthException {
-      if (mounted) setState(() => serverError = '이메일 또는 비밀번호를 확인해주세요.');
+    } on AuthException catch (error) {
+      if (mounted) {
+        setState(() => serverError = error.message ?? '이메일 또는 비밀번호를 확인해주세요.');
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -417,30 +795,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE3FAF6),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: DdubiColors.blue,
-                    size: 38,
-                  ),
+                const TtubeeCelebrate(
+                  asset: 'assets/images/ttubee/celebrate.png',
+                  height: 124,
                 ),
                 const SizedBox(height: 8),
-                Image.asset('assets/images/ttubee-guide.png', height: 105),
-                const SizedBox(height: 8),
                 Text(
-                  '회원가입이 완료되었어요!',
+                  '회원가입 완료!',
                   textAlign: TextAlign.center,
                   style: Theme.of(dialogContext).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  '이제 뚜비와 함께 일정을\n편하게 관리해보세요.',
+                  '이제 뚜비와 함께\n늦지 않는 하루를 시작해볼까요?',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -459,9 +826,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
     } on AuthException catch (error) {
       if (mounted) {
         setState(
-          () => serverError = error.code == AuthErrorCode.emailAlreadyExists
-              ? '이미 사용 중인 이메일이에요.'
-              : '잠시 후 다시 시도해주세요.',
+          () => serverError =
+              error.message ??
+              (error.code == AuthErrorCode.emailAlreadyExists
+                  ? '이미 사용 중인 이메일이에요.'
+                  : '잠시 후 다시 시도해주세요.'),
         );
       }
     } finally {
