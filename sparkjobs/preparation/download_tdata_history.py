@@ -59,7 +59,7 @@ def find_rows(payload: Any) -> list[dict[str, Any]]:
 
 def request_page(
     dataset: dict[str, str], api_key: str, day: date, start_row: int, row_count: int
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], Any]:
     params = {
         "apikey": api_key,
         "startRow": start_row,
@@ -74,8 +74,8 @@ def request_page(
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
         raise ValueError(f"T-Data returned non-JSON for {day}") from exc
-    if not isinstance(payload, dict):
-        raise ValueError(f"T-Data response is not an object for {day}")
+    if not isinstance(payload, (dict, list)):
+        raise ValueError(f"T-Data response is not an object or array for {day}")
     return find_rows(payload), payload
 
 
