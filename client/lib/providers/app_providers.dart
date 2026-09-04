@@ -10,6 +10,7 @@ import '../domain/models.dart';
 import '../services/auth_api.dart';
 import '../services/api_schedule_repository.dart';
 import '../services/api_auth_repository.dart';
+import '../services/app_api.dart';
 import '../services/device_token_service.dart';
 import '../services/kakao_login_service.dart';
 import '../services/google_login_service.dart';
@@ -76,4 +77,26 @@ final placeApiProvider = Provider<PlaceSearchService>((ref) {
 
 final recommendationApiProvider = Provider<RecommendationApi>((ref) {
   return RecommendationApi(ref.watch(dioProvider));
+});
+
+final homeApiProvider = Provider<HomeApi>((ref) {
+  return HomeApi(ref.watch(dioProvider), ref.watch(authSessionStoreProvider));
+});
+
+final repeatScheduleRepositoryProvider = Provider<RepeatScheduleRepository>((
+  ref,
+) {
+  if (!ApiConstants.useScheduleApi) return ref.watch(ddubiRepositoryProvider);
+  return RepeatScheduleApi(ref.watch(dioProvider));
+});
+
+final notificationApiProvider = Provider<NotificationApi>((ref) {
+  return NotificationApi(
+    ref.watch(dioProvider),
+    ref.watch(authSessionStoreProvider),
+  );
+});
+
+final userApiProvider = Provider<UserApi>((ref) {
+  return UserApi(ref.watch(dioProvider), ref.watch(authSessionStoreProvider));
 });

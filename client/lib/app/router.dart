@@ -16,6 +16,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final googleLoginService = ref.watch(googleLoginServiceProvider);
   final naverLoginService = ref.watch(naverLoginServiceProvider);
   final placeSearchService = ref.watch(placeApiProvider);
+  final homeApi = ref.watch(homeApiProvider);
+  final repeatScheduleRepository = ref.watch(repeatScheduleRepositoryProvider);
+  final notificationApi = ref.watch(notificationApiProvider);
+  final userApi = ref.watch(userApiProvider);
+  final recommendationApi = ref.watch(recommendationApiProvider);
 
   return GoRouter(
     initialLocation: '/login',
@@ -36,7 +41,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/home',
-            builder: (context, state) => HomeScreen(repository: repository),
+            builder: (context, state) =>
+                HomeScreen(repository: repository, homeApi: homeApi),
           ),
           GoRoute(
             path: '/schedules',
@@ -54,7 +60,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'repeat/new',
                 builder: (context, state) => RepeatScheduleFormScreen(
-                  repository: repository,
+                  repository: repeatScheduleRepository,
+                  placeSearchService: placeSearchService,
                   initialDate: state.extra as DateTime?,
                 ),
               ),
@@ -77,13 +84,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/recommendations',
-            builder: (context, state) =>
-                RouteSearchScreen(repository: repository),
+            builder: (context, state) => RouteSearchScreen(
+              repository: repository,
+              placeSearchService: placeSearchService,
+            ),
           ),
           GoRoute(
             path: '/recommendations/:id',
             builder: (context, state) => RouteResultsScreen(
               repository: repository,
+              api: recommendationApi,
               condition: state.extra is RouteSearchCondition
                   ? state.extra! as RouteSearchCondition
                   : null,
@@ -91,11 +101,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/notifications',
-            builder: (context, state) => const NotificationsScreen(),
+            builder: (context, state) =>
+                NotificationsScreen(api: notificationApi),
           ),
           GoRoute(
             path: '/settings',
-            builder: (context, state) => SettingsScreen(repository: repository),
+            builder: (context, state) => SettingsScreen(
+              repository: repository,
+              userApi: userApi,
+              authRepository: authRepository,
+            ),
           ),
         ],
       ),

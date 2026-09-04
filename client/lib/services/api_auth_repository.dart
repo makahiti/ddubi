@@ -98,11 +98,58 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signUp({required String email, required String password}) {
-    throw const AuthException(
-      AuthErrorCode.registrationRequiresVerification,
-      message: '실제 회원가입은 이메일 인증 화면 연결 후 사용할 수 있어요.',
-    );
+  Future<void> requestEmailVerification(String email) async {
+    try {
+      await _api.requestEmailVerification(email);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<void> confirmEmailVerification({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      await _api.confirmEmailVerification(email: email, code: code);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<void> signUp({
+    required String email,
+    required String password,
+    required String nickname,
+  }) async {
+    try {
+      final response = await _api.signUp(
+        email: email,
+        password: password,
+        nickname: nickname,
+      );
+      _saveSession(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<void> logout() async {
+    final session = _sessionStore.session;
+    if (session == null) return;
+    try {
+      await _api.logout(
+        refreshToken: session.refreshToken,
+        deviceId: session.deviceId,
+      );
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    } finally {
+      _sessionStore.clear();
+    }
   }
 
   AuthException _mapDioException(DioException error) {
@@ -120,6 +167,13 @@ class ApiAuthRepository implements AuthRepository {
       return AuthException(
         AuthErrorCode.invalidCredentials,
         message: apiError?.message ?? '이메일 또는 비밀번호를 확인해주세요.',
+      );
+    }
+
+    if (error.response?.statusCode == 409) {
+      return AuthException(
+        AuthErrorCode.emailAlreadyExists,
+        message: apiError?.message ?? '이미 사용 중인 이메일이에요.',
       );
     }
 

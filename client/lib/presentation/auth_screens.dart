@@ -637,15 +637,24 @@ class SignUpScreen extends StatefulWidget {
 
 class _SignUpScreenState extends State<SignUpScreen> {
   bool agreed = false;
-  bool obscurePassword = true, obscureConfirmation = true, loading = false;
+  bool obscurePassword = true,
+      obscureConfirmation = true,
+      loading = false,
+      codeSent = false,
+      emailVerified = false;
   final formKey = GlobalKey<FormState>();
   final email = TextEditingController(),
+      nickname = TextEditingController(),
+      verificationCode = TextEditingController(),
       password = TextEditingController(),
       confirmation = TextEditingController();
+  String? verifiedEmail;
   String? serverError;
   @override
   void dispose() {
     email.dispose();
+    nickname.dispose();
+    verificationCode.dispose();
     password.dispose();
     confirmation.dispose();
     super.dispose();
@@ -671,10 +680,71 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 TextFormField(
                   controller: email,
                   validator: validateEmail,
+                  onChanged: (_) {
+                    if (emailVerified) {
+                      setState(() {
+                        emailVerified = false;
+                        verifiedEmail = null;
+                      });
+                    }
+                  },
                   keyboardType: TextInputType.emailAddress,
                   decoration: const InputDecoration(
                     labelText: '이메일',
                     prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 44,
+                  child: OutlinedButton.icon(
+                    key: const Key('requestEmailVerificationButton'),
+                    onPressed: loading ? null : _requestVerification,
+                    icon: const Icon(Icons.mark_email_read_outlined),
+                    label: Text(codeSent ? '인증 코드 다시 받기' : '인증 코드 받기'),
+                  ),
+                ),
+                if (codeSent) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          key: const Key('emailVerificationCodeField'),
+                          controller: verificationCode,
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                          decoration: const InputDecoration(
+                            labelText: '인증 코드 6자리',
+                            counterText: '',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        key: const Key('confirmEmailVerificationButton'),
+                        onPressed: loading ? null : _confirmVerification,
+                        child: const Text('확인'),
+                      ),
+                    ],
+                  ),
+                ],
+                if (emailVerified)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      '이메일 인증이 완료됐어요.',
+                      style: TextStyle(color: DdubiColors.green),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: nickname,
+                  validator: (value) =>
+                      (value ?? '').trim().isEmpty ? '닉네임을 입력해주세요.' : null,
+                  decoration: const InputDecoration(
+                    labelText: '닉네임',
+                    prefixIcon: Icon(Icons.person_outline),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -764,12 +834,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
       setState(() => serverError = '서비스 이용약관 동의가 필요해요.');
       return;
     }
+    if (!emailVerified || verifiedEmail != email.text.trim()) {
+      setState(() => serverError = '이메일 인증을 먼저 완료해주세요.');
+      return;
+    }
     if (!valid) return;
     setState(() => loading = true);
     try {
       await widget.repository.signUp(
         email: email.text.trim(),
         password: password.text,
+        nickname: nickname.text.trim(),
       );
       if (!mounted) return;
       await showGeneralDialog<void>(
@@ -837,6 +912,58 @@ class _SignUpScreenState extends State<SignUpScreen> {
       if (mounted) {
         setState(() => loading = false);
       }
+    }
+  }
+
+  Future<void> _requestVerification() async {
+    final error = validateEmail(email.text);
+    if (error != null) {
+      setState(() => serverError = error);
+      return;
+    }
+    setState(() {
+      loading = true;
+      serverError = null;
+    });
+    try {
+      await widget.repository.requestEmailVerification(email.text.trim());
+      if (mounted) setState(() => codeSent = true);
+    } on AuthException catch (error) {
+      if (mounted) {
+        setState(() => serverError = error.message ?? '인증 코드를 보내지 못했어요.');
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> _confirmVerification() async {
+    if (!RegExp(r'^\d{6}$').hasMatch(verificationCode.text.trim())) {
+      setState(() => serverError = '인증 코드는 숫자 6자리예요.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      serverError = null;
+    });
+    try {
+      final currentEmail = email.text.trim();
+      await widget.repository.confirmEmailVerification(
+        email: currentEmail,
+        code: verificationCode.text.trim(),
+      );
+      if (mounted) {
+        setState(() {
+          emailVerified = true;
+          verifiedEmail = currentEmail;
+        });
+      }
+    } on AuthException catch (error) {
+      if (mounted) {
+        setState(() => serverError = error.message ?? '인증 코드를 확인해주세요.');
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
   }
 }

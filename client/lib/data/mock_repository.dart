@@ -4,6 +4,7 @@ class MockDdubiRepository implements DdubiRepository {
   final List<Schedule> _addedSchedules = [];
   final Map<String, Schedule> _updatedSchedules = {};
   final List<RepeatScheduleRule> _repeatRules = [];
+  final Set<String> _canceledScheduleIds = {};
   static const home = PlaceLocation(
     name: '집 (서울 강남구 역삼동)',
     address: '서울 강남구 역삼동',
@@ -93,10 +94,10 @@ class MockDdubiRepository implements DdubiRepository {
   ];
   @override
   Future<List<Schedule>> schedules() async {
-    final schedules = [
-      ...scheduleData,
-      ..._addedSchedules,
-    ].map((schedule) => _updatedSchedules[schedule.id] ?? schedule).toList();
+    final schedules = [...scheduleData, ..._addedSchedules]
+        .where((schedule) => !_canceledScheduleIds.contains(schedule.id))
+        .map((schedule) => _updatedSchedules[schedule.id] ?? schedule)
+        .toList();
     schedules.sort((a, b) => a.date.compareTo(b.date));
     return schedules;
   }
@@ -121,6 +122,17 @@ class MockDdubiRepository implements DdubiRepository {
   }
 
   @override
+  Future<void> cancelSchedule(String id) async {
+    _addedSchedules.removeWhere((schedule) => schedule.id == id);
+    _updatedSchedules.remove(id);
+    _canceledScheduleIds.add(id);
+  }
+
+  @override
+  Future<List<ScheduleConflict>> conflicts(DateTime from, DateTime to) async =>
+      const [];
+
+  @override
   Future<void> addRepeatSchedule(RepeatScheduleRule rule) async {
     _repeatRules.add(rule);
     final lastDate =
@@ -141,12 +153,8 @@ class MockDdubiRepository implements DdubiRepository {
         Schedule(
           id: '${rule.id}-$dateId',
           title: rule.title,
-          origin: home,
-          destination: PlaceLocation(
-            name: rule.place,
-            lat: baseballStadium.lat,
-            lng: baseballStadium.lng,
-          ),
+          origin: rule.origin,
+          destination: rule.destination,
           arriveBy: DateTime(
             date.year,
             date.month,

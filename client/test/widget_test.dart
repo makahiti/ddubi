@@ -11,6 +11,8 @@ import 'package:ddubi/providers/app_providers.dart';
 import 'package:ddubi/services/kakao_login_service.dart';
 import 'package:ddubi/services/google_login_service.dart';
 import 'package:ddubi/services/naver_login_service.dart';
+import 'package:ddubi/services/recommendation_api.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,13 +20,21 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('Mock 회원가입 계정으로 즉시 로그인할 수 있다', () async {
     final repository = MockAuthRepository();
-    await repository.signUp(email: 'new@ddubi.app', password: 'new-password');
+    await repository.signUp(
+      email: 'new@ddubi.app',
+      password: 'new-password',
+      nickname: '새 사용자',
+    );
     await expectLater(
       repository.login(email: 'new@ddubi.app', password: 'new-password'),
       completes,
     );
     await expectLater(
-      repository.signUp(email: 'new@ddubi.app', password: 'again'),
+      repository.signUp(
+        email: 'new@ddubi.app',
+        password: 'again',
+        nickname: '중복 사용자',
+      ),
       throwsA(isA<AuthException>()),
     );
   });
@@ -398,7 +408,11 @@ void main() {
   testWidgets('반복 일정 화면에서 요일 규칙을 저장해 일정들을 생성한다', (tester) async {
     final repository = MockDdubiRepository();
     final container = ProviderContainer(
-      overrides: [ddubiRepositoryProvider.overrideWithValue(repository)],
+      overrides: [
+        ddubiRepositoryProvider.overrideWithValue(repository),
+        repeatScheduleRepositoryProvider.overrideWithValue(repository),
+        placeApiProvider.overrideWithValue(const _FakePlaceSearchService()),
+      ],
     );
     addTearDown(container.dispose);
     await tester.pumpWidget(
@@ -411,11 +425,23 @@ void main() {
 
     expect(find.text('반복 일정 등록'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('repeatTitleField')), '평일 출근');
+    await tester.tap(find.byKey(const Key('repeatPlaceField')));
+    await tester.pumpAndSettle();
     await tester.enterText(
-      find.byKey(const Key('repeatPlaceField')),
+      find.byKey(const Key('placeSearchQuery')),
       'SSAFY 서울캠퍼스',
     );
-    await tester.enterText(find.byKey(const Key('repeatDepartureField')), '집');
+    await tester.tap(find.byKey(const Key('placeSearchButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('placeSearchResult0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('repeatDepartureField')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('placeSearchQuery')), '회사');
+    await tester.tap(find.byKey(const Key('placeSearchButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('placeSearchResult0')));
+    await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).last, const Offset(0, -450));
     await tester.pumpAndSettle();
     expect(find.text('반복 요일'), findsOneWidget);
@@ -438,7 +464,12 @@ void main() {
   });
 
   testWidgets('경로 조건을 입력하면 Mock 추천 결과로 이동한다', (tester) async {
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        placeApiProvider.overrideWithValue(const _FakePlaceSearchService()),
+        recommendationApiProvider.overrideWithValue(_FakeRecommendationApi()),
+      ],
+    );
     addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(container: container, child: const DdubiApp()),
@@ -448,16 +479,25 @@ void main() {
     router.go('/recommendations');
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('routeDepartureField')), '강남역');
-    await tester.enterText(
-      find.byKey(const Key('routeDestinationField')),
-      '여의도역',
-    );
+    await tester.tap(find.byKey(const Key('routeDepartureField')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('placeSearchQuery')), '회사');
+    await tester.tap(find.byKey(const Key('placeSearchButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('placeSearchResult0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('routeDestinationField')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('placeSearchQuery')), '여의도역');
+    await tester.tap(find.byKey(const Key('placeSearchButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('placeSearchResult0')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('추천 경로 찾기'));
     await tester.pumpAndSettle();
 
     expect(find.text('추천 결과'), findsOneWidget);
-    expect(find.textContaining('강남역  →  여의도역'), findsOneWidget);
+    expect(find.textContaining('회사  →  서울병원'), findsOneWidget);
     expect(find.text('추천 경로'), findsOneWidget);
     expect(find.text('조건 수정'), findsOneWidget);
   });
@@ -468,7 +508,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        placeApiProvider.overrideWithValue(const _FakePlaceSearchService()),
+        recommendationApiProvider.overrideWithValue(_FakeRecommendationApi()),
+      ],
+    );
     addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(container: container, child: const DdubiApp()),
@@ -483,8 +528,8 @@ void main() {
     router.go(
       '/recommendations/mock-recommendation-1',
       extra: RouteSearchCondition(
-        departurePlace: '강남역',
-        destinationPlace: '여의도역',
+        origin: const PlaceLocation(name: '강남역', lat: 37.49, lng: 127.02),
+        destination: const PlaceLocation(name: '여의도역', lat: 37.52, lng: 126.92),
         desiredArrivalAt: DateTime(2026, 9, 2, 10),
       ),
     );
@@ -535,7 +580,7 @@ void main() {
     expect(find.byKey(const Key('webNotificationsLayout')), findsOneWidget);
     expect(find.byKey(const Key('webNotificationMetrics')), findsOneWidget);
     expect(find.byKey(const Key('mobileNotificationsLayout')), findsNothing);
-    expect(find.text('최근 이동 기록'), findsOneWidget);
+    expect(find.text('최근 알림'), findsOneWidget);
 
     router.go('/settings');
     await tester.pumpAndSettle();
@@ -581,8 +626,12 @@ void main() {
           repository: repository,
           selectedRoute: MockDdubiRepository.routeData.first,
           condition: RouteSearchCondition(
-            departurePlace: '강남역',
-            destinationPlace: '여의도역',
+            origin: const PlaceLocation(name: '강남역', lat: 37.49, lng: 127.02),
+            destination: const PlaceLocation(
+              name: '여의도역',
+              lat: 37.52,
+              lng: 126.92,
+            ),
             desiredArrivalAt: DateTime(2026, 9, 1, 10),
           ),
         ),
@@ -678,4 +727,13 @@ class _FakePlaceSearchService implements PlaceSearchService {
         lng: 127.014,
       ),
   ];
+}
+
+class _FakeRecommendationApi extends RecommendationApi {
+  _FakeRecommendationApi() : super(Dio());
+
+  @override
+  Future<List<RouteOption>> searchRoutes(
+    RouteSearchCondition condition,
+  ) async => MockDdubiRepository.routeData;
 }

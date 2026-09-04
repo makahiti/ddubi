@@ -79,14 +79,17 @@ class ScheduleConflictException implements Exception {
 
 class RouteSearchCondition {
   const RouteSearchCondition({
-    required this.departurePlace,
-    required this.destinationPlace,
+    required this.origin,
+    required this.destination,
     required this.desiredArrivalAt,
   });
 
-  final String departurePlace;
-  final String destinationPlace;
+  final PlaceLocation origin;
+  final PlaceLocation destination;
   final DateTime desiredArrivalAt;
+
+  String get departurePlace => origin.name;
+  String get destinationPlace => destination.name;
 }
 
 class Schedule {
@@ -183,8 +186,8 @@ class RepeatScheduleRule {
   const RepeatScheduleRule({
     required this.id,
     required this.title,
-    required this.place,
-    required this.departurePlace,
+    required this.origin,
+    required this.destination,
     required this.time,
     required this.startDate,
     required this.weekdays,
@@ -196,8 +199,8 @@ class RepeatScheduleRule {
 
   final String id;
   final String title;
-  final String place;
-  final String departurePlace;
+  final PlaceLocation origin;
+  final PlaceLocation destination;
   final String time;
   final DateTime startDate;
   final Set<int> weekdays;
@@ -205,6 +208,144 @@ class RepeatScheduleRule {
   final ScheduleImportance importance;
   final bool considerLastTrip;
   final TransportPreferenceChoice preferredTransport;
+
+  String get place => destination.name;
+  String get departurePlace => origin.name;
+
+  Map<String, dynamic> toCreateRequestJson() {
+    const byDay = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+    final orderedDays = weekdays.toList()..sort();
+    return {
+      'title': title,
+      'origin': origin.toRequestJson(),
+      'destination': destination.toRequestJson(),
+      'localTime': time,
+      'startDate': _dateOnly(startDate),
+      'rrule':
+          'FREQ=WEEKLY;BYDAY=${orderedDays.map((day) => byDay[day - 1]).join(',')}',
+      'endDate': untilDate == null ? null : _dateOnly(untilDate!),
+      'importance': importance.apiValue,
+      'considerLastTrip': considerLastTrip,
+    };
+  }
+
+  static String _dateOnly(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+}
+
+class ScheduleConflict {
+  const ScheduleConflict({
+    required this.previousScheduleId,
+    required this.nextScheduleId,
+    required this.shortageMin,
+    required this.severity,
+  });
+
+  final String previousScheduleId;
+  final String nextScheduleId;
+  final int shortageMin;
+  final String severity;
+
+  factory ScheduleConflict.fromJson(Map<String, dynamic> json) =>
+      ScheduleConflict(
+        previousScheduleId: json['previousScheduleId'].toString(),
+        nextScheduleId: json['nextScheduleId'].toString(),
+        shortageMin: (json['shortageMin'] as num).toInt(),
+        severity: json['severity'] as String? ?? 'WARNING',
+      );
+}
+
+class HomeSummary {
+  const HomeSummary({
+    required this.todaySchedules,
+    required this.unreadNotificationCount,
+    required this.dataState,
+    this.nextSchedule,
+  });
+
+  final Schedule? nextSchedule;
+  final List<Schedule> todaySchedules;
+  final int unreadNotificationCount;
+  final String dataState;
+}
+
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.status,
+    required this.createdAt,
+    this.scheduleId,
+    this.readAt,
+  });
+
+  final String id;
+  final String? scheduleId;
+  final String type;
+  final String title;
+  final String body;
+  final String status;
+  final DateTime createdAt;
+  final DateTime? readAt;
+
+  bool get isUnread => readAt == null;
+
+  factory AppNotification.fromJson(Map<String, dynamic> json) =>
+      AppNotification(
+        id: json['id'].toString(),
+        scheduleId: json['scheduleId']?.toString(),
+        type: json['type'] as String? ?? 'INFO',
+        title: json['title'] as String? ?? '',
+        body: json['body'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        createdAt: DateTime.parse(json['createdAt'] as String),
+        readAt: DateTime.tryParse(json['readAt'] as String? ?? ''),
+      );
+}
+
+class NotificationInbox {
+  const NotificationInbox({required this.unreadCount, required this.items});
+
+  final int unreadCount;
+  final List<AppNotification> items;
+}
+
+class UserProfile {
+  const UserProfile({
+    required this.id,
+    required this.email,
+    required this.nickname,
+    required this.notifyLeadMin,
+    required this.alarmEnabled,
+    required this.transportPrefs,
+  });
+
+  final String id;
+  final String? email;
+  final String nickname;
+  final int notifyLeadMin;
+  final bool alarmEnabled;
+  final List<Map<String, String>> transportPrefs;
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+    id: json['id'].toString(),
+    email: json['email'] as String?,
+    nickname: json['nickname'] as String? ?? '',
+    notifyLeadMin: (json['notifyLeadMin'] as num?)?.toInt() ?? 20,
+    alarmEnabled: json['alarmEnabled'] as bool? ?? true,
+    transportPrefs: (json['transportPrefs'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => item.map(
+            (key, value) => MapEntry(key.toString(), value.toString()),
+          ),
+        )
+        .toList(growable: false),
+  );
 }
 
 class RouteOption {
@@ -227,9 +368,15 @@ abstract interface class ScheduleRepository {
   Future<Schedule?> scheduleById(String id);
   Future<void> addSchedule(Schedule schedule);
   Future<void> updateSchedule(Schedule schedule);
+  Future<void> cancelSchedule(String id);
+  Future<List<ScheduleConflict>> conflicts(DateTime from, DateTime to);
 }
 
-abstract interface class DdubiRepository implements ScheduleRepository {
+abstract interface class RepeatScheduleRepository {
   Future<void> addRepeatSchedule(RepeatScheduleRule rule);
+}
+
+abstract interface class DdubiRepository
+    implements ScheduleRepository, RepeatScheduleRepository {
   Future<List<RouteOption>> routes({RouteSearchCondition? condition});
 }

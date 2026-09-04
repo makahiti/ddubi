@@ -29,4 +29,11 @@ class ApiScheduleRepository implements ScheduleRepository {
   Future<void> updateSchedule(Schedule schedule) async {
     await _api.updateSchedule(schedule);
   }
+
+  @override
+  Future<void> cancelSchedule(String id) => _api.cancelSchedule(id);
+
+  @override
+  Future<List<ScheduleConflict>> conflicts(DateTime from, DateTime to) =>
+      _api.getConflicts(from: from, to: to);
 }

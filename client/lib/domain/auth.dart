@@ -82,7 +82,17 @@ abstract interface class AuthRepository {
     required String provider,
     required String idToken,
   });
-  Future<void> signUp({required String email, required String password});
+  Future<void> requestEmailVerification(String email);
+  Future<void> confirmEmailVerification({
+    required String email,
+    required String code,
+  });
+  Future<void> signUp({
+    required String email,
+    required String password,
+    required String nickname,
+  });
+  Future<void> logout();
 }
 
 class MockAuthRepository implements AuthRepository {
@@ -111,13 +121,29 @@ class MockAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signUp({required String email, required String password}) async {
+  Future<void> requestEmailVerification(String email) async {}
+
+  @override
+  Future<void> confirmEmailVerification({
+    required String email,
+    required String code,
+  }) async {}
+
+  @override
+  Future<void> signUp({
+    required String email,
+    required String password,
+    required String nickname,
+  }) async {
     await Future<void>.delayed(const Duration(milliseconds: 450));
     if (_credentials.containsKey(email.toLowerCase())) {
       throw const AuthException(AuthErrorCode.emailAlreadyExists);
     }
     _credentials[email.toLowerCase()] = password;
   }
+
+  @override
+  Future<void> logout() async {}
 }
 
 String? validateEmail(String? value) {

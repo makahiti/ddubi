@@ -72,6 +72,32 @@ class ScheduleApi {
     }
   }
 
+  Future<void> cancelSchedule(String id) async {
+    await _dio.delete<void>(ApiPaths.schedule(id));
+  }
+
+  Future<List<ScheduleConflict>> getConflicts({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      ApiPaths.scheduleConflicts,
+      queryParameters: {
+        'from': from.toIso8601String(),
+        'to': to.toIso8601String(),
+      },
+    );
+    final data = response.data?['data'];
+    final conflicts = data is Map ? data['conflicts'] : null;
+    if (response.data?['success'] != true || conflicts is! List) {
+      throw const FormatException('일정 충돌 응답 형식을 확인할 수 없습니다.');
+    }
+    return conflicts
+        .whereType<Map>()
+        .map((item) => ScheduleConflict.fromJson(_stringKeyed(item)))
+        .toList(growable: false);
+  }
+
   Schedule _scheduleFromResponse(Response<Map<String, dynamic>> response) {
     final data = response.data?['data'];
     if (response.data?['success'] != true || data is! Map) {

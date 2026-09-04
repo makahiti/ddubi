@@ -12,6 +12,8 @@ import '../domain/models.dart';
 import '../services/kakao_login_service.dart';
 import '../services/google_login_service.dart';
 import '../services/naver_login_service.dart';
+import '../services/app_api.dart';
+import '../services/recommendation_api.dart';
 import 'auth_screens.dart';
 import 'micro_animations.dart';
 import 'widgets.dart';
@@ -179,8 +181,14 @@ class LoginScreen extends StatelessWidget {
 }
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.repository, this.go});
+  const HomeScreen({
+    super.key,
+    required this.repository,
+    required this.homeApi,
+    this.go,
+  });
   final DdubiRepository repository;
+  final HomeApi homeApi;
   final ValueChanged<int>? go;
   @override
   Widget build(BuildContext c) => AppPage(
@@ -192,21 +200,40 @@ class HomeScreen extends StatelessWidget {
     actions: const [
       IconButton(onPressed: null, icon: Icon(Icons.notifications_none)),
     ],
-    child: FutureBuilder<List<RouteOption>>(
-      future: repository.routes(),
-      builder: (c, s) {
-        if (s.hasError) {
-          return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
+    child: FutureBuilder<HomeSummary>(
+      future: homeApi.getSummary(),
+      builder: (context, homeSnapshot) {
+        if (homeSnapshot.hasError) {
+          return const DataLoadError(message: '홈 정보를 불러오지 못했어요.');
         }
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        final routes = s.data!;
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide =
-                constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
-            return isWide
-                ? _WebHomeContent(routes: routes)
-                : _MobileHomeContent(routes: routes);
+        if (!homeSnapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return FutureBuilder<List<RouteOption>>(
+          future: repository.routes(),
+          builder: (context, routeSnapshot) {
+            if (routeSnapshot.hasError) {
+              return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
+            }
+            if (!routeSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide =
+                    constraints.maxWidth >=
+                    LayoutConstants.wideScreenBreakpoint;
+                return isWide
+                    ? _WebHomeContent(
+                        routes: routeSnapshot.data!,
+                        summary: homeSnapshot.data!,
+                      )
+                    : _MobileHomeContent(
+                        routes: routeSnapshot.data!,
+                        summary: homeSnapshot.data!,
+                      );
+              },
+            );
           },
         );
       },
@@ -215,15 +242,16 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _MobileHomeContent extends StatelessWidget {
-  const _MobileHomeContent({required this.routes});
+  const _MobileHomeContent({required this.routes, required this.summary});
 
   final List<RouteOption> routes;
+  final HomeSummary summary;
 
   @override
   Widget build(BuildContext context) => ListView(
     padding: _pad,
     children: [
-      const _HomeScheduleCard(),
+      _HomeScheduleCard(schedule: summary.nextSchedule),
       const SizedBox(height: 12),
       const TtubeeGuideCard('17:57에 출발하면 안전해요!\n아직 준비할 시간이 충분해요.'),
       const SizedBox(height: 16),
@@ -245,28 +273,29 @@ class _MobileHomeContent extends StatelessWidget {
 }
 
 class _WebHomeContent extends StatelessWidget {
-  const _WebHomeContent({required this.routes});
+  const _WebHomeContent({required this.routes, required this.summary});
 
   final List<RouteOption> routes;
+  final HomeSummary summary;
 
   @override
   Widget build(BuildContext context) => ListView(
     key: const Key('webHomeDashboard'),
     padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
     children: [
-      const Row(
-        key: Key('webHomeMetrics'),
+      Row(
+        key: const Key('webHomeMetrics'),
         children: [
           Expanded(
             child: DashboardMetricCard(
               label: '다음 일정',
-              value: '19:30',
-              caption: '잠실야구장',
+              value: summary.nextSchedule?.time ?? '--:--',
+              caption: summary.nextSchedule?.title ?? '예정된 일정 없음',
               icon: Icons.event_available_outlined,
             ),
           ),
-          SizedBox(width: 12),
-          Expanded(
+          const SizedBox(width: 12),
+          const Expanded(
             child: DashboardMetricCard(
               label: '추천 출발',
               value: '17:57',
@@ -275,8 +304,8 @@ class _WebHomeContent extends StatelessWidget {
               tone: DdubiColors.green,
             ),
           ),
-          SizedBox(width: 12),
-          Expanded(
+          const SizedBox(width: 12),
+          const Expanded(
             child: DashboardMetricCard(
               label: '도착 예정',
               value: '18:45',
@@ -285,12 +314,12 @@ class _WebHomeContent extends StatelessWidget {
               tone: Color(0xFF7257E8),
             ),
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
           Expanded(
             child: DashboardMetricCard(
-              label: '교통 상태',
-              value: '정상',
-              caption: '지하철 2호선',
+              label: '데이터 상태',
+              value: summary.dataState,
+              caption: '안 읽은 알림 ${summary.unreadNotificationCount}건',
               icon: Icons.check_circle_outline,
               tone: DdubiColors.green,
             ),
@@ -301,7 +330,10 @@ class _WebHomeContent extends StatelessWidget {
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Expanded(flex: 3, child: _HomeScheduleCard()),
+          Expanded(
+            flex: 3,
+            child: _HomeScheduleCard(schedule: summary.nextSchedule),
+          ),
           const SizedBox(width: 16),
           Expanded(
             flex: 2,
@@ -357,7 +389,9 @@ class _WebHomeContent extends StatelessWidget {
 }
 
 class _HomeScheduleCard extends StatelessWidget {
-  const _HomeScheduleCard();
+  const _HomeScheduleCard({required this.schedule});
+
+  final Schedule? schedule;
 
   @override
   Widget build(BuildContext context) => InfoCard(
@@ -372,10 +406,13 @@ class _HomeScheduleCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '19:30',
+                    schedule?.time ?? '--:--',
                     style: Theme.of(context).textTheme.headlineLarge,
                   ),
-                  Text('잠실야구장', style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    schedule?.title ?? '예정된 일정이 없어요',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 6),
                   const StatusBadge('지금은 정상'),
                 ],
@@ -399,7 +436,9 @@ class _HomeScheduleCard extends StatelessWidget {
             ),
             const Spacer(),
             OutlinedButton(
-              onPressed: () => context.push('/schedules/schedule-baseball'),
+              onPressed: schedule == null
+                  ? null
+                  : () => context.push('/schedules/${schedule!.id}'),
               child: const Text('상세 보기'),
             ),
           ],
@@ -451,6 +490,54 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
     if (saved == true && mounted) setState(() {});
   }
 
+  Future<void> _showConflicts(BuildContext context) async {
+    final from = DateTime(selectedDate.year, selectedDate.month, 1);
+    final to = DateTime(selectedDate.year, selectedDate.month + 1, 1);
+    try {
+      final conflicts = await widget.repository.conflicts(from, to);
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('연속 일정 충돌'),
+          content: conflicts.isEmpty
+              ? const Text('이동 시간이 부족한 일정 조합이 없어요.')
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: conflicts
+                      .map(
+                        (conflict) => ListTile(
+                          leading: Icon(
+                            conflict.severity == 'CRITICAL'
+                                ? Icons.error_outline
+                                : Icons.warning_amber_outlined,
+                            color: conflict.severity == 'CRITICAL'
+                                ? DdubiColors.red
+                                : DdubiColors.orange,
+                          ),
+                          title: Text('${conflict.shortageMin}분 부족'),
+                          subtitle: Text(
+                            '일정 ${conflict.previousScheduleId} → ${conflict.nextScheduleId}',
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    } on Object {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('일정 충돌을 확인하지 못했어요.')));
+    }
+  }
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '전체 일정',
@@ -459,6 +546,11 @@ class _ScheduleListScreenState extends State<ScheduleListScreen> {
     index: widget.go == null ? null : 0,
     onNav: widget.go,
     actions: [
+      IconButton(
+        tooltip: '연속 일정 충돌 확인',
+        onPressed: () => _showConflicts(c),
+        icon: const Icon(Icons.warning_amber_outlined),
+      ),
       IconButton(
         key: const Key('addRepeatScheduleButton'),
         tooltip: '반복 일정 추가',
@@ -727,10 +819,12 @@ class RepeatScheduleFormScreen extends StatefulWidget {
   const RepeatScheduleFormScreen({
     super.key,
     required this.repository,
+    required this.placeSearchService,
     this.initialDate,
   });
 
-  final DdubiRepository repository;
+  final RepeatScheduleRepository repository;
+  final PlaceSearchService placeSearchService;
   final DateTime? initialDate;
 
   @override
@@ -741,10 +835,10 @@ class RepeatScheduleFormScreen extends StatefulWidget {
 class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
   final formKey = GlobalKey<FormState>();
   final title = TextEditingController();
-  final place = TextEditingController();
   final time = TextEditingController(text: '09:00');
-  final departure = TextEditingController(text: '집');
   final weekdays = <int>{1, 2, 3, 4, 5};
+  PlaceLocation? origin;
+  PlaceLocation? destination;
 
   late DateTime startDate;
   late DateTime endDate;
@@ -763,9 +857,7 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
   @override
   void dispose() {
     title.dispose();
-    place.dispose();
     time.dispose();
-    departure.dispose();
     super.dispose();
   }
 
@@ -829,11 +921,12 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
         Text('일정 정보', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 16),
         _field('일정 제목', title, key: const Key('repeatTitleField')),
-        _field(
-          '도착지',
-          place,
+        PlaceSearchField(
           key: const Key('repeatPlaceField'),
-          icon: Icons.search,
+          label: '도착지',
+          value: destination,
+          searchService: widget.placeSearchService,
+          onSelected: (value) => setState(() => destination = value),
         ),
         _field(
           '반드시 도착해야 하는 시간',
@@ -842,11 +935,12 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
           icon: Icons.schedule,
           timeField: true,
         ),
-        _field(
-          '출발지',
-          departure,
+        PlaceSearchField(
           key: const Key('repeatDepartureField'),
-          icon: Icons.my_location,
+          label: '출발지',
+          value: origin,
+          searchService: widget.placeSearchService,
+          onSelected: (value) => setState(() => origin = value),
         ),
       ],
     ),
@@ -1038,25 +1132,35 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
 
   Future<void> _save() async {
     setState(() {});
-    if (weekdays.isEmpty || !(formKey.currentState?.validate() ?? false)) {
+    if (weekdays.isEmpty ||
+        origin == null ||
+        destination == null ||
+        !(formKey.currentState?.validate() ?? false)) {
       return;
     }
-    await widget.repository.addRepeatSchedule(
-      RepeatScheduleRule(
-        id: 'repeat-${DateTime.now().microsecondsSinceEpoch}',
-        title: title.text.trim(),
-        place: place.text.trim(),
-        departurePlace: departure.text.trim(),
-        time: time.text.trim(),
-        startDate: startDate,
-        weekdays: {...weekdays},
-        untilDate: hasEndDate ? endDate : null,
-        importance: importance,
-        considerLastTrip: considerLastTrip,
-        preferredTransport: transport,
-      ),
-    );
-    if (mounted) context.pop(true);
+    try {
+      await widget.repository.addRepeatSchedule(
+        RepeatScheduleRule(
+          id: 'repeat-${DateTime.now().microsecondsSinceEpoch}',
+          title: title.text.trim(),
+          origin: origin!,
+          destination: destination!,
+          time: time.text.trim(),
+          startDate: startDate,
+          weekdays: {...weekdays},
+          untilDate: hasEndDate ? endDate : null,
+          importance: importance,
+          considerLastTrip: considerLastTrip,
+          preferredTransport: transport,
+        ),
+      );
+      if (mounted) context.pop(true);
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('반복 일정을 저장하지 못했어요. 연결 상태를 확인해주세요.')),
+      );
+    }
   }
 }
 
@@ -1433,6 +1537,13 @@ class ScheduleDetailScreen extends StatelessWidget {
           icon: const Icon(Icons.edit_outlined),
           label: const Text('일정 수정'),
         ),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          key: const Key('cancelScheduleButton'),
+          onPressed: () => _confirmCancel(c, schedule),
+          icon: const Icon(Icons.delete_outline, color: DdubiColors.red),
+          label: const Text('일정 취소', style: TextStyle(color: DdubiColors.red)),
+        ),
         const SizedBox(height: 18),
         const SectionHeader('한눈에 보기'),
         const SizedBox(height: 8),
@@ -1478,6 +1589,36 @@ class ScheduleDetailScreen extends StatelessWidget {
       ],
     ),
   );
+
+  Future<void> _confirmCancel(BuildContext context, Schedule schedule) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('일정을 취소할까요?'),
+        content: Text('${schedule.title} 일정은 목록에서 제외됩니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('돌아가기'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('일정 취소'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await repository.cancelSchedule(schedule.id);
+      if (context.mounted) context.go('/schedules');
+    } on Object {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('일정을 취소하지 못했어요. 잠시 후 다시 시도해주세요.')),
+      );
+    }
+  }
 }
 
 class ScheduleEditScreen extends StatelessWidget {
@@ -1528,10 +1669,12 @@ class RouteResultsScreen extends StatelessWidget {
   const RouteResultsScreen({
     super.key,
     required this.repository,
+    required this.api,
     this.condition,
     this.go,
   });
   final DdubiRepository repository;
+  final RecommendationApi api;
   final RouteSearchCondition? condition;
   final ValueChanged<int>? go;
   @override
@@ -1543,7 +1686,9 @@ class RouteResultsScreen extends StatelessWidget {
     onNav: go,
     actions: const [IconButton(onPressed: null, icon: Icon(Icons.refresh))],
     child: FutureBuilder<List<RouteOption>>(
-      future: repository.routes(condition: condition),
+      future: condition == null
+          ? repository.routes()
+          : api.searchRoutes(condition!),
       builder: (c, s) {
         if (s.hasError) {
           return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
@@ -1668,9 +1813,14 @@ class RouteResultsScreen extends StatelessWidget {
 }
 
 class RouteSearchScreen extends StatefulWidget {
-  const RouteSearchScreen({super.key, required this.repository});
+  const RouteSearchScreen({
+    super.key,
+    required this.repository,
+    required this.placeSearchService,
+  });
 
   final DdubiRepository repository;
+  final PlaceSearchService placeSearchService;
 
   @override
   State<RouteSearchScreen> createState() => _RouteSearchScreenState();
@@ -1678,8 +1828,8 @@ class RouteSearchScreen extends StatefulWidget {
 
 class _RouteSearchScreenState extends State<RouteSearchScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _departure = TextEditingController(text: '집');
-  final _destination = TextEditingController(text: 'SSAFY 서울캠퍼스');
+  PlaceLocation? _origin;
+  PlaceLocation? _destination;
   late DateTime _desiredArrivalAt;
   late final TextEditingController _arrival;
 
@@ -1693,8 +1843,6 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
 
   @override
   void dispose() {
-    _departure.dispose();
-    _destination.dispose();
     _arrival.dispose();
     super.dispose();
   }
@@ -1781,18 +1929,18 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
   );
 
   Widget _placeField(bool departure) {
-    final controller = departure ? _departure : _destination;
-    return TextFormField(
+    return PlaceSearchField(
       key: Key(departure ? 'routeDepartureField' : 'routeDestinationField'),
-      controller: controller,
-      textInputAction: departure ? TextInputAction.next : TextInputAction.done,
-      validator: (value) => (value ?? '').trim().isEmpty ? '장소를 입력해주세요.' : null,
-      decoration: InputDecoration(
-        labelText: departure ? '출발지' : '도착지',
-        prefixIcon: Icon(
-          departure ? Icons.my_location_outlined : Icons.location_on_outlined,
-        ),
-      ),
+      label: departure ? '출발지' : '도착지',
+      value: departure ? _origin : _destination,
+      searchService: widget.placeSearchService,
+      onSelected: (value) => setState(() {
+        if (departure) {
+          _origin = value;
+        } else {
+          _destination = value;
+        }
+      }),
     );
   }
 
@@ -1823,9 +1971,14 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
 
   void _search() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_origin == null || _destination == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('출발지와 도착지를 검색해 선택해주세요.')));
+      return;
+    }
     final condition = RouteSearchCondition(
-      departurePlace: _departure.text.trim(),
-      destinationPlace: _destination.text.trim(),
+      origin: _origin!,
+      destination: _destination!,
       desiredArrivalAt: _desiredArrivalAt,
     );
     context.push('/recommendations/mock-recommendation-1', extra: condition);
@@ -2779,83 +2932,113 @@ class ArrivalScreen extends StatelessWidget {
   );
 }
 
-class NotificationsScreen extends StatelessWidget {
-  const NotificationsScreen({super.key, this.go});
+class NotificationsScreen extends StatefulWidget {
+  const NotificationsScreen({super.key, required this.api, this.go});
+
+  final NotificationApi api;
   final ValueChanged<int>? go;
+
+  @override
+  State<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends State<NotificationsScreen> {
+  late Future<NotificationInbox> inbox;
+
+  @override
+  void initState() {
+    super.initState();
+    inbox = widget.api.getInbox();
+  }
+
+  void _reload() => setState(() => inbox = widget.api.getInbox());
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '알림함',
     webTitle: '알림 대시보드',
     webSubtitle: '출발 알림과 최근 이동 결과를 확인하세요.',
-    index: go == null ? null : 3,
-    onNav: go,
-    actions: const [
-      IconButton(onPressed: null, icon: Icon(Icons.settings_outlined)),
+    index: widget.go == null ? null : 3,
+    onNav: widget.go,
+    actions: [
+      IconButton(
+        tooltip: '모두 읽음',
+        onPressed: () async {
+          await widget.api.markAllRead();
+          _reload();
+        },
+        icon: const Icon(Icons.done_all),
+      ),
     ],
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide =
-            constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
-        return isWide ? _webLayout(context) : _mobileLayout(context);
+    child: FutureBuilder<NotificationInbox>(
+      future: inbox,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const DataLoadError(message: '알림을 불러오지 못했어요.');
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide =
+                constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
+            return isWide
+                ? _webLayout(context, snapshot.data!)
+                : _mobileLayout(context, snapshot.data!);
+          },
+        );
       },
     ),
   );
 
-  Widget _mobileLayout(BuildContext context) => ListView(
-    key: const Key('mobileNotificationsLayout'),
-    padding: _pad,
-    children: [
-      const SectionHeader('출발 알림'),
-      ..._departureAlerts.map(_departureAlertTile),
-      const Divider(),
-      const SectionHeader('이동 기록'),
-      ..._movementRecords.map(_movementRecordTile),
-      const Divider(),
-      const SectionHeader('주간 리포트 (5.12 ~ 5.18)'),
-      const SizedBox(height: 10),
-      const Row(
+  Widget _mobileLayout(BuildContext context, NotificationInbox data) =>
+      ListView(
+        key: const Key('mobileNotificationsLayout'),
+        padding: _pad,
         children: [
-          Expanded(child: _NotificationMetricCard('제시간 도착률', '92%')),
-          SizedBox(width: 10),
-          Expanded(child: _NotificationMetricCard('평균 여유 시간', '6분')),
+          SectionHeader('최근 알림', trailing: Text('안 읽음 ${data.unreadCount}건')),
+          const SizedBox(height: 10),
+          if (data.items.isEmpty)
+            const InfoCard(child: Text('아직 도착한 알림이 없어요.'))
+          else
+            ...data.items.map(_notificationTile),
         ],
-      ),
-    ],
-  );
+      );
 
-  Widget _webLayout(BuildContext context) => ListView(
+  Widget _webLayout(BuildContext context, NotificationInbox data) => ListView(
     key: const Key('webNotificationsLayout'),
     padding: _pad,
     children: [
       Text('이번 주 이동 요약', style: Theme.of(context).textTheme.titleLarge),
       const SizedBox(height: 12),
-      const Row(
-        key: Key('webNotificationMetrics'),
+      Row(
+        key: const Key('webNotificationMetrics'),
         children: [
           Expanded(
             child: DashboardMetricCard(
-              label: '오늘 출발 알림',
-              value: '2건',
-              caption: '다음 알림 08:30',
+              label: '전체 알림',
+              value: '${data.items.length}건',
+              caption: '최근 수신 기준',
               icon: Icons.notifications_active_outlined,
             ),
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
           Expanded(
             child: DashboardMetricCard(
-              label: '제시간 도착률',
-              value: '92%',
-              caption: '지난주 대비 +4%',
+              label: '안 읽은 알림',
+              value: '${data.unreadCount}건',
+              caption: '확인이 필요해요',
               icon: Icons.task_alt_outlined,
               tone: DdubiColors.green,
             ),
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
           Expanded(
             child: DashboardMetricCard(
-              label: '평균 여유 시간',
-              value: '6분',
-              caption: '최근 이동 3건',
+              label: '읽은 알림',
+              value: '${data.items.where((item) => !item.isUnread).length}건',
+              caption: '현재 페이지 기준',
               icon: Icons.schedule_outlined,
               tone: Color(0xFF7257E8),
             ),
@@ -2863,113 +3046,57 @@ class NotificationsScreen extends StatelessWidget {
         ],
       ),
       const SizedBox(height: 20),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 3,
-            child: InfoCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SectionHeader('최근 알림'),
-                  const SizedBox(height: 8),
-                  ..._departureAlerts.map(_departureAlertTile),
-                  const Divider(),
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: Color(0xFFFFF4E5),
-                      child: Icon(
-                        Icons.warning_amber,
-                        color: DdubiColors.orange,
-                      ),
-                    ),
-                    title: Text('일부 구간의 교통정보가 늦게 도착했어요.'),
-                    subtitle: Text('오늘 07:30 · 경로 추천은 정상적으로 완료됐어요.'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 390,
-            child: InfoCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SectionHeader('최근 이동 기록'),
-                  const SizedBox(height: 8),
-                  ..._movementRecords.map(_movementRecordTile),
-                ],
-              ),
-            ),
-          ),
-        ],
+      InfoCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SectionHeader('최근 알림'),
+            const SizedBox(height: 8),
+            if (data.items.isEmpty)
+              const Text('아직 도착한 알림이 없어요.')
+            else
+              ...data.items.map(_notificationTile),
+          ],
+        ),
       ),
     ],
   );
 
-  static Widget _departureAlertTile(String text) => ListTile(
+  Widget _notificationTile(AppNotification item) => ListTile(
     contentPadding: EdgeInsets.zero,
-    leading: const CircleAvatar(
-      backgroundColor: Color(0xFFEAFBF8),
-      child: Icon(Icons.notifications_active_outlined, color: DdubiColors.blue),
-    ),
-    title: Text(text),
-    subtitle: const Text('방문 장소 · 09:00 일정'),
-  );
-
-  static Widget _movementRecordTile(String text) {
-    final parts = text.split('|');
-    final isDelayed = parts[2] == '지연';
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(parts[0]),
-      subtitle: Text(parts[1]),
-      trailing: StatusBadge(
-        parts[2],
-        tone: isDelayed ? DdubiColors.orange : DdubiColors.green,
-        icon: isDelayed ? Icons.warning_amber : Icons.check_circle_outline,
+    leading: CircleAvatar(
+      backgroundColor: item.isUnread
+          ? const Color(0xFFEAFBF8)
+          : DdubiColors.surface,
+      child: const Icon(
+        Icons.notifications_active_outlined,
+        color: DdubiColors.blue,
       ),
-    );
-  }
-
-  static const _departureAlerts = ['08:30  곧 출발 시간이에요', '08:10  출발 20분 전 알림'];
-
-  static const _movementRecords = [
-    '5.18 (토)  강남역 → 여의도역|오전 9:37 도착|제시간',
-    '5.16 (목)  강남역 → 여의도역|오전 9:38 도착|제시간',
-    '5.14 (화)  강남역 → 여의도역|오전 9:47 도착|지연',
-  ];
-}
-
-class _NotificationMetricCard extends StatelessWidget {
-  const _NotificationMetricCard(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => InfoCard(
-    child: Column(
-      children: [
-        Text(label),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
-        ),
-      ],
     ),
+    title: Text(item.title),
+    subtitle: Text(item.body),
+    trailing: item.isUnread ? const StatusBadge('새 알림') : null,
+    onTap: item.isUnread
+        ? () async {
+            await widget.api.markRead(item.id);
+            _reload();
+          }
+        : null,
   );
 }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.go, required this.repository});
+  const SettingsScreen({
+    super.key,
+    this.go,
+    required this.repository,
+    required this.userApi,
+    required this.authRepository,
+  });
   final ValueChanged<int>? go;
   final DdubiRepository repository;
+  final UserApi userApi;
+  final AuthRepository authRepository;
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -2977,6 +3104,24 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   TransportPreferenceChoice selectedTransport =
       TransportPreferenceChoice.balanced;
+  late Future<UserProfile> profile;
+
+  @override
+  void initState() {
+    super.initState();
+    profile = widget.userApi.getMe().then((value) {
+      final preferredModes = value.transportPrefs
+          .where((item) => item['preference'] == 'PREFER')
+          .map((item) => item['mode'])
+          .toSet();
+      if (preferredModes.contains('SUBWAY')) {
+        selectedTransport = TransportPreferenceChoice.subwayFirst;
+      } else if (preferredModes.contains('BUS')) {
+        selectedTransport = TransportPreferenceChoice.busFirst;
+      }
+      return value;
+    });
+  }
 
   @override
   Widget build(BuildContext c) => AppPage(
@@ -2985,20 +3130,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     webSubtitle: '경로 추천 방식과 앱 권한, 계정 상태를 관리하세요.',
     index: widget.go == null ? null : 4,
     onNav: widget.go,
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide =
-            constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
-        return isWide ? _webLayout(context) : _mobileLayout(context);
+    child: FutureBuilder<UserProfile>(
+      future: profile,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const DataLoadError(message: '사용자 설정을 불러오지 못했어요.');
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide =
+                constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
+            return isWide
+                ? _webLayout(context, snapshot.data!)
+                : _mobileLayout(context, snapshot.data!);
+          },
+        );
       },
     ),
   );
 
-  Widget _mobileLayout(BuildContext context) => ListView(
+  Widget _mobileLayout(BuildContext context, UserProfile user) => ListView(
     key: const Key('mobileSettingsLayout'),
     padding: _pad,
     children: [
-      _accountCard(context),
+      _accountCard(context, user),
       const SizedBox(height: 18),
       const SectionHeader('교통수단 선호'),
       const SizedBox(height: 10),
@@ -3010,7 +3168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ],
   );
 
-  Widget _webLayout(BuildContext context) => ListView(
+  Widget _webLayout(BuildContext context, UserProfile user) => ListView(
     key: const Key('webSettingsLayout'),
     padding: _pad,
     children: [
@@ -3022,7 +3180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _accountCard(context),
+                _accountCard(context, user),
                 const SizedBox(height: 16),
                 const InfoCard(
                   child: Column(
@@ -3081,14 +3239,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ],
   );
 
-  Widget _accountCard(BuildContext context) => InfoCard(
+  Widget _accountCard(BuildContext context, UserProfile user) => InfoCard(
     child: Column(
       children: [
-        const ListTile(
+        ListTile(
           contentPadding: EdgeInsets.zero,
           leading: CircleAvatar(child: Icon(Icons.person_outline)),
-          title: Text('뚜비 사용자', style: TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text('user@example.com'),
+          title: Text(
+            user.nickname,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(user.email ?? '연결된 소셜 계정'),
         ),
         const Divider(),
         ListTile(
@@ -3109,7 +3270,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _transportSelector() => TransportPreferenceSelector(
     value: selectedTransport,
-    onChanged: (value) => setState(() => selectedTransport = value),
+    onChanged: (value) async {
+      final previous = selectedTransport;
+      setState(() => selectedTransport = value);
+      try {
+        final updated = await widget.userApi.update(
+          transportPrefs: value.apiTransportPrefs,
+        );
+        if (mounted) setState(() => profile = Future.value(updated));
+      } on Object {
+        if (!mounted) return;
+        setState(() => selectedTransport = previous);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('교통수단 설정을 저장하지 못했어요.')));
+      }
+    },
   );
 
   Widget _permissionCard() => const InfoCard(
@@ -3171,9 +3346,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: const Text('취소'),
         ),
         FilledButton(
-          onPressed: () {
+          onPressed: () async {
             Navigator.pop(dialogContext);
-            context.go('/login');
+            try {
+              await widget.authRepository.logout();
+              if (context.mounted) context.go('/login');
+            } on AuthException catch (error) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(error.message ?? '로그아웃하지 못했어요.')),
+              );
+            }
           },
           child: const Text('로그아웃'),
         ),

@@ -8,7 +8,7 @@ class ApiConstants {
 
   static const bool useScheduleApi = bool.fromEnvironment(
     'USE_SCHEDULE_API',
-    defaultValue: false,
+    defaultValue: true,
   );
 
   static const Duration connectTimeout = Duration(seconds: 10);

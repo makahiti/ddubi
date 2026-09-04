@@ -35,8 +35,19 @@ import static org.mockito.BDDMockito.given;
 @ActiveProfiles("test")
 public abstract class IntegrationTestSupport {
 
-    private static final MySQLContainer<?> MYSQL =
-            new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
+    /**
+     * CI 에서 GitLab {@code services:} 가 붙여준 DB 주소.
+     *
+     * 둘 다 있으면 Testcontainers 를 띄우지 않고 이쪽에 붙는다. 컨테이너를 직접 띄우려면
+     * Docker 데몬이 필요한데(privileged 러너), services 로 받으면 그게 없어도 된다.
+     * 로컬은 이 값이 없으므로 지금까지처럼 Testcontainers 로 돈다.
+     */
+    private static final String CI_MYSQL_HOST = System.getenv("CI_MYSQL_HOST");
+    private static final String CI_REDIS_HOST = System.getenv("CI_REDIS_HOST");
+    private static final boolean USE_CI_SERVICES = CI_MYSQL_HOST != null && CI_REDIS_HOST != null;
+
+    private static final MySQLContainer<?> MYSQL = USE_CI_SERVICES ? null
+            : new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
                     .withDatabaseName("ddubi")
                     .withUsername("ddubi")
                     .withPassword("ddubi")
@@ -46,18 +57,32 @@ public abstract class IntegrationTestSupport {
                             "--default-time-zone=+09:00")
                     .withReuse(true);
 
-    private static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+    private static final GenericContainer<?> REDIS = USE_CI_SERVICES ? null
+            : new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
                     .withExposedPorts(6379)
                     .withReuse(true);
 
     static {
-        MYSQL.start();
-        REDIS.start();
+        if (!USE_CI_SERVICES) {
+            MYSQL.start();
+            REDIS.start();
+        }
     }
 
     @DynamicPropertySource
     static void containerProperties(DynamicPropertyRegistry registry) {
+        if (USE_CI_SERVICES) {
+            // 시간대·문자셋은 services 정의에서 맞춰 준다(docs/contracts/backend-ci-requirements.md).
+            // 어긋나면 시각 비교 테스트가 9시간 밀리고 한글 비교가 깨진다.
+            registry.add("spring.datasource.url", () -> "jdbc:mysql://" + CI_MYSQL_HOST
+                    + ":3306/ddubi?useSSL=false&allowPublicKeyRetrieval=true"
+                    + "&serverTimezone=Asia/Seoul&characterEncoding=UTF-8");
+            registry.add("spring.datasource.username", () -> "ddubi");
+            registry.add("spring.datasource.password", () -> "ddubi");
+            registry.add("spring.data.redis.host", () -> CI_REDIS_HOST);
+            registry.add("spring.data.redis.port", () -> 6379);
+            return;
+        }
         registry.add("spring.datasource.url", () ->
                 MYSQL.getJdbcUrl() + "?serverTimezone=Asia/Seoul&characterEncoding=UTF-8");
         registry.add("spring.datasource.username", MYSQL::getUsername);
