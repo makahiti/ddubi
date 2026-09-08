@@ -1,0 +1,509 @@
+### 인증 API 시나리오 테스트 (AUTH-001~005)
+#
+# IntelliJ 에서 이 파일을 열고 각 요청 왼쪽의 ▶ 를 누르면 실행된다.
+# 위에서 아래로 순서대로 실행하면 토큰이 자동으로 이어진다.
+#
+# 사전 준비
+#   1) docker compose -f backend/docker-compose.dev.yml up -d
+#   2) 앱 기동 (IntelliJ 실행 또는 backend 에서 ./mvnw spring-boot:run)
+#
+# curl 로 하지 않는 이유: Windows 터미널이 한글을 CP949 로 보내
+# "Invalid UTF-8 start byte" 400 이 난다. 이 파일은 UTF-8 로 저장되어 문제없다.
+
+@host = http://localhost:8080
+@email = test@ddubi.com
+@password = password123
+@deviceId = device-A
+
+### ① 회원가입 — 201, provider "LOCAL"
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "nickname": "정민",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("201 이어야 한다", function () {
+        client.assert(response.status === 201, "status=" + response.status);
+    });
+    client.test("공통 응답 형식", function () {
+        client.assert(response.body.success === true);
+        client.assert(response.body.requestId != null, "requestId 없음");
+        client.assert(response.body.timestamp != null, "timestamp 없음");
+    });
+    client.test("한글이 깨지지 않는다", function () {
+        client.assert(response.body.data.user.nickname === "정민",
+            "nickname=" + response.body.data.user.nickname);
+    });
+    client.global.set("accessToken", response.body.data.accessToken);
+    client.global.set("refreshToken", response.body.data.refreshToken);
+%}
+
+### ② 같은 이메일로 다시 가입 — 409 DUPLICATE_RESOURCE
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "nickname": "정민",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("409 이어야 한다", function () {
+        client.assert(response.status === 409, "status=" + response.status);
+        client.assert(response.body.error.code === "DUPLICATE_RESOURCE");
+    });
+%}
+
+### ③ 검증 실패 — 400, fieldErrors 에 필드별 사유
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "notanemail",
+  "password": "short",
+  "nickname": ""
+}
+
+> {%
+    client.test("400 + fieldErrors", function () {
+        client.assert(response.status === 400);
+        client.assert(response.body.error.fieldErrors.length > 0, "fieldErrors 비어 있음");
+    });
+%}
+
+### ④ 로그인 — 200
+POST {{host}}/api/v1/auth/local/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("200", function () { client.assert(response.status === 200); });
+    client.global.set("accessToken", response.body.data.accessToken);
+    client.global.set("refreshToken", response.body.data.refreshToken);
+%}
+
+### ⑤ 비밀번호 오류 — 401
+POST {{host}}/api/v1/auth/local/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "wrongpassword",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("401", function () {
+        client.assert(response.status === 401);
+        client.assert(response.body.error.code === "UNAUTHORIZED");
+    });
+%}
+
+### ⑥ 토큰 없이 보호 경로 — 401
+POST {{host}}/api/v1/routes/search
+Content-Type: application/json
+
+{
+  "startLongitude": 127.0276, "startLatitude": 37.4979,
+  "endLongitude": 126.9779, "endLatitude": 37.5665
+}
+
+> {%
+    client.test("401", function () { client.assert(response.status === 401); });
+%}
+
+### ⑦ Access 토큰으로 보호 경로 — 401 이 아니어야 한다
+# KAKAO_REST_API_KEY 가 없으면 503 이 정상이다. 503 이면 인증은 통과한 것.
+POST {{host}}/api/v1/routes/search
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "startLongitude": 127.0276, "startLatitude": 37.4979,
+  "endLongitude": 126.9779, "endLatitude": 37.5665
+}
+
+> {%
+    client.test("인증 통과 (401 아님)", function () {
+        client.assert(response.status !== 401, "인증이 안 됨");
+    });
+%}
+
+### ⑧ Refresh 토큰을 Access 자리에 — 401 (용도 분리)
+POST {{host}}/api/v1/routes/search
+Content-Type: application/json
+Authorization: Bearer {{refreshToken}}
+
+{
+  "startLongitude": 127.0276, "startLatitude": 37.4979,
+  "endLongitude": 126.9779, "endLatitude": 37.5665
+}
+
+> {%
+    client.test("401 — Refresh 로는 API 를 못 부른다", function () {
+        client.assert(response.status === 401, "status=" + response.status);
+    });
+%}
+
+### ⑨ 토큰 재발급 — 200, refreshToken 이 교체된다
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("200", function () { client.assert(response.status === 200); });
+    client.test("토큰이 회전됐다", function () {
+        client.assert(response.body.data.refreshToken !== client.global.get("refreshToken"),
+            "refreshToken 이 그대로다");
+    });
+    // 옛 토큰을 따로 남겨 ⑩ 에서 재사용을 시도한다
+    client.global.set("oldRefreshToken", client.global.get("refreshToken"));
+    client.global.set("refreshToken", response.body.data.refreshToken);
+    client.global.set("accessToken", response.body.data.accessToken);
+%}
+
+### ⑩ 옛 refreshToken 재사용 — 401 + 전 기기 세션 폐기
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{oldRefreshToken}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("401 — 재사용 감지", function () {
+        client.assert(response.status === 401, "status=" + response.status);
+    });
+%}
+
+### ⑪ 폐기 뒤에는 방금 받은 새 토큰도 무효 — 401
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("401 — 세션이 전부 지워졌다", function () {
+        client.assert(response.status === 401, "status=" + response.status);
+    });
+%}
+
+### ⑫ 재로그인 (로그아웃 테스트용 토큰 재확보)
+POST {{host}}/api/v1/auth/local/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.global.set("accessToken", response.body.data.accessToken);
+    client.global.set("refreshToken", response.body.data.refreshToken);
+%}
+
+### ⑬ 인증 없이 로그아웃 — 401
+POST {{host}}/api/v1/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("401 — 로그아웃은 로그인 사용자 전용", function () {
+        client.assert(response.status === 401);
+    });
+%}
+
+### ⑭ 로그아웃 — 204
+POST {{host}}/api/v1/auth/logout
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "refreshToken": "{{refreshToken}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("204", function () { client.assert(response.status === 204); });
+%}
+
+### ⑮ 로그아웃 뒤 재발급 시도 — 401
+POST {{host}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("401 — 세션이 지워졌다", function () {
+        client.assert(response.status === 401);
+    });
+%}
+
+### 카카오 소셜 로그인 — KAKAO_REST_API_KEY 와 실제 인가 코드가 있어야 동작
+# authorizationCode 는 브라우저에서 카카오 로그인을 해야 나오는 1회용 값이다.
+# redirectUri 는 그 코드를 발급받을 때 쓴 값과 정확히 같아야 한다.
+POST {{host}}/api/v1/auth/oauth
+Content-Type: application/json
+
+{
+  "provider": "KAKAO",
+  "authorizationCode": "BYfZT5vnufhNKOJgUVJXXHekIpEhhZWwG6EuTUuIZRf6oW8ShLFaMwAAAAQKFyIgAAABoFqq5FfgLMgnBn6ZSw",
+  "redirectUri": "http://localhost:3001/oauth/kakao",
+  "deviceId": "{{deviceId}}"
+}
+
+### 카카오 모바일 SDK 로그인 — KAKAO_APP_ID와 실제 액세스 토큰이 있어야 동작
+# Flutter 카카오 SDK가 발급한 accessToken을 전달한다.
+# 백엔드는 /v1/user/access_token_info의 app_id를 KAKAO_APP_ID와 비교한 뒤 사용자 정보를 조회한다.
+POST {{host}}/api/v1/auth/oauth/token
+Content-Type: application/json
+
+{
+  "provider": "KAKAO",
+  "accessToken": "여기에-카카오-모바일-액세스-토큰",
+  "deviceId": "{{deviceId}}"
+}
+
+### Google 모바일 SDK 로그인 — GOOGLE_CLIENT_ID와 실제 ID 토큰 필요
+POST {{host}}/api/v1/auth/oauth/id-token
+Content-Type: application/json
+
+{
+  "provider": "GOOGLE",
+  "idToken": "여기에-Google-ID-토큰",
+  "deviceId": "{{deviceId}}"
+}
+
+### 구글 소셜 로그인 — GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 필요
+# ⚠️ 콜백 URL 에서 code= 값만 잘라 쓴다. 뒤에 붙은 &scope=... &authuser=... 를 함께
+#    넣으면 제공자가 거절한다.
+# ⚠️ %2F 같은 URL 인코딩은 풀어서 넣는다(%2F → /). 그대로 두면 한 번 더 인코딩돼 깨진다.
+#    예) ...?code=4%2F0ATsMZq...&scope=email  →  4/0ATsMZq...
+# 인가 URL (브라우저에서 열어 code 를 받는다):
+#   https://accounts.google.com/o/oauth2/v2/auth
+#     ?client_id={GOOGLE_CLIENT_ID}
+#     &redirect_uri=http://localhost:3001/oauth/google
+#     &response_type=code&scope=openid%20email%20profile
+POST {{host}}/api/v1/auth/oauth
+Content-Type: application/json
+
+{
+  "provider": "GOOGLE",
+  "authorizationCode": "여기에-구글-인가코드",
+  "redirectUri": "http://localhost:3001/oauth/google",
+  "deviceId": "{{deviceId}}"
+}
+
+### 네이버 소셜 로그인 — NAVER_CLIENT_ID / NAVER_CLIENT_SECRET 필요
+# ⚠️ code= 값만 자른다. 뒤의 &state=... 를 code 에 붙이지 말 것.
+# ⚠️ state 는 별도 필드에 넣되, 인가 URL 에 쓴 값과 같아야 한다.
+#    네이버는 실패해도 코드가 소진되므로 틀리면 인가 URL 부터 다시 받아야 한다.
+# 인가 URL:
+#   https://nid.naver.com/oauth2.0/authorize
+#     ?client_id={NAVER_CLIENT_ID}
+#     &redirect_uri=http://localhost:3001/oauth/naver
+#     &response_type=code&state=ddubi-test-state
+POST {{host}}/api/v1/auth/oauth
+Content-Type: application/json
+
+{
+  "provider": "NAVER",
+  "authorizationCode": "여기에-네이버-인가코드",
+  "redirectUri": "http://localhost:3001/oauth/naver",
+  "state": "ddubi-test-state",
+  "deviceId": "{{deviceId}}"
+}
+
+### 네이버인데 state 를 빼면 — 400 INVALID_REQUEST
+POST {{host}}/api/v1/auth/oauth
+Content-Type: application/json
+
+{
+  "provider": "NAVER",
+  "authorizationCode": "dummy",
+  "redirectUri": "http://localhost:3001/oauth/naver",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("400 — state 없이는 네이버를 호출조차 하지 않는다", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### 지원하지 않는 provider — 400 (ENUM 밖의 값)
+POST {{host}}/api/v1/auth/oauth
+Content-Type: application/json
+
+{
+  "provider": "APPLE",
+  "authorizationCode": "dummy",
+  "redirectUri": "http://localhost:3001/oauth/apple"
+}
+
+> {%
+    client.test("400 — ENUM 에 없는 값", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+###############################################################################
+# 이메일 인증 (AUTH-006 / AUTH-007) — 로컬 가입의 선행 단계
+#
+# MAIL_USERNAME/MAIL_PASSWORD 가 비어 있으면 메일을 보내지 않고
+# 서버 콘솔에 코드를 찍는다. 거기서 6자리를 복사해 @verifyCode 에 넣는다.
+###############################################################################
+
+@newEmail = newbie@ddubi.com
+@verifyCode = 000000
+
+### ㉮ 인증 없이 가입 시도 — 400
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}",
+  "password": "password123",
+  "nickname": "신입"
+}
+
+> {%
+    client.test("400 — 이메일 인증이 먼저다", function () {
+        client.assert(response.status === 400);
+        client.assert(response.body.error.message.includes("이메일 인증"));
+    });
+%}
+
+### ㉯ 인증 코드 발송 — 204 (콘솔 로그에서 코드 확인)
+POST {{host}}/api/v1/auth/email/verification
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}"
+}
+
+> {%
+    client.test("204", function () {
+        client.assert(response.status === 204);
+    });
+%}
+
+### ㉰ 60초 안에 재발송 — 400 (도배 차단)
+POST {{host}}/api/v1/auth/email/verification
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}"
+}
+
+> {%
+    client.test("400 — 쿨다운", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ㉱ 틀린 코드 — 400, 남은 시도 횟수를 알려준다
+POST {{host}}/api/v1/auth/email/verification/confirm
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}",
+  "code": "999999"
+}
+
+> {%
+    client.test("400 — 시도 횟수 표시", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ㉲ 형식 오류 (6자리 아님) — 400 fieldErrors
+POST {{host}}/api/v1/auth/email/verification/confirm
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}",
+  "code": "12"
+}
+
+> {%
+    client.test("400 — fieldErrors 에 code", function () {
+        client.assert(response.status === 400);
+        client.assert(response.body.error.fieldErrors.length > 0);
+    });
+%}
+
+### ㉳ 맞는 코드 — 204 (@verifyCode 를 콘솔 값으로 바꾼 뒤 실행)
+POST {{host}}/api/v1/auth/email/verification/confirm
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}",
+  "code": "{{verifyCode}}"
+}
+
+> {%
+    client.test("204 — 인증 완료", function () {
+        client.assert(response.status === 204);
+    });
+%}
+
+### ㉴ 가입 — 201
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}",
+  "password": "password123",
+  "nickname": "신입"
+}
+
+> {%
+    client.test("201", function () {
+        client.assert(response.status === 201);
+    });
+%}
+
+### ㉵ 같은 인증으로 또 가입 — 400 (통행증은 1회용)
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{newEmail}}",
+  "password": "password123",
+  "nickname": "신입2"
+}
+
+> {%
+    client.test("400 — 통행증이 소비됐다", function () {
+        client.assert(response.status === 400);
+    });
+%}

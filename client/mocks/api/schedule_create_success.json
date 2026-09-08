@@ -1,15 +1,20 @@
 {
   "success": true,
   "data": {
-    "scheduleId": "schedule-meeting",
+    "id": 12,
+    "repeatId": null,
     "status": "ACTIVE",
     "recommendationStatus": "PENDING",
     "title": "SSAFY 프로젝트 회의",
     "origin": { "name": "집", "lat": 37.5001, "lng": 127.0364 },
     "destination": { "name": "SSAFY 서울캠퍼스", "lat": 37.5012, "lng": 127.0396 },
     "arriveBy": "2026-09-01T10:00:00+09:00",
-    "importance": 2,
-    "considerLastTrip": true
+    "importance": "CRITICAL",
+    "considerLastTrip": true,
+    "customized": false,
+    "displayState": "UPCOMING",
+    "createdAt": "2026-08-31T12:00:00+09:00",
+    "updatedAt": "2026-08-31T12:00:00+09:00"
   },
   "timestamp": "2026-08-31T12:00:00+09:00",
   "requestId": "request-schedule-2"

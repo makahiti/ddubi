@@ -40,6 +40,25 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 2s
 
+  # 회원가입 이메일 인증 코드 발송.
+  # 자격증명이 비어 있으면 실제로 보내지 않고 코드를 로그에만 남긴다(MailConfig).
+  # 팀원이 앱 비밀번호 없이도 가입 흐름을 돌릴 수 있게 하려는 것이다.
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          # 메일 서버가 응답하지 않을 때 요청 스레드가 물리지 않게 한다.
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
   jackson:
     # JSON 은 camelCase 다 (API 명세서 v2.1.1 기준). SNAKE_CASE 로 바꾸지 말 것 —
     # 프론트가 명세서 필드명(notifyLeadMin, unreadNotificationCount 등)으로 파싱한다.
@@ -63,6 +82,12 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # 메일은 헬스 판정에서 뺀다. 자격증명이 비어 있거나 SMTP 가 막혀도 서비스는
+    # 정상이어야 하는데, 이 인디케이터가 실패하면 /actuator/health 가 503 이 되어
+    # 인프라(nginx·compose) 헬스체크가 앱을 죽은 것으로 오판한다.
+    mail:
+      enabled: false
   metrics:
     tags:
       application: ddubi
@@ -87,6 +112,28 @@ ddubi:
     secret: ${JWT_SECRET:} # 운영에서 반드시 주입. 비어 있으면 기동 실패시킬 것(Phase 1)
     access-token-validity: 60m
     refresh-token-validity: 14d
+  schedule:
+    # 반복 일정 인스턴스 선생성 지평선. 연장은 Phase 4 일일 잡이 맡는다.
+    repeat-horizon-days: 14
+  notification:
+    # 같은 suppress_key 재발송 차단 시간. 상황이 실제로 바뀌면 키가 달라지므로
+    # 이 값이 길어도 새 정보는 막히지 않는다.
+    suppress-ttl: 10m
+  push:
+    # 둘 다 비우면 로그 발송기로 대체된다(PushConfig). 키 없이도 개발이 된다.
+    credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+    credentials-base64: ${FIREBASE_CREDENTIALS_BASE64:}
+  baseline:
+    # 마지막 기준선 활성화가 이보다 오래되면 HOME dataState=STALE.
+    stale-threshold: 48h
+  auth:
+    email-verification:
+      # 사람이 메일을 열어 옮겨 적는 시간. 짧으면 재발송이 잦아진다.
+      code-ttl: 5m
+      # 재발송 도배 차단.
+      resend-cooldown: 60s
+      # 인증 후 가입까지 주는 시간. 닉네임·비밀번호 입력 시간이다.
+      verified-ttl: 30m
   recommendation:
     policy-version: v1.0
     # 중요도 → 백분위 (도메인 규칙 7)
@@ -103,6 +150,34 @@ ddubi:
       public-transit-path: /v2/routing/publictraffic
       # 실제 값은 .env 또는 배포 환경변수로 넣고 저장소에는 절대 커밋하지 않는다.
       rest-api-key: ${KAKAO_REST_API_KEY:}
+      oauth:
+        # 카카오 로그인은 길찾기(dapi)와 호스트가 다르다.
+        #   kauth = 인가 코드를 액세스 토큰으로 교환
+        #   kapi  = 액세스 토큰으로 사용자 정보 조회
+        auth-url: https://kauth.kakao.com
+        api-url: https://kapi.kakao.com
+        # 같은 앱의 REST API 키다. 프론트가 로그인에 쓰는 앱과 동일해야 인가 코드가 교환된다.
+        rest-api-key: ${KAKAO_REST_API_KEY:}
+        # 콘솔 > 카카오 로그인 > 보안 에서 켰을 때만 필요하다. 안 켰으면 비워둔다.
+        client-secret: ${KAKAO_CLIENT_SECRET:}
+        # 모바일 SDK 액세스 토큰이 같은 카카오 앱에서 발급됐는지 검증할 숫자 앱 ID.
+        app-id: ${KAKAO_APP_ID:}
+    google:
+      oauth:
+        # 토큰 교환과 사용자 조회의 호스트가 다르다.
+        auth-url: https://oauth2.googleapis.com
+        api-url: https://www.googleapis.com
+        # GCP 콘솔 > API 및 서비스 > 사용자 인증 정보 > OAuth 2.0 클라이언트 ID(웹 애플리케이션).
+        client-id: ${GOOGLE_CLIENT_ID:}
+        # 구글은 웹 애플리케이션 유형에서 시크릿이 항상 필수다(카카오와 달리 선택이 아니다).
+        client-secret: ${GOOGLE_CLIENT_SECRET:}
+    naver:
+      oauth:
+        auth-url: https://nid.naver.com
+        api-url: https://openapi.naver.com
+        # 네이버 개발자센터 > 애플리케이션 > 내 애플리케이션.
+        client-id: ${NAVER_CLIENT_ID:}
+        client-secret: ${NAVER_CLIENT_SECRET:}
   transit-master-import:
     # 평상시 기동에는 반드시 false다. 관리자가 공식 파일을 새 버전으로 적재할 때만 true로 실행한다.
     enabled: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:false}

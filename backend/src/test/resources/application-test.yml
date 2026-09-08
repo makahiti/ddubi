@@ -1,0 +1,36 @@
+# 통합 테스트 프로파일.
+# datasource / redis 주소는 IntegrationTestSupport 의 @DynamicPropertySource 가 채운다.
+# dev 프로파일이 아니므로 backend/.env 는 읽지 않는다 — 개인 환경에 테스트가 좌우되지 않게 한다.
+
+spring:
+  jpa:
+    hibernate:
+      # 운영과 같다. Flyway 가 만든 스키마와 엔티티가 어긋나면 테스트가 기동 단계에서 실패한다.
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+ddubi:
+  jwt:
+    secret: ddubi-integration-test-secret-key-32-bytes-min
+    access-token-validity: 60m
+    refresh-token-validity: 14d
+  external:
+    kakao:
+      base-url: http://localhost:1
+      rest-api-key: test-rest-api-key
+      oauth:
+        # 실제 카카오를 부르지 않는다. OAuthClient 를 목으로 대체하므로 주소는 쓰이지 않는다.
+        auth-url: http://localhost:1
+        api-url: http://localhost:1
+        rest-api-key: test-rest-api-key
+        client-secret: ""
+        app-id: "12345"
+
+logging:
+  level:
+    org.hibernate.SQL: WARN
+    org.testcontainers: WARN
+    com.github.dockerjava: WARN

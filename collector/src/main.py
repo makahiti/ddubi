@@ -84,12 +84,20 @@ def main() -> int:
         signal.signal(sig, lambda *_: stop.set())
 
     publisher = Publisher(settings.kafka_bootstrap_servers, client_id=f"collector-{settings.source}")
+    # 재부팅 직후 Kafka 가 늦게 뜨는 경우를 위해 첫 사이클 전에 브로커를 기다린다 (최대 5분)
+    publisher.wait_ready(timeout_seconds=300)
     exit_code = 0
     with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
         while not stop.is_set():
             try:
                 count = run_cycle(spec, settings, client, publisher)
-                log.info("cycle ok records=%d sent=%d failed=%d", count, publisher.sent, publisher.failed)
+                # 사이클마다 전송 확인을 기다려 sent/failed 가 이 사이클의 실제 결과를 반영하게 한다.
+                # pending 은 브로커 응답을 아직 못 받은 건수(큐에서 재시도 중) — 유실이 아니다
+                pending = publisher.flush(timeout_seconds=10.0)
+                log.info(
+                    "cycle ok records=%d sent=%d failed=%d pending=%d",
+                    count, publisher.sent, publisher.failed, pending,
+                )
             except ConfigError as exc:
                 log.error("%s", exc)
                 exit_code = 2

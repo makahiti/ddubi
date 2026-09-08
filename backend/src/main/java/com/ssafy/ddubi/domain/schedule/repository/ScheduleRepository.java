@@ -1,0 +1,49 @@
+package com.ssafy.ddubi.domain.schedule.repository;
+
+import com.ssafy.ddubi.domain.schedule.entity.Schedule;
+import com.ssafy.ddubi.domain.schedule.entity.ScheduleStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
+
+    Page<Schedule> findAllByUserIdAndArriveByBetween(
+            Long userId, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+    Page<Schedule> findAllByUserIdAndStatusAndArriveByBetween(
+            Long userId, ScheduleStatus status, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+    /** SCH-006 충돌 계산·홈 오늘 일정 — 페이징 없이 시각순 전건. */
+    List<Schedule> findAllByUserIdAndStatusAndArriveByBetweenOrderByArriveBy(
+            Long userId, ScheduleStatus status, LocalDateTime from, LocalDateTime to);
+
+    /** HOME-001 다음 일정. */
+    Optional<Schedule> findFirstByUserIdAndStatusAndArriveByGreaterThanEqualOrderByArriveBy(
+            Long userId, ScheduleStatus status, LocalDateTime at);
+
+    /** 반복 인스턴스 중복 생성 방지용 — 이미 있는 도착 시각들. */
+    @Query("select s.arriveBy from Schedule s where s.repeat.id = :repeatId")
+    List<LocalDateTime> findArriveBysByRepeatId(@Param("repeatId") Long repeatId);
+
+    /**
+     * REPEAT-004 재생성 대상 삭제 — 미래·미시작·개별수정 안 된 인스턴스만.
+     * customized=true 는 사용자가 손댄 것이라 남긴다(도메인 규칙 5).
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from Schedule s
+            where s.repeat.id = :repeatId
+              and s.status = com.ssafy.ddubi.domain.schedule.entity.ScheduleStatus.UPCOMING
+              and s.customized = false
+              and s.arriveBy > :after
+            """)
+    int deleteRegenerableInstances(@Param("repeatId") Long repeatId, @Param("after") LocalDateTime after);
+}

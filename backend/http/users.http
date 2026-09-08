@@ -1,0 +1,307 @@
+### 내 정보·기기 토큰 시나리오 테스트 (USER-001~003, DEVICE-001~002)
+#
+# auth.http 와 마찬가지로 위에서 아래로 실행한다.
+# ①에서 받은 토큰을 이후 요청이 자동으로 물려 쓴다.
+#
+# 사전 준비
+#   1) docker compose -f backend/docker-compose.dev.yml up -d
+#   2) 앱 기동
+
+@host = http://localhost:8080
+@email = usertest@ddubi.com
+@password = password123
+@deviceId = device-U
+
+### ① 테스트 계정 준비 (이미 있으면 409 — 그다음 ②로)
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "nickname": "테스터",
+  "deviceId": "{{deviceId}}"
+}
+
+### ② 로그인 — 토큰 확보
+POST {{host}}/api/v1/auth/local/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    client.test("200", function () { client.assert(response.status === 200); });
+    client.global.set("accessToken", response.body.data.accessToken);
+    client.global.set("refreshToken", response.body.data.refreshToken);
+%}
+
+### ③ 내 정보 조회 — USER-001
+GET {{host}}/api/v1/users/me
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.test("200", function () { client.assert(response.status === 200); });
+    client.test("명세서 필드가 모두 있다", function () {
+        const d = response.body.data;
+        ["id", "provider", "email", "nickname", "notifyLeadMin", "alarmEnabled",
+         "transportPrefs", "createdAt", "updatedAt"].forEach(function (f) {
+            client.assert(d[f] !== undefined, f + " 없음");
+        });
+    });
+    client.test("withdrawnAt 은 없어야 한다", function () {
+        client.assert(response.body.data.withdrawnAt === undefined);
+    });
+%}
+
+### ④ 확장 필드 3종 설정 — briefingTime / mobilityNote / transportPrefs
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "briefingTime": "07:00:00",
+  "mobilityNote": "계단 이동이 어렵습니다",
+  "transportPrefs": [
+    { "mode": "SUBWAY", "preference": "PREFER" },
+    { "mode": "BUS", "preference": "AVOID" }
+  ]
+}
+
+> {%
+    client.test("200", function () { client.assert(response.status === 200); });
+    client.test("세 필드가 저장됐다", function () {
+        const d = response.body.data;
+        client.assert(d.briefingTime === "07:00:00", "briefingTime=" + d.briefingTime);
+        client.assert(d.mobilityNote === "계단 이동이 어렵습니다", "한글이 깨졌다: " + d.mobilityNote);
+        client.assert(d.transportPrefs.length === 2);
+    });
+%}
+
+### ⑤ ★핵심★ 닉네임만 변경 — 보내지 않은 필드는 유지되어야 한다
+# 여기가 깨지면 프로필 수정할 때마다 브리핑 설정이 조용히 꺼진다.
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "nickname": "이름만바꿈"
+}
+
+> {%
+    client.test("닉네임만 바뀌었다", function () {
+        client.assert(response.body.data.nickname === "이름만바꿈");
+    });
+    client.test("미전달 필드는 살아 있다", function () {
+        const d = response.body.data;
+        client.assert(d.briefingTime === "07:00:00", "briefingTime 이 지워졌다");
+        client.assert(d.mobilityNote != null, "mobilityNote 가 지워졌다");
+        client.assert(d.transportPrefs.length === 2, "transportPrefs 가 지워졌다");
+    });
+%}
+
+### ⑥ 명시적 null — 브리핑만 끈다
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "briefingTime": null
+}
+
+> {%
+    client.test("브리핑이 꺼졌다", function () {
+        client.assert(response.body.data.briefingTime === undefined
+            || response.body.data.briefingTime === null);
+    });
+    client.test("나머지는 그대로", function () {
+        client.assert(response.body.data.mobilityNote != null);
+    });
+%}
+
+### ⑦ transportPrefs 전체 교체 — 병합이 아니다
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "transportPrefs": [{ "mode": "BUS", "preference": "PREFER" }]
+}
+
+> {%
+    client.test("1건으로 교체됐다", function () {
+        const p = response.body.data.transportPrefs;
+        client.assert(p.length === 1, "length=" + p.length);
+        client.assert(p[0].mode === "BUS" && p[0].preference === "PREFER");
+    });
+%}
+
+### ⑧ 같은 mode 중복 — 400
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "transportPrefs": [
+    { "mode": "BUS", "preference": "PREFER" },
+    { "mode": "BUS", "preference": "AVOID" }
+  ]
+}
+
+> {%
+    client.test("400", function () {
+        client.assert(response.status === 400, "status=" + response.status);
+    });
+%}
+
+### ⑨ notifyLeadMin 범위 초과 — 400 + fieldErrors
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "notifyLeadMin": 999
+}
+
+> {%
+    client.test("400 + fieldErrors", function () {
+        client.assert(response.status === 400);
+        client.assert(response.body.error.fieldErrors.length > 0);
+    });
+%}
+
+### ⑩ 빈 요청 — 400
+PATCH {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{}
+
+> {%
+    client.test("400", function () { client.assert(response.status === 400); });
+%}
+
+### ⑪ FCM 토큰 등록 — DEVICE-001
+PUT {{host}}/api/v1/devices/token
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "fcmToken": "fcm-http-test-token",
+  "platform": "ANDROID"
+}
+
+> {%
+    client.test("200", function () { client.assert(response.status === 200); });
+    client.test("명세서 응답 필드", function () {
+        const d = response.body.data;
+        ["deviceTokenId", "platform", "valid", "lastUsedAt"].forEach(function (f) {
+            client.assert(d[f] !== undefined, f + " 없음");
+        });
+    });
+    client.global.set("deviceTokenId", response.body.data.deviceTokenId);
+%}
+
+### ⑫ 같은 토큰 재등록 — upsert 라 id 가 같아야 한다
+PUT {{host}}/api/v1/devices/token
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "fcmToken": "fcm-http-test-token",
+  "platform": "ANDROID"
+}
+
+> {%
+    client.test("같은 행을 갱신했다", function () {
+        client.assert(response.body.data.deviceTokenId === client.global.get("deviceTokenId"),
+            "새 행이 생겼다");
+    });
+%}
+
+### ⑬ 없는 토큰 해제 — 404
+DELETE {{host}}/api/v1/devices/token
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "fcmToken": "does-not-exist"
+}
+
+> {%
+    client.test("404 DEVICE_TOKEN_NOT_FOUND", function () {
+        client.assert(response.status === 404);
+        client.assert(response.body.error.code === "DEVICE_TOKEN_NOT_FOUND");
+    });
+%}
+
+### ⑭ FCM 토큰 해제 — DEVICE-002, 204
+DELETE {{host}}/api/v1/devices/token
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "fcmToken": "fcm-http-test-token"
+}
+
+> {%
+    client.test("204", function () { client.assert(response.status === 204); });
+%}
+
+### ⑮ 탈퇴 — confirmation 누락 시 400
+DELETE {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "password": "{{password}}",
+  "confirmation": "YES"
+}
+
+> {%
+    client.test("400", function () { client.assert(response.status === 400); });
+%}
+
+### ⑯ 탈퇴 — 비밀번호 오류 시 401
+DELETE {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "password": "wrong-password",
+  "confirmation": "WITHDRAW"
+}
+
+> {%
+    client.test("401", function () { client.assert(response.status === 401); });
+%}
+
+### ⑰ 탈퇴 — USER-003, 204
+# 실행하면 계정이 사라진다. 다시 테스트하려면 ①부터.
+DELETE {{host}}/api/v1/users/me
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+  "password": "{{password}}",
+  "confirmation": "WITHDRAW",
+  "reason": "테스트 종료"
+}
+
+> {%
+    client.test("204", function () { client.assert(response.status === 204); });
+%}
+
+### ⑱ 탈퇴 직후 같은 액세스 토큰 — 401 (즉시 무효화)
+# 토큰 서명은 아직 유효하지만 auth:revoked 로 차단된다.
+GET {{host}}/api/v1/users/me
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.test("401 — 탈퇴한 계정의 토큰은 즉시 막힌다", function () {
+        client.assert(response.status === 401, "status=" + response.status);
+    });
+%}

@@ -43,11 +43,28 @@ x-collector-env: &collector-env
   SEOUL_API_KEY: ${SEOUL_API_KEY:-}
   DATA_GO_KR_API_KEY: ${DATA_GO_KR_API_KEY:-}
   KMA_API_KEY: ${KMA_API_KEY:-}
+  BUS_ROUTE_IDS: ${BUS_ROUTE_IDS:-}
+  SUBWAY_LINES: ${SUBWAY_LINES:-}
+  SUBWAY_STATIONS: ${SUBWAY_STATIONS:-}
+  TRAFFIC_LINK_IDS: ${TRAFFIC_LINK_IDS:-}
+  CITY_AREA_IDENTIFIERS: ${CITY_AREA_IDENTIFIERS:-}
+  CITY_AREA_REGISTRY_PATH: ${CITY_AREA_REGISTRY_PATH:-}
+  CITY_AREA_CODES: ${CITY_AREA_CODES:-}
+  SDOT_DISTRICTS: ${SDOT_DISTRICTS:-}
+  SDOT_SERVICE_NAME: ${SDOT_SERVICE_NAME:-}
+  SDOT_MAX_PAGES: ${SDOT_MAX_PAGES:-}
+  SDOT_EXPECTED_SENSOR_COUNT: ${SDOT_EXPECTED_SENSOR_COUNT:-}
+  SUBWAY_ALERT_API_URL: ${SUBWAY_ALERT_API_URL:-}
+  SUBWAY_ALERT_SERVICE_NAME: ${SUBWAY_ALERT_SERVICE_NAME:-}
+  TRAFFIC_INCIDENT_SERVICE_NAME: ${TRAFFIC_INCIDENT_SERVICE_NAME:-}
+  SEOUL_API_PAGE_SIZE: ${SEOUL_API_PAGE_SIZE:-}
 
-# Spark 3개 노드가 공유하는 마운트. 설정은 infra/spark/spark-defaults.conf 마운트.
+# Spark 3개 노드가 공유하는 마운트. 설정은 infra/spark/conf/ 디렉터리를 /opt/spark/conf 에 마운트
+# (파일 하나를 마운트하면 git pull 로 파일이 교체돼도 컨테이너는 옛 inode 를 계속 봐서 재생성 전엔 반영되지 않는다.
+#  디렉터리 마운트는 그 문제가 없다 — 2026-09-03 spark-defaults 변경이 반영되지 않은 사고에서 배움).
 # 로컬 볼륨 경로는 고정. SPARK_CHECKPOINT_DIR/SPARK_EVENTLOG_DIR 는 이 경로(2단계) 또는 hdfs://...(3단계) 를 가리킨다.
 x-spark-volumes: &spark-volumes
-  - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+  - ./spark/conf:/opt/spark/conf:ro
   - ../sparkjobs:/opt/ddubi/sparkjobs
   - spark-checkpoints:/opt/ddubi/checkpoints
   - spark-events:/opt/ddubi/spark-events
@@ -62,6 +79,9 @@ x-hdfs: &hdfs
   user: root
   environment:
     TZ: ${TZ:-Asia/Seoul}
+    # 이미지의 자바 8(1.8.0_212)은 cgroup v2 메모리 제한을 못 읽어 힙을 호스트 기준(16GB/4)으로 잡는다.
+    # 1GiB 제한 안에서 죽지 않게 힙 상한을 명시 (2026-09-03 네임노드 OOM 재발 방지)
+    HADOOP_HEAPSIZE_MAX: 512m
 
 services:
   # =========================================================================
@@ -130,10 +150,14 @@ services:
 
   # =========================================================================
   # collect : Python 수집기 x5 (Kafka 발행만 담당)                [서버1]
+  #  - collect           : 항상 배포하는 weather
+  #  - collect-realtime  : 구현 완료된 비기상 수집기. API 키와 명시적 수집 범위를
+  #                        준비한 뒤 운영자가 별도로 활성화한다.
   # =========================================================================
   collector-bus:
     <<: *collector
     container_name: collector-bus
+    profiles: ["collect-realtime"]
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: bus
@@ -141,6 +165,7 @@ services:
   collector-subway:
     <<: *collector
     container_name: collector-subway
+    profiles: ["collect-realtime"]
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: subway
@@ -148,6 +173,7 @@ services:
   collector-traffic:
     <<: *collector
     container_name: collector-traffic
+    profiles: ["collect-realtime"]
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: traffic
@@ -170,6 +196,7 @@ services:
   collector-event:
     <<: *collector
     container_name: collector-event
+    profiles: ["collect-realtime"]
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: event
@@ -225,8 +252,11 @@ services:
       - ${REDIS_PASSWORD}
       - --maxmemory
       - 384mb
+      # 메모리가 차면 TTL 이 있는 키 중 만료가 가까운 것부터 지운다 (volatile-ttl).
+      # 캐시(weather:latest 2h, route:candidates 10m)가 먼저 나가고 상태 키(auth:refresh 14d, idem 24h)는 마지막까지 남는다.
+      # TTL 없는 키는 절대 퇴출되지 않으므로 docs/contracts/redis-keys.yaml 에 명시된 것만 TTL 없이 넣는다 (2026-09-03 점검 결정)
       - --maxmemory-policy
-      - allkeys-lru
+      - volatile-ttl
       - --appendonly
       - "yes"
     environment:
@@ -271,7 +301,15 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:-}
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      DDUBI_TRANSIT_MASTER_IMPORT_ENABLED: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:-false}
+      DDUBI_TRANSIT_MASTER_DATA_VERSION: ${DDUBI_TRANSIT_MASTER_DATA_VERSION:-}
+      DDUBI_TRANSIT_MASTER_BUS_WORKBOOK: ${DDUBI_TRANSIT_MASTER_BUS_WORKBOOK:-}
+      DDUBI_TRANSIT_MASTER_SUBWAY_TIMETABLE: ${DDUBI_TRANSIT_MASTER_SUBWAY_TIMETABLE:-}
+      DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS: ${DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS:-}
+      DDUBI_TRANSIT_MASTER_ALIASES: ${DDUBI_TRANSIT_MASTER_ALIASES:-}
       JAVA_OPTS: -Xms256m -Xmx512m
+    volumes:
+      - ${TRANSIT_MASTER_DATA_DIR:-./transit-master}:/opt/ddubi/transit-master:ro
     depends_on:
       mysql:
         condition: service_healthy
@@ -437,7 +475,44 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
-      - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # 비기상 실시간 이벤트(버스·지하철·도로·도시·S-DoT) 최신값 Redis 적재 잡.
+  spark-streaming-realtime:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-realtime
+    profiles: ["spark"]
+    mem_limit: 1g
+    working_dir: /opt/ddubi/sparkjobs
+    command: ["sh", "submit.sh", "streaming/realtime_latest.py"]
+    ports:
+      - "${SPARK_REALTIME_DRIVER_UI_PORT:-4042}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
+      SPARK_JOB_TOPICS: transport.raw,city.raw
+      # 날씨 잡이 각 워커의 1GiB를 사용하므로 남은 512MiB 안에 executor가 배치되게 한다.
+      SPARK_EXECUTOR_MEMORY: ${REALTIME_EXECUTOR_MEMORY:-480m}
+      SPARK_CORES_MAX: ${REALTIME_CORES_MAX:-2}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
       - ../sparkjobs:/opt/ddubi/sparkjobs
       - spark-checkpoints:/opt/ddubi/checkpoints
       - spark-events:/opt/ddubi/spark-events
@@ -481,7 +556,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
-      - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/conf:/opt/spark/conf:ro
       - ../sparkjobs:/opt/ddubi/sparkjobs
       - spark-checkpoints:/opt/ddubi/checkpoints
       - spark-events:/opt/ddubi/spark-events
@@ -522,7 +597,7 @@ services:
       SPARK_DRIVER_MEMORY: ${BATCH_DRIVER_MEMORY:-512m}
       SPARK_CORES_MAX: ${BATCH_CORES_MAX:-2}
     volumes:
-      - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/conf:/opt/spark/conf:ro
       - ../sparkjobs:/opt/ddubi/sparkjobs
       - spark-checkpoints:/opt/ddubi/checkpoints
       - spark-events:/opt/ddubi/spark-events
@@ -604,6 +679,8 @@ services:
       - "9870:9870"   # NameNode Web UI
       - "9000:9000"   # NameNode RPC
     volumes:
+      # HDFS 설정은 단일 파일 마운트를 유지한다 (이미지의 /opt/hadoop/etc/hadoop 에 다른 필수 파일이 많아 디렉터리로 덮을 수 없음).
+      # 따라서 *.xml 을 고쳐 배포한 뒤에는 반드시 재생성: up -d --force-recreate hdfs-namenode hdfs-datanode1 (서버2: hdfs-datanode2)
       - ./hdfs/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hdfs/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
       - hdfs-namenode-data:/hadoop/dfs/name
@@ -649,11 +726,12 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     command:
-      - --config.file=/etc/prometheus/prometheus.yml
+      - --config.file=/etc/prometheus/ddubi/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # 디렉터리 마운트 (단일 파일 마운트는 git pull 교체가 컨테이너에 반영되지 않음). 이미지의 /etc/prometheus 는 그대로 두고 하위 경로에 붙인다
+      - ./monitoring/prometheus:/etc/prometheus/ddubi:ro
       - prometheus-data:/prometheus
 
   grafana:

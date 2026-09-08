@@ -1,7 +1,8 @@
 """city.raw 의 weather.observation → Redis weather:latest:{nx}:{ny}
 
 Kafka → Spark → Redis 실시간 경로의 첫 잡. 마이크로배치마다 격자(nx, ny)별로 가장 최신 관측
-(occurredAt 이 가장 늦은 것, 같으면 collectedAt) 하나만 남겨 Redis 에 JSON 문자열로 쓴다.
+(occurredAt 이 가장 늦은 것, 같으면 collectedAt) 하나만 남긴다. Redis 쓰기 직전에도 현재값과
+시각을 원자 비교해 다음 배치에 늦게 도착한 과거 관측이 최신값을 되돌리지 않게 한다.
 키·TTL 은 docs/contracts/redis-keys.yaml (weatherLatest) 를 따른다.
 """
 
@@ -16,7 +17,14 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, DoubleType, IntegerType, MapType, StringType, StructField, StructType
 
 from common.kafka_source import read_events_stream
-from common.redis_sink import KEY_COL, VALUE_COL, write_with_ttl
+from common.redis_sink import (
+    COLLECTED_TIME_COL,
+    EVENT_TIME_COL,
+    KEY_COL,
+    TTL_COL,
+    VALUE_COL,
+    write_latest_with_row_ttl,
+)
 from common.settings import Settings
 
 # 실험(부하 시험)용 인스턴스는 환경변수로 토픽·잡 이름·키 접두사를 바꿔 띄운다.
@@ -62,9 +70,14 @@ def transform(events: DataFrame) -> DataFrame:
 
 
 def latest_per_grid(df: DataFrame) -> DataFrame:
-    """한 배치 안에서 격자별 최신 1건만."""
+    """한 배치 안에서 격자별 최신 1건을 고르고 시각 불명 관측은 서빙에서 제외한다."""
     window = Window.partitionBy("nx", "ny").orderBy(F.col("occurredAt").desc(), F.col("collectedAt").desc())
-    return df.withColumn("rn", F.row_number().over(window)).filter(F.col("rn") == 1).drop("rn")
+    return (
+        df.filter(F.col("occurredAt").isNotNull() & F.col("collectedAt").isNotNull())
+        .withColumn("rn", F.row_number().over(window))
+        .filter(F.col("rn") == 1)
+        .drop("rn")
+    )
 
 
 def to_redis_rows(df: DataFrame) -> DataFrame:
@@ -77,13 +90,21 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
                 "occurredAt", "collectedAt", "eventId", "source",
             )
         ).alias(VALUE_COL),
+        F.lit(TTL_SECONDS).cast("int").alias(TTL_COL),
+        # Redis의 배치 간 최신성 비교가 문자열 정렬과 일치하도록 KST·밀리초 형식을 고정한다.
+        F.date_format("occurredAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(EVENT_TIME_COL),
+        F.date_format("collectedAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(COLLECTED_TIME_COL),
     )
 
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", stream=sys.stdout)
     settings = Settings.from_env()
-    spark = SparkSession.builder.appName(f"ddubi-{JOB_NAME}").getOrCreate()
+    spark = (
+        SparkSession.builder.appName(f"ddubi-{JOB_NAME}")
+        .config("spark.sql.session.timeZone", "Asia/Seoul")
+        .getOrCreate()
+    )
     spark.sparkContext.setLogLevel("WARN")
 
     def process_batch(batch_df: DataFrame, batch_id: int) -> None:
@@ -91,7 +112,12 @@ def main() -> int:
         try:
             count = rows.count()
             if count:
-                write_with_ttl(rows, TTL_SECONDS, settings.redis_host, settings.redis_port, settings.redis_password)
+                write_latest_with_row_ttl(
+                    rows,
+                    settings.redis_host,
+                    settings.redis_port,
+                    settings.redis_password,
+                )
             log.info("batch=%d grids=%d", batch_id, count)
         finally:
             rows.unpersist()

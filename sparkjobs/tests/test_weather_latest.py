@@ -1,14 +1,13 @@
 """weather_latest 변환 로직을 배치 DataFrame 으로 검증한다 (Kafka·Redis 없이)."""
 
 import json
-from datetime import datetime
 
 import pytest
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from common.kafka_source import parse_envelope
-from common.redis_sink import KEY_COL, VALUE_COL
+from common.redis_sink import COLLECTED_TIME_COL, EVENT_TIME_COL, KEY_COL, TTL_COL, VALUE_COL
 from streaming.weather_latest import latest_per_grid, to_redis_rows, transform
 
 
@@ -41,11 +40,18 @@ def _event(event_id: str, occurred: str, collected: str, nx: int, ny: int, temp:
 
 
 def _kafka_df(spark, events):
-    rows = [
-        (f"{e['payload']['nx']}:{e['payload']['ny']}".encode(), json.dumps(e, ensure_ascii=False).encode(), 0, i, datetime(2026, 8, 27, 9, 10))
-        for i, e in enumerate(events)
-    ]
-    return spark.createDataFrame(rows, "key binary, value binary, partition int, offset long, timestamp timestamp")
+    # Windows 로컬 Spark의 Python worker 소켓 상태와 무관하게 Catalyst 변환을 검증하도록
+    # Kafka 모양의 고정 행을 JVM SQL에서 만든다. key/value의 binary 계약은 운영 입력과 같다.
+    selects = []
+    for index, event in enumerate(events):
+        key = f"{event['payload']['nx']}:{event['payload']['ny']}"
+        value = json.dumps(event, ensure_ascii=False).replace("'", "''")
+        selects.append(
+            "SELECT CAST('{0}' AS BINARY) AS key, CAST('{1}' AS BINARY) AS value, "
+            "0 AS partition, CAST({2} AS BIGINT) AS offset, "
+            "TIMESTAMP '2026-08-27 09:10:00' AS timestamp".format(key, value, index)
+        )
+    return spark.sql(" UNION ALL ".join(selects))
 
 
 def test_parse_envelope_reads_contract_fields(spark):
@@ -60,7 +66,10 @@ def test_parse_envelope_reads_contract_fields(spark):
 
 
 def test_parse_envelope_drops_garbage(spark):
-    raw = spark.createDataFrame([(b"k", b"not json", 0, 0, datetime(2026, 8, 27))], "key binary, value binary, partition int, offset long, timestamp timestamp")
+    raw = spark.sql(
+        "SELECT CAST('k' AS BINARY) AS key, CAST('not json' AS BINARY) AS value, "
+        "0 AS partition, CAST(0 AS BIGINT) AS offset, TIMESTAMP '2026-08-27 00:00:00' AS timestamp"
+    )
     assert parse_envelope(raw).count() == 0
 
 
@@ -89,6 +98,9 @@ def test_to_redis_rows_matches_contract_key_and_json_value(spark):
     events = parse_envelope(_kafka_df(spark, [_event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3)]))
     row = to_redis_rows(transform(events)).collect()[0]
     assert row[KEY_COL] == "weather:latest:60:127"
+    assert row[TTL_COL] == 7200
+    assert row[EVENT_TIME_COL] == "2026-08-27T09:00:00.000+09:00"
+    assert row[COLLECTED_TIME_COL] == "2026-08-27T09:10:00.000+09:00"
     value = json.loads(row[VALUE_COL])
     assert value["districts"] == ["종로구", "중구"]
     assert value["observations"]["T1H"] == 27.3
@@ -104,9 +116,11 @@ def test_transform_accepts_legacy_single_district_payload(spark):
         "payload": {"district": "종로구", "nx": 60, "ny": 127, "baseDate": "20260827", "baseTime": "0900",
                     "observations": {"T1H": 25.0}},
     }
-    raw = spark.createDataFrame(
-        [(b"60:127", json.dumps(legacy, ensure_ascii=False).encode(), 0, 0, datetime(2026, 8, 27, 9, 10))],
-        "key binary, value binary, partition int, offset long, timestamp timestamp",
+    value = json.dumps(legacy, ensure_ascii=False).replace("'", "''")
+    raw = spark.sql(
+        "SELECT CAST('60:127' AS BINARY) AS key, CAST('{0}' AS BINARY) AS value, "
+        "0 AS partition, CAST(0 AS BIGINT) AS offset, "
+        "TIMESTAMP '2026-08-27 09:10:00' AS timestamp".format(value)
     )
     out = transform(parse_envelope(raw)).collect()[0]
     assert out.districts == ["종로구"]  # 단수 형식이 배열로 승격된다

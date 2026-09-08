@@ -1,9 +1,9 @@
 -- =====================================================================
 -- 뚜비(DDUBI) 서비스 DB 스키마 — ERD_master (구 ERD v2)
 -- =====================================================================
--- 원천: Notion「ERD_master」(mermaid) + 「ERD 설명서」 + backend/CLAUDE.md
+-- 원천: Notion「ERD_master」(mermaid) + 「ERD 설명서」 + backend/BACKEND_CONVENTION.md
 -- 대상: MySQL 8.0+ / InnoDB / utf8mb4
--- 소유: 백엔드(서비스) — 단, 15~17번 테이블은 분산 담당 소유(아래 주석 참조)
+-- 소유: 백엔드(서비스) — 단, 16번 detection_log 는 분산 담당 소유(15~17번 주석 참조)
 --
 -- 이 파일이 Flyway `backend/src/main/resources/db/migration/V1__init.sql`의
 -- 원천이다. 두 파일은 항상 동일해야 하며, 스키마 변경 시
@@ -49,7 +49,7 @@ CREATE TABLE `user` (
 CREATE TABLE user_auth (
     id               BIGINT       NOT NULL AUTO_INCREMENT,
     user_id          BIGINT       NOT NULL,
-    provider         ENUM('LOCAL','KAKAO','GOOGLE','NAVER') NOT NULL COMMENT 'v1 구현 범위는 LOCAL + KAKAO',
+    provider         ENUM('LOCAL','KAKAO','GOOGLE','NAVER') NOT NULL COMMENT '로그인 수단 4종. SSAFY·APPLE 은 팀 합의로 제외',
     provider_user_id VARCHAR(100) NULL     COMMENT '소셜 외부 고유 ID(카카오 회원번호 등). LOCAL은 NULL',
     password_hash    VARCHAR(255) NULL     COMMENT 'bcrypt 해시. LOCAL 행에만 값 존재',
     created_at       DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -122,7 +122,8 @@ CREATE TABLE schedule_repeat (
     title        VARCHAR(100)  NOT NULL COMMENT '일정 이름 (예: 출근)',
     days_of_week VARCHAR(30)   NOT NULL COMMENT '반복 요일 CSV (예: MON,TUE,WED,THU,FRI)',
     arrive_time  TIME          NOT NULL COMMENT '도착 목표 시각',
-    until_date   DATE          NULL     COMMENT '반복 종료일. NULL = 무기한',
+    start_date   DATE          NOT NULL COMMENT '반복 시작일 — 이 날짜부터 인스턴스를 만든다 (REPEAT-001 startDate)',
+    until_date   DATE          NULL     COMMENT '반복 종료일. NULL = 무기한 (REPEAT-001 endDate)',
     origin_name  VARCHAR(100)  NOT NULL COMMENT '출발지 스냅샷 (schedule 과 동일 구조)',
     origin_lat   DECIMAL(10,7) NOT NULL,
     origin_lng   DECIMAL(10,7) NOT NULL,
@@ -130,6 +131,7 @@ CREATE TABLE schedule_repeat (
     dest_lat     DECIMAL(10,7) NOT NULL,
     dest_lng     DECIMAL(10,7) NOT NULL,
     importance   ENUM('NORMAL','HIGH','CRITICAL') NOT NULL DEFAULT 'NORMAL' COMMENT '생성될 인스턴스의 기본 중요도',
+    consider_last_trip BOOLEAN NOT NULL DEFAULT FALSE COMMENT '생성될 인스턴스의 막차 고려 기본값 — 없으면 연장 잡이 값을 정할 수 없다',
     is_active    BOOLEAN       NOT NULL DEFAULT TRUE COMMENT 'FALSE = 신규 인스턴스 생성 중단(기존 인스턴스는 유지)',
     created_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at   DATETIME(6)   NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -188,7 +190,7 @@ CREATE TABLE route_request (
 --    [서비스 계층 보장 1] schedule_id 는 route_request.schedule_id 와 항상 같아야 한다
 --                        (성능 목적 비정규화. DB로 강제 불가)
 --    [서비스 계층 보장 2] 한 schedule 에 is_selected=TRUE 는 최대 1건
---                        (CLAUDE.md 규칙 6. PUT .../selection 트랜잭션에서 나머지 FALSE)
+--                        (BACKEND_CONVENTION.md 규칙 6. PUT .../selection 트랜잭션에서 나머지 FALSE)
 --    ※ 팀 합의 시 아래로 DB 강제 가능(별도 마이그레이션 안건):
 --        selected_schedule_id BIGINT GENERATED ALWAYS AS (IF(is_selected, schedule_id, NULL)) VIRTUAL,
 --        UNIQUE KEY UK_ROUTE_SELECTED (selected_schedule_id)
@@ -343,9 +345,12 @@ CREATE TABLE report_detail (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '일정별 이동 결과 (P3)';
 
 -- =====================================================================
--- 파이프라인 서빙 테이블 (15~17)
---   소유: 분산 담당. 백엔드는 스키마 초안만 제공하고 읽기 전용으로 쓴다.
---   배치 적재 주체는 Spark. 스키마 수정 권한은 분산 담당에게 있다.
+-- 파이프라인 서빙 테이블 (15~17) — 소유가 표마다 다르다
+--   15 baseline_serving · 17 pipeline_config: **백엔드(서비스) 소유.**
+--     Spark 는 MySQL 에 직접 쓰지 않고 internal API(방법 2, docs/contracts/
+--     internal-api.yaml)로 업로드하며, 검증·적재·버전 전환은 백엔드가 한다.
+--     (2026-09-01 인프라 합의. 이전에는 분산 담당 소유였다)
+--   16 detection_log: 분산 담당 소유. 감지 주체가 Spark 라 그쪽이 직접 쓴다.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -355,7 +360,7 @@ CREATE TABLE report_detail (
 CREATE TABLE baseline_serving (
     id             BIGINT      NOT NULL AUTO_INCREMENT,
     segment_id     VARCHAR(180) NOT NULL COMMENT 'route_segment·Redis 와 동일 체계',
-    dow            TINYINT     NOT NULL COMMENT '요일 1~7 (월=1)',
+    dow            TINYINT     NOT NULL COMMENT '요일 1~7. 일=1, 토=7 (Spark dayofweek 기준). Java LocalDate 는 월=1 이므로 변환 필요',
     hour_slot      TINYINT     NOT NULL COMMENT '시간대 0~23',
     weather_bucket ENUM('DRY','RAIN','SNOW') NOT NULL,
     p50            INT         NOT NULL COMMENT '단위: 초',
@@ -367,7 +372,7 @@ CREATE TABLE baseline_serving (
     updated_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
     UNIQUE KEY UK_BASELINE_KEY (segment_id, dow, hour_slot, weather_bucket, data_version)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '평소 이동시간 baseline (소유: 분산 담당)';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '평소 이동시간 baseline (소유: 백엔드 — Spark 가 internal API 로 업로드)';
 
 -- ---------------------------------------------------------------------
 -- 16. detection_log — 이상 감지 선행 검증 (REQ-PIP-003, 발표 근거)
@@ -388,16 +393,18 @@ CREATE TABLE detection_log (
 
 -- ---------------------------------------------------------------------
 -- 17. pipeline_config — 파이프라인 설정 포인터 (Key-Value)
---     ※ 공통 규칙(BIGINT AUTO_INCREMENT PK)의 **유일한 예외**.
---       ERD_master 정의를 그대로 따른다(소유: 분산 담당).
---     대표 용도: baseline_active_version = 백엔드가 읽어야 할 data_version
+--     ※ 공통 규칙(BIGINT AUTO_INCREMENT PK)의 **유일한 예외**. ERD_master 정의를 따른다.
+--     소유: 백엔드. internal API 의 activate 가 아래 두 키를 트랜잭션으로 갱신한다.
+--       baseline_active_version    = 서빙 중인 data_version (예: 2026-09-01)
+--       baseline_last_activated_at = 마지막 활성화 시각 — 이 값이 오래되면
+--         confidence 강등·DATA_STALE 알림의 근거가 된다 (internal-api-review 3-2)
 -- ---------------------------------------------------------------------
 CREATE TABLE pipeline_config (
     config_key   VARCHAR(50)  NOT NULL COMMENT '설정 이름 (예: baseline_active_version)',
     config_value VARCHAR(100) NOT NULL COMMENT '설정 값 (예: 2026-08-29)',
     updated_at   DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (config_key)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '파이프라인 설정 포인터 (소유: 분산 담당)';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '파이프라인 설정 포인터 (소유: 백엔드 — internal API 활성화 시점에 갱신)';
 
 -- =====================================================================
 -- 서울 공식 대중교통 마스터 (18~24)

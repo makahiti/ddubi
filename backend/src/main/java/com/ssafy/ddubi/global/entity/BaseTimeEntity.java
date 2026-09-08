@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * 전 테이블 공통 created_at / updated_at.
  *
  * DDL 에도 DEFAULT CURRENT_TIMESTAMP / ON UPDATE 가 걸려 있지만 그건 안전망이다.
- * 값을 정하는 주체는 서버다(CLAUDE.md 도메인 규칙 12) — JPA 가 명시값을 쓰므로
+ * 값을 정하는 주체는 서버다(BACKEND_CONVENTION.md 도메인 규칙 12) — JPA 가 명시값을 쓰므로
  * DB 의 ON UPDATE 는 발동하지 않는다.
  *
  * updated_at 은 일정 수정의 낙관적 잠금 비교값으로도 쓰이므로 갱신 주체가 하나여야 한다.

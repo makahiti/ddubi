@@ -12,6 +12,7 @@ class DdubiApp extends ConsumerWidget {
     title: '뚜비',
     debugShowCheckedModeBanner: false,
     theme: DdubiTheme.light,
+    scrollBehavior: const DdubiScrollBehavior(),
     routerConfig: ref.watch(appRouterProvider),
   );
 }

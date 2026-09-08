@@ -22,7 +22,7 @@ import java.util.List;
 /**
  * 전역 예외 → 공통 오류 응답 변환.
  * 내부 예외 메시지·스택·SQL 은 절대 클라이언트로 내보내지 않는다
- * (외부 API 키, raw_response 노출 방지 — CLAUDE.md 9장).
+ * (외부 API 키, raw_response 노출 방지 — BACKEND_CONVENTION.md 9장).
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {

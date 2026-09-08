@@ -49,7 +49,7 @@ compose-validate:
   script:
     - cd infra
     - cp .env.example .env
-    - docker compose --profile core --profile collect --profile data --profile serving --profile spark
+    - docker compose --profile core --profile collect --profile collect-realtime --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
       --profile exporters config -q
     # 서버 오버레이 검증 (IP 는 필수 변수라 더미 값 주입)
@@ -120,6 +120,61 @@ sparkjobs-test:
     - changes:
         - sparkjobs/**/*
 
+# backend 통합 테스트: docs/contracts/backend-ci-requirements.md 의 정의를 그대로 옮김.
+# 테스트가 Testcontainers 로 MySQL 8·Redis 7 컨테이너를 직접 띄우므로 도커 데몬이 필요하고,
+# 잡 컨테이너에는 데몬이 없어 dind 서비스 컨테이너의 데몬을 쓴다 (러너 privileged=true 필요).
+# 시간대(+09:00)·문자셋(utf8mb4)은 테스트 코드(IntegrationTestSupport)가 컨테이너를 띄울 때 지정한다.
+backend-test:
+  stage: test
+  image: eclipse-temurin:17-jdk        # 팀 표준 Java 17
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: "tcp://docker:2375"
+    # Testcontainers 가 띄운 컨테이너는 dind 안에 있다. 이 값이 없으면 테스트가 localhost 로 붙으려다 전부 실패한다
+    TESTCONTAINERS_HOST_OVERRIDE: "docker"
+    # 정리 컨테이너(ryuk)는 dind 에서 자주 막힌다. 잡이 끝나면 dind 가 통째로 사라지므로 없어도 된다
+    TESTCONTAINERS_RYUK_DISABLED: "true"
+  cache:
+    key:
+      files: [backend/pom.xml]
+    paths: [.m2/repository]
+  script:
+    # mvnw 가 깃에 실행 권한 없이(100644) 올라가 있어 chmod 가 필요하다. 권한이 고쳐지면 지워도 된다
+    - cd backend && chmod +x mvnw && ./mvnw -B -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository test
+  rules:
+    - changes:
+        - backend/**/*
+        - docs/ddubi_erd_v2.sql          # 스키마 원천. V1__init.sql 과 항상 같아야 하므로 바뀌면 테스트를 돌린다
+
+# 클라이언트(Flutter) 정적 분석 + 단위 테스트. 팀장(FE 담당) 요청: client 변경 시 자동, 빌드는 수동.
+# 이미지는 클라이언트가 기준으로 삼는 Flutter 3.47.2 (pubspec.lock: Flutter >=3.44, Dart >=3.13.2).
+# cirruslabs/flutter 에는 3.47 태그가 없어 FE 담당이 지정한 gmeligio 이미지를 쓴다.
+.flutter:
+  image: ghcr.io/gmeligio/flutter-web:3.47.2
+  variables:
+    PUB_CACHE: "$CI_PROJECT_DIR/.pub-cache"   # 잡 사이에 패키지 캐시를 유지하기 위해 프로젝트 안으로
+  cache:
+    key:
+      files: [client/pubspec.lock]
+    paths: [.pub-cache]
+  before_script:
+    - cd client
+    - flutter --version
+    - flutter pub get
+
+client-test:
+  extends: .flutter
+  stage: test
+  script:
+    - flutter analyze
+    - flutter test
+  rules:
+    - changes:
+        - client/**/*
+
 # ---------------------------------------------------------------------------
 # build (수동): 이미지 빌드 검증. dind(privileged) 러너 필요
 #  - SSAFY GitLab 은 컨테이너 저장소가 없어(CI_REGISTRY 미제공) push 는 하지 않는다.
@@ -156,6 +211,35 @@ spark-image:
   script:
     - docker build -f infra/spark/Dockerfile --build-arg SPARK_IMAGE=apache/spark:3.5.3-python3
       -t "ddubi/spark:ci-$CI_COMMIT_SHORT_SHA" .
+
+# 클라이언트 빌드 (수동): 오래 걸려 자동으로 돌리지 않는다. 결과물은 아티팩트로 1일 보관
+.flutter-build:
+  extends: .flutter
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+
+client-build-web:
+  extends: .flutter-build
+  script:
+    - flutter build web --release
+  artifacts:
+    paths: [client/build/web]
+    expire_in: 1 day
+
+client-build-android:
+  extends: .flutter-build
+  image: ghcr.io/gmeligio/flutter-android:3.47.2   # Android SDK 포함 (FE 담당 지정)
+  script:
+    - flutter build apk --release
+  artifacts:
+    paths: [client/build/app/outputs/flutter-apk/app-release.apk]
+    expire_in: 1 day
 
 # ---------------------------------------------------------------------------
 # deploy (수동 승인): 러너(서버2)가 SSH 로 각 서버에 접속해 git pull + compose up
@@ -198,5 +282,5 @@ deploy-server2:
        up -d --build"
 
 # 후속 작업
-# - client/**: Flutter test + Android/Web build
-# - backend/**, notification/**: Spring test + image build (배포 프로필에 추가)
+# - backend/**: 이미지 빌드 검증 잡 (backend/Dockerfile 은 있음, backend 팀 요청 시 build 단계에 추가)
+# - notification/**: Spring test + image build (배포 프로필에 추가)

@@ -1,0 +1,92 @@
+### 장소 API 시나리오 (PLACE-001~006)
+#
+# 사용법: auth.http 로 로그인해 accessToken 을 받아 @token 에 넣는다.
+# 실행 순서대로 번호를 붙였다. IntelliJ HTTP Client 로 실행.
+
+@host = http://localhost:8080
+@token = 여기에-액세스-토큰
+
+### ① 서울 장소 검색 — 카카오 프록시 (KAKAO_REST_API_KEY 필요)
+# size 는 카카오 상한 15 로 잘린다. 서울 밖 결과는 애초에 오지 않는다(rect 필터).
+GET {{host}}/api/v1/places/search?query=강남역&page=0&size=15
+Authorization: Bearer {{token}}
+
+### ② 장소 등록 — 201
+POST {{host}}/api/v1/places
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "회사",
+  "address": "서울 강남구 테헤란로 212",
+  "lat": 37.5013068,
+  "lng": 127.0396597
+}
+
+> {%
+    client.test("201", function () {
+        client.assert(response.status === 201);
+        client.global.set("placeId", response.body.data.id);
+    });
+%}
+
+### ③ 서울 밖 좌표 — 422 OUT_OF_SERVICE_AREA
+POST {{host}}/api/v1/places
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "부산집",
+  "address": "부산 해운대구",
+  "lat": 35.1587,
+  "lng": 129.1604
+}
+
+> {%
+    client.test("422", function () {
+        client.assert(response.status === 422);
+        client.assert(response.body.error.code === "OUT_OF_SERVICE_AREA");
+    });
+%}
+
+### ④ 목록 — 200
+GET {{host}}/api/v1/places?page=0&size=20
+Authorization: Bearer {{token}}
+
+### ⑤ 상세 — 200
+GET {{host}}/api/v1/places/{{placeId}}
+Authorization: Bearer {{token}}
+
+### ⑥ 부분 수정 — 이름만 바꾸면 좌표는 그대로
+PATCH {{host}}/api/v1/places/{{placeId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "새 회사"
+}
+
+### ⑦ 위도만 보내면 — 400 (좌표는 쌍으로)
+PATCH {{host}}/api/v1/places/{{placeId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "lat": 37.55
+}
+
+> {%
+    client.test("400", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ⑧ 삭제 — 204. 이 장소로 만든 기존 일정은 영향 없다(스냅샷)
+DELETE {{host}}/api/v1/places/{{placeId}}
+Authorization: Bearer {{token}}
+
+> {%
+    client.test("204", function () {
+        client.assert(response.status === 204);
+    });
+%}
