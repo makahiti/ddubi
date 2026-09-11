@@ -58,6 +58,10 @@ python export_v12.py --root /home/j-j15e202 --start 2026-09-10 --end 2026-09-17 
 
 ## 테스트
 
+실제 모델 검증은 기본 `artifacts/ml-serving/20260908-v12/`가 없으면 skip한다.
+`ML_TEST_BUNDLE_DIR`로 경로를 명시하면 누락/손상도 실패 처리하며 skip으로 숨기지 않는다.
+CI에서 모델 없이 단위 테스트를 실행할 때는 이 변수를 지정하지 않는다.
+
 ```powershell
 ml-serving/.venv/Scripts/python.exe -m pytest ml-serving/tests -q
 ```
@@ -67,6 +71,22 @@ Windows sandbox의 임시 폴더 접근 문제가 있으면 프로젝트 `data/`
 디렉터리를 `--basetemp`로 지정한다. 기존 사용자 데이터 경로를 지정하지 않는다.
 
 ## 운영 전 남은 조건
+
+### 요청 대기·참조 캐시 설정
+
+- `ML_MAX_WAITING_REQUESTS=4`: 실행 1건 외에 FIFO 대기 4건, 범위 0~32.
+- `ML_QUEUE_WAIT_SECONDS=5`: 대기만의 제한시간(초), 범위 0~30. 초과하면 `MODEL_BUSY`.
+- `ML_REFERENCE_CACHE_MIB=256`: 검증된 참조 Arrow Table의 LRU 보관 상한, 범위 0~4096.
+  처음 읽을 때 저장하며 큰 단일 파일은 보관하지 않는다. 0은 캐시 비활성화.
+- 대기 개수/시간을 0으로 두면 혼잡 시 즉시 503이다. 실행 중 연결 취소가 계산을 중단하지는 않는다.
+- 위 환경변수는 프로세스 시작 시 읽으며 `.env.example`은 자동 로드하지 않는다.
+- worker 1개로 시작한다. 캐시 상한은 모델·pandas 변환·임시 버퍼를 포함한 RSS 한도가 아니다.
+- Docker 이미지에 `reference_cache.py`, `serving_runtime.py`도 포함해야 한다.
+
+실제 묶음으로 캐시 전후/최대 배치를 측정하는 방법과 결과는
+[성능 검증 기록](../docs/contracts/ml-serving-capacity-validation.md)을 참고한다.
+
+### 운영 승인 전 검증
 
 - 서울 provider ID와 노선·인접 정류장·순번 조합의 학습/마스터 대조
 - 참조 자료 가용시각·갱신과 미래 기간 평가

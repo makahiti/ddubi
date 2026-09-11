@@ -20,6 +20,7 @@ import pandas as pd
 from threadpoolctl import threadpool_limits
 
 from schemas import BatchRequest
+from reference_cache import ReferenceCache
 
 SEOUL = ZoneInfo('Asia/Seoul')
 
@@ -40,10 +41,10 @@ class Predictor:
     """한 버전의 모델과 참조를 소유하는 읽기 전용 추론 객체.
 
 요청 중 모델 교체나 통계 재학습은 하지 않는다. 모델 변경 시 검증 후 재시작한다.
-동시 호출은 한 개만 허용해 pandas 참조 로딩과 CPU 스레드 수의 급증을 막는다.
+HTTP 대기열을 통과한 계산 한 개만 실행한다. 직접 호출도 락으로 보호한다.
 자체 산출물만 로드해야 하며 SHA는 파일 일관성 검사이지 외부 파일의 신뢰 인증이 아니다.
 """
-    def __init__(self, bundle_dir):
+    def __init__(self, bundle_dir, *, cache_mib=256):
         self.root = Path(bundle_dir).resolve()
         self.lock = Lock()
         self.bundle = json.loads((self.root / 'bundle.json').read_text(encoding='utf-8'))
@@ -75,8 +76,13 @@ class Predictor:
         self.model = joblib.load(self.root / 'selected_model.joblib')
         self.model.set_params(n_jobs=2)
         self.vocab = {name: set(values) for name, values in self.spec['vocab'].items()}
-        # 검증 묶음은 원본 참조를 유지한다. 요청별 변경·캐시 자동 갱신은 하지 않는다.
+        # 3. 검증된 portable 함수의 파일 읽기만 캐시한다. 모델·계산식·묶음 SHA는 변경하지 않는다.
+        # 캐시는 지연 로딩하며 새 버전은 새 Predictor/프로세스로만 반영한다.
         self.reference = self.root / 'references'
+        self.reference_cache = ReferenceCache(
+            [checked_path(self.root, name) for name in files if name.startswith('references/')],
+            cache_mib * 1024 * 1024)
+        self.reference_cache.bind(self.features)
 
     def metadata(self):
         """수치 확인용 서비스 준비 상태와 지원 날짜를 반환한다. 운영 승인과 구분한다."""

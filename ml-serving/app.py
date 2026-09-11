@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 
 from predictor import BundleError, Predictor
 from schemas import BatchRequest, BatchResponse, InvalidRequest, ServiceUnavailable
+from serving_runtime import InferenceQueue, QueueBusy, RuntimeSettings
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_BUNDLE = Path(__file__).resolve().parent.parent / 'artifacts/ml-serving/20260908-v12'
 
 
-def create_app(predictor=None):
+def create_app(predictor=None, settings=None):
     """테스트에서는 객체를 주입하며 실서비스에서는 환경변수로 묶음 경로를 고정한다.
 
 로딩 실패를 정상값으로 숨기지 않고 readiness 503으로 노출한다. 예외 원문에는
@@ -28,13 +29,19 @@ def create_app(predictor=None):
 """
     @asynccontextmanager
     async def lifespan(application):
+        policy = settings if settings is not None else RuntimeSettings.from_env(os.environ)
+        application.state.inference_queue = InferenceQueue(policy)
         application.state.predictor = predictor
         if predictor is None:
             try:
-                application.state.predictor = Predictor(os.environ.get('ML_BUNDLE_DIR', DEFAULT_BUNDLE))
+                application.state.predictor = Predictor(
+                    os.environ.get('ML_BUNDLE_DIR', DEFAULT_BUNDLE), cache_mib=policy.cache_mib)
             except Exception as error:
                 LOGGER.error('MODEL_LOAD_FAILED type=%s', type(error).__name__)
-        yield
+        try:
+            yield
+        finally:
+            await application.state.inference_queue.close()
 
     application = FastAPI(title='DDUBI 버스 모델 예측 확인', version='1.0.0', lifespan=lifespan)
 
@@ -45,12 +52,12 @@ def create_app(predictor=None):
             {'location': list(item['loc']), 'type': item['type']} for item in error.errors()]})
 
     @application.get('/health/live')
-    def live():
+    async def live():
         """프로세스 생존 확인. 모델 준비 여부는 /health/ready로 별도 확인한다."""
         return {'status': 'UP'}
 
     @application.get('/health/ready')
-    def ready():
+    async def ready():
         """모델과 참조 무결성 검사를 통과한 경우만 준비 상태를 반환한다."""
         model = application.state.predictor
         if model is None:
@@ -59,13 +66,19 @@ def create_app(predictor=None):
 
     @application.post('/v1/bus/predictions:batch', response_model=BatchResponse,
                       responses={422: {'model': InvalidRequest}, 503: {'model': ServiceUnavailable}})
-    def predict(request: BatchRequest):
-        """여러 구간을 한 요청으로 예측한다. timeout 이후 재시도 정책은 호출자가 소유한다."""
+    async def predict(request: BatchRequest):
+        """스레드 실행 전에 제한된 FIFO에 입장한다. timeout 재시도는 호출자가 소유한다.
+
+대기열 초과/대기 만료는 MODEL_BUSY다. 모델 계산은 이벤트 루프 밖에서 실행하여
+대기 중에도 health 요청을 처리한다. 클라이언트 timeout은 계산 취소를 보장하지 않는다.
+"""
         model = application.state.predictor
         if model is None:
             raise HTTPException(status_code=503, detail='MODEL_NOT_READY')
         try:
-            return model.predict(request)
+            return await application.state.inference_queue.run(model.predict, request)
+        except QueueBusy:
+            raise HTTPException(status_code=503, detail='MODEL_BUSY') from None
         except BundleError as error:
             code = 'MODEL_BUSY' if str(error) == 'MODEL_BUSY' else 'MODEL_UNAVAILABLE'
             raise HTTPException(status_code=503, detail=code) from None

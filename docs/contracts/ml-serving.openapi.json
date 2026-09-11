@@ -42,7 +42,7 @@
     "/v1/bus/predictions:batch": {
       "post": {
         "summary": "Predict",
-        "description": "여러 구간을 한 요청으로 예측한다. timeout 이후 재시도 정책은 호출자가 소유한다.",
+        "description": "스레드 실행 전에 제한된 FIFO에 입장한다. timeout 재시도는 호출자가 소유한다.\n\n대기열 초과/대기 만료는 MODEL_BUSY다. 모델 계산은 이벤트 루프 밖에서 실행하여\n대기 중에도 health 요청을 처리한다. 클라이언트 timeout은 계산 취소를 보장하지 않는다.",
         "operationId": "predict_v1_bus_predictions_batch_post",
         "requestBody": {
           "content": {
@@ -415,7 +415,7 @@
           "detail"
         ],
         "title": "ServiceUnavailable",
-        "description": "모델 미준비·동시 실행·추론 실패를 구분하는 503 응답이다."
+        "description": "모델 미준비·대기열 초과/만료·추론 실패를 구분하는 503 응답이다."
       }
     }
   }
