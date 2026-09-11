@@ -53,6 +53,9 @@ public class SecurityConfig {
             "/api/v1/auth/oauth",
             "/api/v1/auth/oauth/token",
             "/api/v1/auth/oauth/id-token",
+            // 연동 확정은 로그인 전 단계다. 소셜 로그인이 ACCOUNT_LINK_REQUIRED 를 준
+            // 시점에는 아직 토큰이 없다. 인증은 linkToken + 기존 계정 비밀번호로 한다.
+            "/api/v1/auth/oauth/link",
             "/api/v1/auth/refresh",
             "/actuator/health",
             "/actuator/health/**",

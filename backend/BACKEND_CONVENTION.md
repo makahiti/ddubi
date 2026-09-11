@@ -138,7 +138,12 @@ docker compose -f backend/docker-compose.dev.yml up -d
 
 1. **소유권 검사**: 모든 사용자 소유 리소스는 조회·변경 전 `user_id == 인증 사용자` 확인. 아니면 `403 FORBIDDEN_RESOURCE`.
 2. **장소 스냅샷**: schedule은 place를 FK 참조하지 않고 이름·좌표를 **값 복사**한다. 장소 수정이 기존 일정을 바꾸면 안 된다(REQ-SCH-006).
-3. **계정 통합**: 이메일이 계정 키. 소셜 로그인 시 이메일이 기존 user와 일치하면 새 계정을 만들지 않고 `user_auth`에 provider 행만 추가 후 로그인. 카카오 이메일 미동의(email=null)면 통합 불가 → 별도 계정. 로컬 가입 시 이미 소셜 계정에 쓰인 이메일이면 `409` + "카카오로 로그인" 안내.
+3. **계정 연동**: 이메일이 계정 키. 소셜 로그인 시 **검증된** 이메일이 기존 user와 일치하면 새 계정을 만들지 않지만 **자동으로 붙이지도 않는다**(2026-09-10 개정). `ACCOUNT_LINK_REQUIRED` 와 일회용 `linkToken`(5분)을 주고, `POST /auth/oauth/link` 에서 **기존 계정 비밀번호로 소유를 증명**해야 `user_auth` 행이 추가된다. 티켓은 성공·실패와 무관하게 한 번 쓰면 폐기 — 살려 두면 비밀번호 대입 창구가 된다.
+   - 이유: 자동 통합은 제공자가 이메일 소유를 **잘못 확인한 순간 남의 계정으로 들어가는 경로**다. 이제 비밀번호를 모르면 붙일 수 없다.
+   - 이메일 미제공·미검증이면 연동 판단을 하지 않고 별도 계정. **미검증 이메일은 새 계정에도 저장하지 않는다** — 저장하면 `UK_USER_EMAIL` 을 차지해 진짜 주인이 가입하지 못한다.
+   - 네이버는 프로필 API 에 검증 플래그가 없어 **검증된 것으로 본다**. 비밀번호 확인이 앞을 막으므로 탈취 위험은 없다.
+   - 기존 계정에 LOCAL 인증수단이 없으면(소셜로만 가입) `409 ACCOUNT_LINK_UNAVAILABLE` 로 **거절하고 쓰던 소셜을 안내**한다. `UK_USER_EMAIL` 때문에 새 계정을 만들 수 없고, 이메일 없이 만들면 사용자는 자기 일정이 사라진 빈 계정을 본다.
+   - 로컬 가입 시 이미 소셜 계정에 쓰인 이메일이면 `409` + 실제 붙어 있는 제공자 안내.
 4. **탈퇴 = 하드 삭제**: `DELETE user` 1건 → FK CASCADE로 전체 삭제. 보관·마스킹 없음. Redis 세션도 전부 폐기. 탈퇴자 관련 추적은 불가(팀 합의).
 5. **반복 일정 2단 구조**: `schedule_repeat`(규칙) → `schedule`(인스턴스, `UNIQUE(repeat_id, arrive_by)`). 인스턴스를 개별 수정하면 `is_customized=true`로 세팅하고, 반복 전체 수정(REPEAT-004)은 `is_customized=true` 행을 건너뛴다. 반복 중지는 `is_active=false`(행 삭제 아님), 기존 인스턴스는 유지.
 6. **경로 선택 단일성**: 한 schedule에 `route.is_selected=true`는 최대 1건. `PUT .../selection` 트랜잭션에서 나머지를 false로.
@@ -229,7 +234,7 @@ BASE-001/002 `/internal/baselines`(조회/일괄 적재 — 적재 주체는 Spa
 5. `PATCH /users/me` 지원 필드 확장: nickname, notifyLeadMin(0~180), alarmEnabled, historyConsent, **briefingTime(HH:mm:ss|null), mobilityNote(≤100자), transportPrefs([{mode,preference}])**.
 6. 알림 type에 `SCHEDULE_CONFLICT` 포함.
 7. FCM 등록은 `UK_DEVICE_FCM` 기반 `INSERT ... ON DUPLICATE KEY UPDATE` upsert.
-8. AUTH-003에 계정 통합 분기 추가: 기존 이메일 일치 → user_auth 행 추가 + 200 / 완전 신규 → 201.
+8. AUTH-003 응답이 두 갈래다: `data.status` = `AUTHENTICATED`(200, 신규 201) 또는 `ACCOUNT_LINK_REQUIRED`(200, linkToken·마스킹 이메일). 연동 확정은 `POST /auth/oauth/link`.
 9. ARRIVAL-001의 `actual_arrival` 은 **`user.history_consented_at` 과 요청의 `locationConsent` 가 둘 다 있어야** 저장한다.
    요청 필드는 권한을 주는 스위치가 아니라 이번 건에 대한 거부권이다. 미저장이어도 200 이고 `result` 도 함께 null 이다.
    *(2026-09-04 수정. 이전 문구 "요청 필드는 쓰지 않는다" 는 명세서에 있는 입력을 사문화시켰다 — docs/contracts/api-spec-arrival-report-amendment.md C)*

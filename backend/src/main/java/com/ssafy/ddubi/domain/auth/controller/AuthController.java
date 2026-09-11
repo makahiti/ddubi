@@ -8,8 +8,12 @@ import com.ssafy.ddubi.domain.auth.dto.request.LogoutRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthAccessTokenLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthIdTokenLoginRequest;
+import com.ssafy.ddubi.domain.auth.dto.request.OAuthLinkRequest;
+import com.ssafy.ddubi.domain.auth.dto.request.SocialLinkRequest;
+import com.ssafy.ddubi.domain.auth.dto.response.SocialLinkResponse;
 import com.ssafy.ddubi.domain.auth.dto.request.TokenRefreshRequest;
 import com.ssafy.ddubi.domain.auth.dto.response.AuthTokenResponse;
+import com.ssafy.ddubi.domain.auth.dto.response.OAuthLoginResponse;
 import com.ssafy.ddubi.domain.auth.service.AuthService;
 import com.ssafy.ddubi.domain.auth.service.EmailVerificationService;
 import com.ssafy.ddubi.global.common.ApiResponse;
@@ -71,37 +75,111 @@ public class AuthController {
         return ApiResponse.success(authService.loginLocal(request));
     }
 
-    @Operation(summary = "소셜 로그인",
-            description = "인가 코드를 받아 토큰을 교환한다. 같은 이메일의 기존 계정이 있으면 "
-                    + "인증 수단만 추가하고 200, 완전 신규면 201. AUTH-003")
+    /** 세 소셜 로그인이 공유하는 응답 규칙. 상태 코드가 세 갈래다. */
+    private static final String OAUTH_DESCRIPTION = """
+            응답 `data.status` 로 분기한다.
+
+            | status | 언제 | HTTP |
+            | --- | --- | --- |
+            | `AUTHENTICATED` | 이미 연결된 소셜이거나 완전 신규 | 200 / 신규는 201 |
+            | `ACCOUNT_LINK_REQUIRED` | 같은 검증 이메일의 기존 계정이 있다 | 200 |
+
+            `ACCOUNT_LINK_REQUIRED` 는 **오류가 아니라 다음 단계**다. `linkToken`(5분·일회용)과
+            마스킹된 이메일을 함께 주므로, 기존 계정 비밀번호를 받아 `/auth/oauth/link` 를 부른다.
+
+            자동 통합은 하지 않는다(2026-09-10 변경). 이메일이 같다는 것만으로 계정을 넘기면
+            제공자가 이메일 소유를 잘못 확인한 순간 남의 계정으로 들어가게 된다.
+
+            기존 계정에 비밀번호가 없으면(소셜로만 가입) 409 `ACCOUNT_LINK_UNAVAILABLE` 이다 —
+            `user.email` 이 UNIQUE 라 새 계정을 만들 수도 없어, 쓰던 소셜로 로그인하도록 안내한다.
+            AUTH-003
+            """;
+
+    @Operation(summary = "소셜 로그인", description = "인가 코드를 받아 토큰을 교환한다.\n\n" + OAUTH_DESCRIPTION)
     @PostMapping("/oauth")
-    public ResponseEntity<ApiResponse<AuthTokenResponse>> loginOAuth(
+    public ResponseEntity<ApiResponse<OAuthLoginResponse>> loginOAuth(
             @Valid @RequestBody OAuthLoginRequest request) {
-        AuthService.OAuthResult result = authService.loginOAuth(request);
-        HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
-        return ResponseEntity.status(status).body(ApiResponse.success(result.tokens()));
+        return respond(authService.loginOAuth(request));
     }
 
     @Operation(summary = "모바일 소셜 로그인",
-            description = "모바일 SDK가 발급한 액세스 토큰을 검증한다. 현재 카카오만 지원한다. "
-                    + "기존 계정이면 200, 완전 신규면 201. AUTH-003")
+            description = "모바일 SDK가 발급한 액세스 토큰을 검증한다(카카오·네이버).\n\n" + OAUTH_DESCRIPTION)
     @PostMapping("/oauth/token")
-    public ResponseEntity<ApiResponse<AuthTokenResponse>> loginOAuthToken(
+    public ResponseEntity<ApiResponse<OAuthLoginResponse>> loginOAuthToken(
             @Valid @RequestBody OAuthAccessTokenLoginRequest request) {
-        AuthService.OAuthResult result = authService.loginOAuthToken(request);
-        HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
-        return ResponseEntity.status(status).body(ApiResponse.success(result.tokens()));
+        return respond(authService.loginOAuthToken(request));
     }
 
     @Operation(summary = "모바일 OIDC 로그인",
-            description = "모바일 SDK가 발급한 ID 토큰을 검증한다. 현재 Google만 지원한다. "
-                    + "기존 계정이면 200, 완전 신규면 201. AUTH-003")
+            description = "모바일 SDK가 발급한 ID 토큰을 검증한다(Google).\n\n" + OAUTH_DESCRIPTION)
     @PostMapping("/oauth/id-token")
-    public ResponseEntity<ApiResponse<AuthTokenResponse>> loginOAuthIdToken(
+    public ResponseEntity<ApiResponse<OAuthLoginResponse>> loginOAuthIdToken(
             @Valid @RequestBody OAuthIdTokenLoginRequest request) {
-        AuthService.OAuthResult result = authService.loginOAuthIdToken(request);
+        return respond(authService.loginOAuthIdToken(request));
+    }
+
+    @Operation(summary = "계정 연동 확정",
+            description = """
+                    소셜 로그인이 `ACCOUNT_LINK_REQUIRED` 를 준 뒤에 부른다. 기존 이메일 계정의
+                    비밀번호로 소유를 확인하고 소셜 인증 수단을 추가한 다음 토큰을 발급한다.
+
+                    **소셜 액세스 토큰은 보내지 않는다.** 누구를 어디에 붙일지는 서버가
+                    `linkToken` 으로 들고 있다.
+
+                    `linkToken` 은 **성공·실패와 무관하게 한 번 쓰면 폐기**된다. 비밀번호가
+                    틀렸다고 살려 두면 이 화면이 비밀번호 대입 창구가 된다 — 다시 하려면
+                    소셜 로그인부터 거쳐야 한다.
+
+                    **로그인 전에 부르는 API 다.** 이 시점에는 아직 토큰이 없다.
+
+                    | 상황 | 응답 | 화면 |
+                    | --- | --- | --- |
+                    | 비밀번호 불일치 | 401 `LINK_PASSWORD_MISMATCH` | **소셜 로그인부터 다시** |
+                    | 티켓 만료·재사용 | 401 `LINK_TOKEN_INVALID` | **소셜 로그인부터 다시** |
+                    | 그 소셜이 다른 사용자에게 연결됨 | 409 `SOCIAL_ALREADY_LINKED` | |
+                    | 기존 계정에 비밀번호가 없음 | 409 `ACCOUNT_LINK_UNAVAILABLE` | |
+
+                    ⚠️ 비밀번호가 틀려도 **티켓은 이미 소비**됐다. 입력창만 비우고 재시도시키면
+                    안 된다 — 그 티켓으로는 무엇을 넣어도 통하지 않는다. 그래서 일반 로그인
+                    실패(`UNAUTHORIZED`)와 코드를 나눴다.
+                    """)
+    @PostMapping("/oauth/link")
+    public ApiResponse<AuthTokenResponse> linkOAuthAccount(
+            @Valid @RequestBody OAuthLinkRequest request) {
+        return ApiResponse.success(authService.linkOAuthAccount(request));
+    }
+
+    @Operation(summary = "마이페이지 소셜 연결",
+            description = """
+                    **로그인한 상태에서** 소셜 계정을 추가로 연결한다. 소셜로만 가입해
+                    `ACCOUNT_LINK_UNAVAILABLE` 안내를 받은 사용자가 오는 곳이다.
+
+                    비밀번호를 묻지 않는다. 이미 그 계정으로 인증된 상태이고, 되물으면
+                    **비밀번호가 없는 사용자**는 영영 연결하지 못한다 — 그들이 바로 이 화면의
+                    대상이다.
+
+                    KAKAO·NAVER 는 `accessToken`, GOOGLE 은 `idToken` 을 보낸다.
+                    응답은 연결 후 그 계정의 **전체** 로그인 수단이다.
+
+                    | 상황 | 응답 |
+                    | --- | --- |
+                    | 자격증명 없음 | 400 `INVALID_REQUEST` |
+                    | 그 소셜이 다른 사용자에게 연결됨 | 409 `SOCIAL_ALREADY_LINKED` |
+                    | 같은 제공자의 **다른** 계정이 이미 연결됨 | 409 `DUPLICATE_RESOURCE` |
+
+                    이미 내게 연결된 소셜을 다시 보내면 오류가 아니라 200 이다(멱등).
+                    """)
+    @PostMapping("/social-links")
+    public ApiResponse<SocialLinkResponse> linkSocial(
+            @LoginUserId Long userId,
+            @Valid @RequestBody SocialLinkRequest request) {
+        return ApiResponse.success(authService.linkSocialToCurrentUser(userId, request));
+    }
+
+    /** 신규 가입만 201. 연동 요구는 실패가 아니므로 200 이다. */
+    private ResponseEntity<ApiResponse<OAuthLoginResponse>> respond(AuthService.OAuthResult result) {
         HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
-        return ResponseEntity.status(status).body(ApiResponse.success(result.tokens()));
+        return ResponseEntity.status(status).body(ApiResponse.success(result.response()));
     }
 
     @Operation(summary = "토큰 재발급",

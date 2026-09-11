@@ -2,6 +2,7 @@ package com.ssafy.ddubi.domain.user.service;
 
 import com.ssafy.ddubi.domain.auth.client.OAuthUserInfo;
 import com.ssafy.ddubi.domain.auth.dto.request.LocalSignupRequest;
+import com.ssafy.ddubi.domain.auth.dto.request.OAuthLinkRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthLoginRequest;
 import com.ssafy.ddubi.domain.auth.entity.AuthProvider;
 import com.ssafy.ddubi.domain.auth.repository.UserAuthRepository;
@@ -62,9 +63,14 @@ class WithdrawIntegrationTest extends IntegrationTestSupport {
         givenEmailVerified(EMAIL);
         authService.signupLocal(new LocalSignupRequest(EMAIL, PASSWORD, "탈퇴대상", "dev-1"));
         given(kakaoOAuthClient.fetchUserInfo(any()))
-                .willReturn(new OAuthUserInfo("kakao-1", EMAIL, "카카오"));
-        authService.loginOAuth(new OAuthLoginRequest(
-                AuthProvider.KAKAO, "code", "http://localhost:3001/oauth/kakao", null, "dev-2"));
+                .willReturn(new OAuthUserInfo("kakao-1", EMAIL, true, "카카오"));
+
+        // 같은 이메일이어도 자동으로 붙지 않는다(2026-09-10). 비밀번호로 소유를 증명해야
+        // KAKAO 인증 수단이 생긴다 — 이 테스트가 필요로 하는 "수단 두 개" 상태를 그렇게 만든다.
+        String linkToken = authService.loginOAuth(new OAuthLoginRequest(
+                AuthProvider.KAKAO, "code", "http://localhost:3001/oauth/kakao", null, "dev-2"))
+                .response().linkToken();
+        authService.linkOAuthAccount(new OAuthLinkRequest(linkToken, PASSWORD, "dev-2"));
 
         Long userId = userRepository.findByEmail(EMAIL).orElseThrow().getId();
         deviceTokenService.register(userId,
@@ -159,10 +165,10 @@ class WithdrawIntegrationTest extends IntegrationTestSupport {
     @DisplayName("소셜 전용 계정은 비밀번호 없이 탈퇴할 수 있다")
     void allowsWithdrawWithoutPasswordForSocialOnlyUser() {
         given(kakaoOAuthClient.fetchUserInfo(any()))
-                .willReturn(new OAuthUserInfo("kakao-2", "social@ddubi.com", "소셜전용"));
+                .willReturn(new OAuthUserInfo("kakao-2", "social@ddubi.com", true, "소셜전용"));
         Long userId = authService.loginOAuth(new OAuthLoginRequest(
                 AuthProvider.KAKAO, "code", "http://localhost:3001/oauth/kakao", null, "dev-1"))
-                .tokens().user().id();
+                .response().tokens().user().id();
 
         userService.withdraw(userId, new UserWithdrawRequest(null, "WITHDRAW", null));
 

@@ -114,8 +114,13 @@ class OAuthClientTest {
 
             OAuthUserInfo info = client.fetchUserInfo(new OAuthCodeExchange("c", "r", null));
 
-            assertThat(info.email()).isNull();
-            assertThat(info.hasEmail()).isFalse();
+            // 클라이언트는 값을 버리지 않고 그대로 넘긴다(2026-09-10). 쓸지 말지는 AuthService 가
+            // 정한다 — 제공자마다 정책이 흩어져 있으면 나중에 한쪽만 고쳐진다.
+            assertThat(info.email()).isEqualTo("a@b.com");
+            assertThat(info.emailVerified()).isFalse();
+            assertThat(info.hasVerifiedEmail())
+                    .as("연동 후보가 되면 안 된다 — 판단은 이 값으로 한다")
+                    .isFalse();
         }
 
         @Test
@@ -264,7 +269,12 @@ class OAuthClientTest {
                     .andRespond(withSuccess("{\"sub\":\"g-1\",\"email\":\"a@b.com\","
                             + "\"email_verified\":false}", MediaType.APPLICATION_JSON));
 
-            assertThat(client.fetchUserInfo(new OAuthCodeExchange("c", "r", null)).email()).isNull();
+            OAuthUserInfo info = client.fetchUserInfo(new OAuthCodeExchange("c", "r", null));
+
+            assertThat(info.email()).isEqualTo("a@b.com");
+            assertThat(info.hasVerifiedEmail())
+                    .as("연동 후보가 되면 안 된다")
+                    .isFalse();
         }
 
         @Test
