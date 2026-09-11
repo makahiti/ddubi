@@ -1,0 +1,25 @@
+{
+  "request_id": "backend-integration-example",
+  "segments": [
+    {
+      "segment_key": "sample-edge-1",
+      "provider_namespace": "SEOUL_BUS",
+      "provider_route_id": "100100001",
+      "provider_from_stop_id": "100000004",
+      "provider_to_stop_id": "101000001",
+      "from_stop_sequence": 23,
+      "service_date": "2026-09-10",
+      "hour_slot": 9
+    },
+    {
+      "segment_key": "sample-edge-2",
+      "provider_namespace": "SEOUL_BUS",
+      "provider_route_id": "100100001",
+      "provider_from_stop_id": "100000023",
+      "provider_to_stop_id": "100000415",
+      "from_stop_sequence": 16,
+      "service_date": "2026-09-10",
+      "hour_slot": 9
+    }
+  ]
+}

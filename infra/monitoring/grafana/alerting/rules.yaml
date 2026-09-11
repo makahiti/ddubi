@@ -109,14 +109,15 @@ groups:
             model: { refId: C, type: math, expression: "$A < 1" }
 
       - uid: ddubi-archiver-lag-high
-        title: 아카이버 저장 정지 (랙이 2시간 동안 내려오지 않음)
+        title: 아카이버 저장 정지 (2시간 동안 커밋이 전진하지 않음)
         condition: C
         for: 10m
         labels: { severity: warning, layer: data }
         annotations:
           summary: >-
-            아카이버는 한 시간마다 HDFS 에 저장하고 커밋해 랙이 0 근처로 떨어진다. 지난 2시간 랙 최솟값이 100 을 넘으면
-            저장이 한 번도 안 된 것 — HDFS 쓰기 실패 가능성. 랙 절대값은 유입량(실시간 수집기)에 따라 수만까지 정상이라 기준으로 쓰지 않는다 (2026-09-09)
+            아카이버는 토픽마다 한 시간 단위로 HDFS 에 저장한 뒤 커밋 위치를 앞으로 옮긴다. 어느 토픽이든 지난 2시간 동안
+            메시지는 들어왔는데(유입 100건 초과) 커밋 위치가 한 번도 전진하지 않았으면 저장이 실패한 것 — HDFS 쓰기 실패 가능성.
+            랙 크기는 기준으로 쓰지 않는다: 유입량에 따라 수만까지 정상이고, 두 토픽의 저장 시각이 달라 합계 랙은 0 으로 안 내려온다 (2026-09-10 수정)
           runbook: docs/runbooks/hdfs-datanode-down.md, reprocess-from-archive.md
         noDataState: OK
         execErrState: Error
@@ -124,10 +125,10 @@ groups:
           - refId: A
             relativeTimeRange: { from: 7200, to: 0 }
             datasourceUid: prometheus
-            model: { refId: A, instant: true, expr: "min_over_time(sum(kafka_consumergroup_lag)[2h:1m])" }
+            model: { refId: A, instant: true, expr: "count((sum by (topic) (increase(kafka_consumergroup_current_offset{consumergroup=\"archiver\"}[2h])) < 1) and on (topic) (sum by (topic) (increase(kafka_topic_partition_current_offset[2h])) > 100)) or vector(0)" }
           - refId: C
             datasourceUid: __expr__
-            model: { refId: C, type: math, expression: "$A > 100" }
+            model: { refId: C, type: math, expression: "$A > 0" }
 
       - uid: ddubi-spark-app-missing
         title: Spark 스트리밍 잡 부족

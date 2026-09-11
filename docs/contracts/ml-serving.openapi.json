@@ -1,0 +1,422 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DDUBI 버스 모델 예측 확인",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "summary": "Live",
+        "description": "프로세스 생존 확인. 모델 준비 여부는 /health/ready로 별도 확인한다.",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "모델과 참조 무결성 검사를 통과한 경우만 준비 상태를 반환한다.",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/predictions:batch": {
+      "post": {
+        "summary": "Predict",
+        "description": "여러 구간을 한 요청으로 예측한다. timeout 이후 재시도 정책은 호출자가 소유한다.",
+        "operationId": "predict_v1_bus_predictions_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchRequest": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Request Id"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentRequest"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Segments"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "segments"
+        ],
+        "title": "BatchRequest",
+        "description": "최대 1000개 구간을 한 번에 처리한다. 상관키 중복은 응답 연결 오류라 거절한다.\n\n동일 물리 구간이 여러 경로에 등장하는 것은 허용하되 segment_key는 각각 달라야 한다.\n1000은 초기 메모리 보호 한도이며 성능 보장을 뜻하지 않는다."
+      },
+      "BatchResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "model_type": {
+            "type": "string",
+            "const": "lightgbm",
+            "title": "Model Type"
+          },
+          "target": {
+            "type": "string",
+            "const": "hourly_mean_bus_segment_seconds",
+            "title": "Target"
+          },
+          "production_ready": {
+            "type": "boolean",
+            "const": false,
+            "title": "Production Ready"
+          },
+          "bundle_production_ready": {
+            "type": "boolean",
+            "title": "Bundle Production Ready"
+          },
+          "supported_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Supported From"
+          },
+          "supported_until": {
+            "type": "string",
+            "format": "date",
+            "title": "Supported Until"
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computed At"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "model_version",
+          "model_type",
+          "target",
+          "production_ready",
+          "bundle_production_ready",
+          "supported_from",
+          "supported_until",
+          "computed_at",
+          "results"
+        ],
+        "title": "BatchResponse",
+        "description": "배치 공통 버전·서울 계산시각·지원 날짜와 요청 순서대로 정렬된 구간 결과."
+      },
+      "InvalidField": {
+        "properties": {
+          "location": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "location",
+          "type"
+        ],
+        "title": "InvalidField",
+        "description": "원본 입력 대신 JSON 내 위치와 검증 오류 종류만 공개한다."
+      },
+      "InvalidRequest": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "INVALID_REQUEST",
+            "title": "Error"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/InvalidField"
+            },
+            "type": "array",
+            "title": "Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "fields"
+        ],
+        "title": "InvalidRequest",
+        "description": "잘못된 요청의 422 계약. 입력값 자체를 로그·응답에 복제하지 않는다."
+      },
+      "Prediction": {
+        "properties": {
+          "mean_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Mean Seconds"
+          },
+          "missing_feature_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Missing Feature Count"
+          },
+          "missing_features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Features"
+          },
+          "unseen_id_count": {
+            "type": "integer",
+            "const": 0,
+            "title": "Unseen Id Count"
+          },
+          "history_sample_count": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "History Sample Count"
+          },
+          "data_insufficient": {
+            "type": "boolean",
+            "title": "Data Insufficient"
+          },
+          "training_ids_verified": {
+            "type": "boolean",
+            "const": false,
+            "title": "Training Ids Verified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mean_seconds",
+          "missing_feature_count",
+          "missing_features",
+          "unseen_id_count",
+          "history_sample_count",
+          "data_insufficient",
+          "training_ids_verified"
+        ],
+        "title": "Prediction",
+        "description": "실제 모델이 계산한 평균 초와 입력 품질. 운영 사용 승인은 이 값에 포함되지 않는다."
+      },
+      "SegmentRequest": {
+        "properties": {
+          "segment_key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Segment Key"
+          },
+          "provider_namespace": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Provider Namespace",
+            "default": "SEOUL_BUS"
+          },
+          "provider_route_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,30}$",
+            "title": "Provider Route Id"
+          },
+          "provider_from_stop_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,30}$",
+            "title": "Provider From Stop Id"
+          },
+          "provider_to_stop_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,30}$",
+            "title": "Provider To Stop Id"
+          },
+          "from_stop_sequence": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "From Stop Sequence"
+          },
+          "service_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Service Date"
+          },
+          "hour_slot": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour Slot"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "segment_key",
+          "provider_route_id",
+          "provider_from_stop_id",
+          "provider_to_stop_id",
+          "from_stop_sequence",
+          "service_date",
+          "hour_slot"
+        ],
+        "title": "SegmentRequest",
+        "description": "한 인접 버스 구간. 순번은 provider 노선 순번이며 경로 내 배열 인덱스가 아니다.\n\n각 날짜는 Asia/Seoul의 달력 날짜, hour_slot은 0~23이다. namespace 미지원은\n전체 요청 오류 대신 개별 UNAVAILABLE 결과로 처리한다. 호출자는 인접성을 검증해야 한다."
+      },
+      "SegmentResult": {
+        "properties": {
+          "segment_key": {
+            "type": "string",
+            "title": "Segment Key"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PREVIEW",
+              "UNAVAILABLE"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "MODEL_NOT_PRODUCTION_READY",
+              "UNSUPPORTED_PROVIDER",
+              "REFERENCE_DATE_UNSUPPORTED",
+              "UNSEEN_PROVIDER_ID"
+            ],
+            "title": "Reason"
+          },
+          "prediction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Prediction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_key",
+          "status",
+          "reason",
+          "prediction"
+        ],
+        "title": "SegmentResult",
+        "description": "미지원 입력은 null이며 정상 모델 수치는 PREVIEW로만 노출한다."
+      },
+      "ServiceUnavailable": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "enum": [
+              "MODEL_NOT_READY",
+              "MODEL_BUSY",
+              "MODEL_UNAVAILABLE"
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ServiceUnavailable",
+        "description": "모델 미준비·동시 실행·추론 실패를 구분하는 503 응답이다."
+      }
+    }
+  }
+}

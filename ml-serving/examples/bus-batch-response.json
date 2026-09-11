@@ -1,0 +1,50 @@
+{
+  "request_id": "backend-integration-example",
+  "model_version": "20260908-v12",
+  "model_type": "lightgbm",
+  "target": "hourly_mean_bus_segment_seconds",
+  "production_ready": false,
+  "bundle_production_ready": false,
+  "supported_from": "2026-09-10",
+  "supported_until": "2026-09-17",
+  "computed_at": "2026-09-10T11:04:44.334416+09:00",
+  "results": [
+    {
+      "segment_key": "sample-edge-1",
+      "status": "PREVIEW",
+      "reason": "MODEL_NOT_PRODUCTION_READY",
+      "prediction": {
+        "mean_seconds": 145.1247447449537,
+        "missing_feature_count": 4,
+        "missing_features": [
+          "from_board_daily_hour_lag2month",
+          "from_alight_daily_hour_lag2month",
+          "to_board_daily_hour_lag2month",
+          "to_alight_daily_hour_lag2month"
+        ],
+        "unseen_id_count": 0,
+        "history_sample_count": 8,
+        "data_insufficient": false,
+        "training_ids_verified": false
+      }
+    },
+    {
+      "segment_key": "sample-edge-2",
+      "status": "PREVIEW",
+      "reason": "MODEL_NOT_PRODUCTION_READY",
+      "prediction": {
+        "mean_seconds": 340.31162658466326,
+        "missing_feature_count": 3,
+        "missing_features": [
+          "from_board_daily_hour_lag2month",
+          "from_alight_daily_hour_lag2month",
+          "boarding_lag77d"
+        ],
+        "unseen_id_count": 0,
+        "history_sample_count": 8,
+        "data_insufficient": false,
+        "training_ids_verified": false
+      }
+    }
+  ]
+}

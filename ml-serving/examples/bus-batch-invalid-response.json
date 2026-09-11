@@ -1,0 +1,14 @@
+{
+  "error": "INVALID_REQUEST",
+  "fields": [
+    {
+      "location": [
+        "body",
+        "segments",
+        0,
+        "hour_slot"
+      ],
+      "type": "less_than_equal"
+    }
+  ]
+}
