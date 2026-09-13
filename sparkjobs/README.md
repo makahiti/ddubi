@@ -60,7 +60,50 @@ Collector와 같은 버전의 파일을 함께 배포·재시작하며 불일치
 재생성·배포 방법은 [마스터 안내](../backend/transit-master/README.md), 의미·키 규칙은
 [구간 연결 계약](../docs/contracts/metropolitan-segment-integration.md)을 따른다.
 
+## 구간 기준선·판정 실행 준비 (2026-09-10)
+
+Collector는 변경하지 않는다. 실제 구간 통과시간 정규화 입력이 있어야 아래 계산을 운영에 연결할 수 있다.
+위치·도착예정 원본을 학습 정답으로 대체하지 않는다. 현재는 고정시각 Replay/검토 출력과 별도 발행 단계다.
+입력·정책·담당자 확인 사항은 [구간 파이프라인 계약](../docs/contracts/segment-pipeline-handoff.md)을 따른다.
+
+```sh
+# Backend가 사용하는 것과 동일한 파일·SHA에서 ID 레지스트리를 생성한다.
+sh submit.sh batch/export_segment_registry.py \
+  --subway "$SUBWAY_MASTER_PATH" --subway-sha "$SUBWAY_MASTER_SHA256" \
+  --output "$SEGMENT_REGISTRY_URI"
+
+# 실제 통과 사실에 대해서만 최소 표본·날짜 기준을 적용한다. 기본은 검토용 파일 출력이다.
+sh submit.sh batch/segment_baseline.py \
+  --input "$SEGMENT_FACTS_URI" --registry "$SEGMENT_REGISTRY_URI" \
+  --output "$SEGMENT_BASELINE_OUTPUT_URI" --version "$BASELINE_VERSION" \
+  --as-of 2026-09-17 --days 7 --min-samples "$MIN_SAMPLES" --min-dates "$MIN_DATES"
+
+# 분 단위 평가시각 및 검토한 임계값을 명시한다. 최초 실행은 --previous를 생략한다.
+sh submit.sh streaming/segment_status.py \
+  --input "$SEGMENT_FACTS_URI" --registry "$SEGMENT_REGISTRY_URI" \
+  --baseline "$BASELINE_PARQUET_URI" --previous "$PREVIOUS_SUCCESSFUL_LATEST_URI" \
+  --output "$STATUS_OUTPUT_URI" --as-of "$EVALUATION_TIME_KST" \
+  --slow-seconds "$SLOW_SECONDS" --delayed-seconds "$DELAYED_SECONDS" \
+  --min-samples "$MIN_SAMPLES" --max-age-seconds "$MAX_AGE_SECONDS" --policy-version "$STATUS_POLICY_VERSION"
+
+# 결과 검토 후에만 발행한다. 실패하면 같은 준비 결과를 재발행하고 previous를 전진시키지 않는다.
+sh submit.sh streaming/segment_status.py --publish-output "$STATUS_OUTPUT_URI"
+```
+
+구간 기준선의 `--upload`는 실제 Backend 버전을 활성화하므로 검토 후 사용한다.
+새 평가마다 출력 경로를 달리하고, `latest/history/rejected/manifest`가 완성된 출력만 발행한다.
+Kafka 이력은 상태 변경과 10분 구획별 전체 기록이며 중복 제거 키는 `eventId`다.
+상시 스케줄러, 실제 관측 정규화, 공유 파일 배포 및 상태 변경 이력 보관 설정은 별도 연결이 필요하다.
+
 ## 테스트
+
+지하철 시간표 연동용 최신값은 `observation.arrivalTrainType`과 `sourceGeneratedAt`을 함께 보존한다.
+버스 대기 연동은 `exps1/2`(초), `staOrd`, 운행/만차/우회 코드와 `mkTm`을 보존한다.
+기존 traTime(분)을 ArrivalSeconds에 저장한 오류를 수정했다. `arrivalTimeBasis=SEOUL_EXPS_SECONDS_V1`이
+없는 이전 Redis 값은 Backend가 사용하지 않으며 별도 데이터 삭제는 필요 없다. [대기시간 계약](../docs/contracts/transit-waiting.md).
+원본 생성시각이 없으면 수집시각으로 채우지 않는다. Backend는 새 필드 누락/만료 시 실시간 보정 대신
+시간표로 fallback한다. 기존 키와 TTL은 유지하며 잡 재시작 후 생성하는 값부터 새 필드가 포함된다.
+전체 계산 조건과 시간표 공급 형식은 [지하철 계산 계약](../docs/contracts/subway-timing.md)을 따른다.
 
 ```sh
 python -m pytest -q
@@ -69,3 +112,7 @@ python -m pytest -q
 변환은 Kafka·Redis 없이 배치 DataFrame으로 검증한다. 새 이벤트나 필드를 추가할 때는 이벤트
 계약, Collector payload, `realtime_latest` 정규화, Redis 키 계약과 실패 경로 테스트를 같은
 변경에서 갱신한다.
+
+## 실측 상태·도로 영향 실행
+
+새 `streaming.segment_observations`, `streaming.segment_status_live`, `streaming.road_incidents`의 입력·실행·재시도·활성화 조건은 [통합 보강 계약](../docs/contracts/transit-service-integration.md)에 있다. 기존 Collector 주기/운영 submit은 변경하지 않는다.

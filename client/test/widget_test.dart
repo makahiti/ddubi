@@ -358,12 +358,18 @@ void main() {
     final router = container.read(appRouterProvider);
     router.go('/schedules');
     await tester.pumpAndSettle();
-    final navigation = router.push<bool>('/schedules/new');
+    bool? navigationResult;
+    final navigation = router.push<bool>('/schedules/new').then((result) {
+      navigationResult = result;
+      return result;
+    });
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), '병원 예약');
     await tester.enterText(fields.at(1), '14:30');
+    // 출발 예정시간도 필수 입력이다. 누락하면 저장하지 않으므로 navigation Future가 끝나지 않는다.
+    await tester.enterText(fields.at(2), '13:30');
     await tester.tap(find.byKey(const Key('destinationPlaceField')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('placeSearchQuery')), '서울 병원');
@@ -382,12 +388,18 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('저장하기'));
     await tester.pumpAndSettle();
+    expect(find.text('필수 입력 항목입니다.'), findsNothing);
+    // 저장 실패 시 미완료 Future를 기다려 CI가 장시간 멈추지 않도록 먼저 검사한다.
+    expect(navigationResult, isTrue);
     expect(await navigation, isTrue);
 
     final saved = await repository.schedules();
     expect(saved.any((schedule) => schedule.title == '병원 예약'), isTrue);
     expect(saved.any((schedule) => schedule.place == '서울병원'), isTrue);
     expect(saved.any((schedule) => schedule.time == '14:30'), isTrue);
+    final created = saved.singleWhere((schedule) => schedule.title == '병원 예약');
+    expect(created.plannedDepartAt?.hour, 13);
+    expect(created.plannedDepartAt?.minute, 30);
     expect(
       saved.any(
         (schedule) =>
@@ -445,6 +457,8 @@ void main() {
 
     expect(find.text('일정 수정'), findsWidgets);
     await tester.enterText(find.byType(TextFormField).first, '수정된 팀 회의');
+    // 이전 Mock 일정에는 출발시각이 없다. 기존 일정 수정에서도 사용자가 입력해야 저장된다.
+    await tester.enterText(find.byType(TextFormField).at(2), '08:00');
     await tester.fling(
       find.byType(ListView).last,
       const Offset(0, -1400),
@@ -458,6 +472,7 @@ void main() {
     final updated = await repository.scheduleById('schedule-meeting');
     expect(updated?.title, '수정된 팀 회의');
     expect(updated?.updatedAt, isNotNull);
+    expect(updated?.plannedDepartAt?.hour, 8);
   });
 
   testWidgets('낮은 데스크톱 Web 로그인 화면은 하단 영역만 스크롤한다', (tester) async {
@@ -637,7 +652,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final container = ProviderContainer(
-      overrides: [reportApiProvider.overrideWithValue(_emptyReportApi())],
+      overrides: [
+        reportApiProvider.overrideWithValue(_emptyReportApi()),
+        authRepositoryProvider.overrideWithValue(MockAuthRepository()),
+      ],
     );
     addTearDown(container.dispose);
     await tester.pumpWidget(
@@ -658,7 +676,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('webSettingsLayout')), findsOneWidget);
     expect(find.byKey(const Key('mobileSettingsLayout')), findsNothing);
-    expect(find.text('앱 권한과 계정 상태를 관리하세요.'), findsOneWidget);
+    expect(find.text('뚜비와 더 편리한 이동을 위한 설정을 관리해요.'), findsOneWidget);
+    expect(find.byKey(const Key('weeklyStampBoardCard')), findsOneWidget);
+    expect(find.text('서비스 상태'), findsNothing);
+    expect(find.text('회원 탈퇴'), findsNothing);
   });
 
   testWidgets('알림과 설정은 모바일에서 기존 세로형 구조를 유지한다', (tester) async {
@@ -694,6 +715,134 @@ void main() {
     expect(find.text('버스 우선'), findsNothing);
     expect(find.text('도보'), findsNothing);
     expect(find.text('택시'), findsNothing);
+    expect(find.text('더보기'), findsWidgets);
+    expect(find.byKey(const Key('weeklyStampBoardCard')), findsOneWidget);
+    expect(find.byKey(const Key('stampBoardPreparing')), findsOneWidget);
+    expect(find.byKey(const Key('stampMissionPreviewRow')), findsNothing);
+    expect(find.byKey(const Key('stampMissionGrid')), findsNothing);
+    expect(find.byKey(const Key('stampBoardProgress')), findsNothing);
+    expect(find.text('5/10개 달성했어요!'), findsNothing);
+    expect(find.text('서비스 상태'), findsNothing);
+    expect(find.text('회원 탈퇴'), findsNothing);
+    expect(find.byKey(const Key('accountManagementPreparing')), findsOneWidget);
+    expect(find.byKey(const Key('savedPlacesMenuButton')), findsOneWidget);
+    expect(find.byKey(const Key('travelRecordsMenuButton')), findsOneWidget);
+    expect(find.byKey(const Key('helpInquiryButton')), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const Key('mobileSettingsLayout')),
+      const Offset(0, 600),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('accountPasswordDialog')), findsNothing);
+
+    await tester.drag(
+      find.byKey(const Key('mobileSettingsLayout')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('helpInquiryButton')));
+    await tester.tap(find.byKey(const Key('helpInquiryButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('무엇을 도와드릴까요?'), findsOneWidget);
+    expect(find.byKey(const Key('inquiryMessageField')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('계정 관리 화면은 중복 로그아웃 없이 계정 변경 메뉴를 표시한다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [reportApiProvider.overrideWithValue(_emptyReportApi())],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const DdubiApp()),
+    );
+
+    container.read(appRouterProvider).go('/settings/account');
+    await tester.pumpAndSettle();
+    expect(find.text('계정 관리'), findsOneWidget);
+    expect(find.text('등록된 이메일이 없어요'), findsOneWidget);
+    expect(find.byKey(const Key('changePasswordMenuButton')), findsOneWidget);
+    expect(find.text('로그아웃'), findsNothing);
+    expect(find.text('회원 탈퇴'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('회원 탈퇴 전에 탈퇴 확인 팝업을 표시한다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [reportApiProvider.overrideWithValue(_emptyReportApi())],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const DdubiApp()),
+    );
+
+    container.read(appRouterProvider).go('/settings/account');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('withdrawalMenuButton')));
+    await tester.tap(find.byKey(const Key('withdrawalMenuButton')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('withdrawalConfirmationDialog')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('withdrawalCharacter')), findsOneWidget);
+    expect(find.text('정말 탈퇴하시겠습니까?'), findsOneWidget);
+    expect(find.byKey(const Key('withdrawalCancelButton')), findsOneWidget);
+    expect(find.byKey(const Key('withdrawalConfirmButton')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const Key('withdrawalCancelButton')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('withdrawalConfirmationDialog')), findsNothing);
+  });
+
+    testWidgets('프로필 갤러리 선택 전에 사진 접근 권한 팝업을 표시한다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer(
+      overrides: [reportApiProvider.overrideWithValue(_emptyReportApi())],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const DdubiApp()),
+    );
+
+    container.read(appRouterProvider).go('/settings');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('changeProfileImageButton')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('pickProfileImageFromGallery')),
+    );
+    await tester.tap(find.byKey(const Key('pickProfileImageFromGallery')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('photoPermissionDialog')), findsOneWidget);
+    expect(find.byKey(const Key('photoPermissionCharacter')), findsOneWidget);
+    expect(find.byKey(const Key('photoPermissionLaterButton')), findsOneWidget);
+    expect(find.byKey(const Key('photoPermissionAllowButton')), findsOneWidget);
+    expect(find.text('나중에'), findsOneWidget);
+    expect(find.text('허용하기'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const Key('photoPermissionLaterButton')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('photoPermissionDialog')), findsNothing);
   });
 
   testWidgets('Mock 지도에서 현재 위치와 출발지·도착지 및 후보를 구분한다', (tester) async {

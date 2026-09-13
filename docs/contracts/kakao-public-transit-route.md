@@ -23,10 +23,17 @@ Authorization: Bearer {accessToken}
 }
 ```
 
-도메인 API이므로 인증 적용 대상이다. JWT 인증 필터가 완성되기 전에는 통합 실행 시 401이
-정상이며, Controller 단위 테스트나 Service 테스트로 경로 검색 흐름을 검증한다.
+도메인 API이므로 JWT 인증 적용 대상이다. 인증이 없는 요청은 401이며,
+인증된 사용자의 일정 등록·평가·조회는 `CapturedTransitFlowIntegrationTest`로 검증한다.
 
 ## 2026-08-31 실제 응답 분석
+
+2026-09-10 재검증: 보존된 응답 20개/후보 288개 중 287개에서 총시간이 step 합보다 컸다.
+차이는 0~1,809초였으며 대기·접근·환승을 각각 식별하는 필드는 없었다.
+[공식 문서](https://developers.kakao.com/docs/ko/kakaomap/rest-api)도 totalTime/time을 소요시간으로
+설명하므로 이 차이를 대기시간이라고 확정하거나 새 대기를 가산할 수 없다.
+두 `decomposition-verified` 설정은 false로 유지한다.
+재현 도구와 결과는 [실제 응답 검증](../../backend/tools/transit-timing/README.md)을 따른다.
 
 실제 성공 응답은 `status=OK`였고 후보 15개(`BUS` 9, `SUBWAY` 1,
 `BUS_AND_SUBWAY` 5), 이동 구간 38개(`BUS` 18, `SUBWAY` 10,
@@ -34,7 +41,7 @@ Authorization: Bearer {accessToken}
 
 - `route.properties.totalTime`: 후보 전체 시간(초). 구간 `time` 합으로 다시 계산하지 않는다.
 - `route.properties.totalDistance`: 후보 전체 거리(m). 구간 `distance` 합으로 다시 계산하지 않는다.
-- 전체값과 구간 합의 차이는 환승·대기·접근 시간 등 응답에 독립 step으로 표현되지 않은 값이다.
+- 전체값과 구간 합의 차이는 구성 요소를 확정할 수 없는 잔여값이다. 대기·접근·환승 중 무엇인지 단정하지 않는다.
   모델의 `unassignedDurationSeconds`, `unassignedDistanceMeters`에 보존한다.
 - `fare`는 단일 요금이면 `value`, 범위면 `min/max` 형태다. 내부에서는 둘 다 최소/최대 요금으로 정규화한다.
 - 카카오의 후보 배열 순서는 최단 시간순이 아니므로 `providerCandidateIndex`를 보존한다.

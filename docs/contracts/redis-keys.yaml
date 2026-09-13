@@ -19,13 +19,29 @@ keys:
     pattern: "segment:status:{segmentId}"
     ttlSeconds: 300
     owner: spark
-    schema: events/segment-status.schema.json # 분산 담당 초안 — 아래 description 대로 확정 전
+    schema: events/segment-status.schema.json # 추가 진단 필드 구현, 담당자 소비 연동 확인 필요
     description: >-
       Spark가 계산한 구간별 최신 상태. 백엔드는 재평가 시 읽기만 한다.
-      값 스키마·직렬화 형식은 분산 담당 확정 대기 —
-      백엔드는 어댑터 인터페이스(SegmentStateReader)로 격리한다.
+      Spark Replay/발행 단계는 같은 JSON 스키마를 사용한다. 정책·상시 실행·Backend 소비 연동은 확인 대기다.
+      300초는 보관 상한이며 실제 TTL은 validUntil까지 남은 시간보다 길지 않다.
       값이 없거나 stale 이면 baseline_serving 폴백 + confidence=LOW.
     valueExample: '{"segmentId":"BUS:100100609:123456:123789","status":"delayed","delaySeconds":420,"confidence":0.8,"causes":[{"eventId":"...","eventType":"road.incident","source":"seoul.topis"}],"computedAt":"2026-08-27T09:10:00+09:00","validUntil":"2026-08-27T09:15:00+09:00","source":"spark.segment-status"}'
+
+  roadIncidents:
+    pattern: "road:incidents:{namespace}:{linkId}"
+    type: hash
+    owner: spark
+    ttlSeconds: 600
+    description: >-
+      source+providerIncidentId의 SHA 필드별 최신 사건 JSON. collectedAt+ROAD_MAX_AGE_SECONDS까지 보존한다.
+      위 TTL은 기본이며 허용 설정 1~3600초다. 더 최신 사건의 hash TTL을 오래된 다른 사건으로 줄이지 않는다.
+      사건이 없는 hash는 피드 정상/무사고를 의미하지 않는다. Backend는 freshness를 다시 확인한다.
+  roadIncidentIndex:
+    pattern: "road:incident-index:{sourceIncidentSha256}"
+    type: string
+    owner: spark
+    ttlSeconds: 600
+    description: "사건의 현재 링크 hash 키·수집시각·내용 해시·충돌 표시. 링크 변경 CAS용이며 standalone Redis 전용이다."
 
   weatherLatest:
     pattern: "weather:latest:{nx}:{ny}"
@@ -36,50 +52,71 @@ keys:
       districts 는 이 격자를 공유하는 구 목록. 서버에서 가동 중.
     valueExample: '{"districts":["종로구","중구"],"nx":60,"ny":127,"baseDate":"20260827","baseTime":"0900","observations":{"T1H":27.3,"REH":64.0},"occurredAt":"2026-08-27T09:00:00.000+09:00","collectedAt":"2026-08-27T09:10:00.000+09:00","eventId":"...","source":"kma.ultra-srt-ncst"}'
 
+  # latest 계열의 TTL은 보관 기간이다. 값의 validUntil(발생시각+freshnessSeconds) 이후는 stale이다.
+  # retentionSeconds가 길어도 현재 위치/도착/혼잡/위험을 정상으로 간주하지 않는다.
+  # 공지 중복 발행을 생략하면 마지막 변경 후 TTL이 끝날 수 있다. 진행 중 공지 전체 목록은 HDFS/별도 조회 대상이다.
   busPositionLatest:
     pattern: "transit:latest:bus-position:{providerRouteId}:{providerVehicleId}"
-    ttlSeconds: 120
+    ttlSeconds: 86400
     owner: spark
     description: >-
       Spark(streaming/realtime_latest)가 만든 서울 버스 차량별 최신 위치·운행 상태.
       routeId/vehicleId는 서울 API provider ID이며 canonical segment_id가 아니다.
-      위치 API의 정상 수집주기(30초)가 끊기면 2분 후 자동 만료한다.
+      8시간 수집 주기의 세 배인 24시간 보관한다. validUntil 이후 현재 위치로 사용하지 않는다.
 
   busArrivalLatest:
     pattern: "transit:latest:bus-arrival:{providerRouteId}:{providerStopId}"
-    ttlSeconds: 120
+    ttlSeconds: 86400
     owner: spark
     description: >-
       노선·정류장별 다음 두 차량의 도착예정 초와 메시지. 도착예정값은 현재 관측이지
       실제 구간 운행시간 학습 정답이 아니다. 유일한 진입 edge 연결은 ARRIVAL_TARGET_INCOMING_EDGE이며 차량 위치를 뜻하지 않는다.
+    observationContract:
+      arrivalTimeBasis: 'SEOUL_EXPS_SECONDS_V1. 이 표시가 없는 예전 값은 Backend 대기 계산에서 사용하지 않는다.'
+      firstArrivalSeconds: 'raw.exps1 정수 초. 기존 raw.traTime1(분) 직렬화 오류 수정. 결측은 생략.'
+      secondArrivalSeconds: 'raw.exps2 정수 초. traTime2로 대체하지 않는다.'
+      firstTravelTimeMinutes: 'raw.traTime1 숫자 분. 대기 입력이 아니다.'
+      secondTravelTimeMinutes: 'raw.traTime2 숫자 분. 대기 입력이 아니다.'
+      stopOrder: 'raw.staOrd 정수. 승차역의 노선상 순번과 비교한다.'
+      sourceGeneratedAt: 'raw.mkTm 원문. 소수초 포함 KST 시각. 수집시각으로 채우지 않는다.'
+      detourCode: 'raw.deTourAt 문자열. 00만 정상 경로로 대기 계산 허용.'
+      firstTerminalArrivalCode: 'raw.isArrive1 문자열. 0 운행중만 허용.'
+      secondTerminalArrivalCode: 'raw.isArrive2 문자열.'
+      firstFullCode: 'raw.full1 문자열. 0만 탑승 후보로 허용.'
+      secondFullCode: 'raw.full2 문자열.'
 
   regionalBusPositionLatest:
     pattern: "transit:latest:bus-position:{providerNamespace}:{providerRouteId}:{providerVehicleId}"
-    ttlSeconds: 120
+    ttlSeconds: 86400
     owner: spark
     description: GBIS·INCHEON_PUBLIC_CSV의 출처 ID 충돌 방지용 키. 해당 지역 수집기 구현 완료를 의미하지 않는다.
 
   regionalBusArrivalLatest:
     pattern: "transit:latest:bus-arrival:{providerNamespace}:{providerRouteId}:{providerStopId}"
-    ttlSeconds: 120
+    ttlSeconds: 86400
     owner: spark
     description: 서울은 기존 키를 유지한다. 값의 canonicalMapping에 대응표 버전·SHA·state·scope·reason을 보존한다.
 
   subwayPositionLatest:
     pattern: "transit:latest:subway-position:{providerLineId}:{providerTrainId}"
-    ttlSeconds: 120
+    ttlSeconds: 10800
     owner: spark
     description: >-
       호선·열차별 최신 역, 방향, 종착역과 운행상태. 실시간 subwayId/statnId를
       canonical 정적 ID로 간주하지 않으며 segmentIds가 있을 때만 매핑 가능으로 표시한다.
+    optionalObservationFields:
+      sourceGeneratedAt: 'raw.recptnDt 원문. Backend는 occurredAt과 일치하는 생성시각이 있어야 실시간 탑승 근거로 사용한다.'
 
   subwayArrivalLatest:
     pattern: "transit:latest:subway-arrival:{providerLineId}:{providerStationId}:{providerTrainId}"
-    ttlSeconds: 120
+    ttlSeconds: 1080
     owner: spark
     description: >-
       호선·역·열차별 도착예정 초와 도착상태. 동일 열차가 여러 역 조회에 포함되므로
       역 ID까지 키에 포함하며, Backend가 provider ID 기반 최신값을 조회할 때 사용한다.
+    optionalObservationFields:
+      arrivalTrainType: 'raw.btrainStt 원문(일반/급행 등). 시간표의 검증된 열차 종류와 비교한다.'
+      sourceGeneratedAt: 'raw.recptnDt 원문. 누락은 null/생략이며 collectedAt으로 채우지 않는다.'
 
   trafficFlowLatest:
     pattern: "traffic:latest:flow:{providerLinkId}"
@@ -91,19 +128,19 @@ keys:
 
   trafficIncidentLatest:
     pattern: "traffic:latest:incident:{providerIncidentId}"
-    ttlSeconds: 600
+    ttlSeconds: 2700
     owner: spark
     description: >-
-      TOPIS 사고·통제별 최신 요약. 1분 수집이 중단되거나 현재 목록에서 사라진 이벤트가
-      오래 위험 신호로 남지 않도록 10분 후 만료하며 원문은 HDFS에서 eventId로 추적한다.
+      TOPIS 사고·통제별 최신 요약. 15분 수집 주기의 세 배인 45분 보관하며
+      validUntil 이후 현재 위험 판정에 쓰지 않는다. 원문은 HDFS에서 eventId로 추적한다.
 
   cityAreaLatest:
     pattern: "city:latest:area:{providerAreaId}"
-    ttlSeconds: 900
+    ttlSeconds: 64800
     owner: spark
     description: >-
       서울 주요 장소별 인구 혼잡도·인구 범위·평균 도로속도·기상 대표값.
-      5분 수집주기의 세 배 동안만 최신 상태로 제공하고 전체 통합 응답은 Redis에 저장하지 않는다.
+      6시간 수집 주기의 세 배인 18시간 보관한다. validUntil 이후 기준선으로 fallback한다.
 
   sdotPopulationLatest:
     pattern: "city:latest:sdot-population:{providerSensorId}"
@@ -115,7 +152,7 @@ keys:
 
   subwayAlertLatest:
     pattern: "transit:latest:subway-alert:{providerAlertId}"
-    ttlSeconds: 600
+    ttlSeconds: 2700
     owner: spark
     description: >-
       서울교통공사 이례상황 알림별 제목·내용·호선·종료시각 요약. 알림 자체는 지연 분의
@@ -123,7 +160,7 @@ keys:
 
   topisNoticeLatest:
     pattern: "traffic:latest:topis-notice:{providerNoticeId}"
-    ttlSeconds: 1800
+    ttlSeconds: 2700
     owner: spark
     description: >-
       TOPIS 공지사항별 최신 제목·본문·분류. 공지 고유 ID를 키로 사용하고 원문은 HDFS에 보존한다.
@@ -239,10 +276,10 @@ keys:
 segmentId:
   contractVersion: canonical-adjacent-v2
   status: VERSIONED_ARTIFACT_IMPLEMENTED_DEPLOYMENT_REQUIRED
-  namespace: METROPOLITAN_BUS_AND_SEOUL_SUBWAY
+  namespace: METROPOLITAN_BUS_AND_SUBWAY
   issuer: backend
   issuerDescription: >-
-    Backend가 BUS는 수도권, SUBWAY는 서울 정적 마스터에서 확정한 뒤,
+    Backend가 BUS와 SUBWAY의 활성 정적 마스터에서 확정한 뒤,
     승차~하차 경로를 공식 인접 노드 쌍으로 분해하며 최초 발급한다.
 
   # DB·이벤트 계약은 향후 namespace 확장을 고려해 180자를 허용한다.
@@ -266,8 +303,11 @@ segmentId:
     SUBWAY:
       format: 'SUB:{staticSubwayId}:{staticFromStationId}:{staticToStationId}'
       example: 'SUB:2:0222:0223'
-      routeIdSource: seoul_subway_line.subway_id
-      nodeIdSource: seoul_subway_station.station_id
+      routeIdSource: 'seoul_subway_line.subway_id 또는 metropolitan-subway-master.lines.subwayId'
+      nodeIdSource: 'seoul_subway_station.station_id 또는 metropolitan-subway-master.lines.stations.stationId'
+      regionalExample: 'SUB:KRIC.S2802:KRIC.S2802.3209:KRIC.S2802.3210'
+      namespaceRule: '기존 서울 시간표 ID 유지. 추가 KRIC 호선은 KRIC.{공식노선번호}, 역은 KRIC.{정적원본노선번호}.{역번호}. GTX-A 운영사 코드는 GTXA.A 및 GTXA.{역코드}.'
+      artifactContract: metropolitan-subway-master.md
     WALK:
       format: null
       reason: 도보는 공식 대중교통 인접구간이 아니므로 segment_id를 발급하지 않는다.

@@ -31,8 +31,8 @@ local current = redis.call('GET', KEYS[1])
 if current then
     local decoded_ok, decoded = pcall(cjson.decode, current)
     if decoded_ok and decoded then
-        local current_occurred = tostring(decoded['occurredAt'] or '')
-        local current_collected = tostring(decoded['collectedAt'] or '')
+        local current_occurred = tostring(decoded['occurredAt'] or decoded['computedAt'] or '')
+        local current_collected = tostring(decoded['collectedAt'] or decoded['computedAt'] or '')
         local incoming_occurred = tostring(ARGV[3])
         local incoming_collected = tostring(ARGV[4])
 
@@ -123,7 +123,8 @@ def write_latest_with_row_ttl(df: DataFrame, host: str, port: int, password: str
 
     Lua 실행은 키별로 원자적이며 Spark 재시도에도 멱등적이다. Redis I/O나 JSON 쓰기가 실패하면
     executor 예외를 통해 batch를 실패시켜 checkpoint가 앞서 나가지 않는다. 기존 값이 손상됐거나
-    구 계약이라 ``occurredAt``이 없으면 새 정상 관측으로 한 번 교체해 자동 복구한다.
+    구 계약이라 ``occurredAt``과 ``computedAt``이 모두 없으면 새 정상 관측으로 한 번 교체한다.
+    구간 판정 JSON은 원본 occurredAt 대신 computedAt을 비교하여 Kafka와 동일한 계약을 유지한다.
     """
 
     def write_partition(rows) -> None:

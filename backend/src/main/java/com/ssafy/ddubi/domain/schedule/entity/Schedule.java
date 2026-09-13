@@ -75,6 +75,13 @@ public class Schedule extends BaseTimeEntity {
     @Column(name = "arrive_by", nullable = false)
     private LocalDateTime arriveBy;
 
+    /** 사용자 입력 출발시각(KST). 추천 depart_at으로 자동 덮어쓰지 않는다. 기존 null은 감시 대기다. */
+    @Column(name = "planned_depart_at")
+    private LocalDateTime plannedDepartAt;
+
+    /** 사용자 등록/수정 또는 명시적 제안 수락에서만 변경한다. 추천 계산 자체는 호출하지 않는다. */
+    public void changePlannedDepartAt(LocalDateTime value) { this.plannedDepartAt = value; }
+
     @Enumerated(EnumType.STRING)
     @Column(name = "importance", nullable = false)
     private Importance importance;

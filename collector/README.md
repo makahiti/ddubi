@@ -242,3 +242,7 @@ python -m pytest -q -p no:cacheprovider
 `canonicalMapping`에 사유를 남긴다. 도착 대상 정류장의 진입 edge는 차량 현재 위치가 아니다.
 위치 관측의 `sectOrd`만으로 구간을 추측하지 않는다.
 생성·배포 방법은 [마스터 안내](../backend/transit-master/README.md)를 따른다.
+
+## 경기·인천 선택 실행 수집기
+
+도착/위치 4개 소스와 namespace·페이지·초 단위 규칙은 [통합 보강 계약](../docs/contracts/transit-service-integration.md)을 따른다. 기존 운영 대상과 주기는 변경하지 않았다.

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/app_providers.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:go_router/go_router.dart';
@@ -9,7 +11,6 @@ import 'package:kakao_maps_flutter/kakao_maps_flutter.dart';
 import '../core/constants/layout_constants.dart';
 import '../core/maps/kakao_map_config.dart';
 import '../core/theme.dart';
-import '../data/mock_repository.dart';
 import '../domain/auth.dart';
 import '../domain/models.dart';
 import '../services/kakao_login_service.dart';
@@ -19,8 +20,12 @@ import '../services/app_api.dart';
 import '../services/place_api.dart';
 import '../services/recommendation_api.dart';
 import 'auth_screens.dart';
+import 'help_inquiry_screen.dart';
 import 'micro_animations.dart';
+import 'more_page_widgets.dart';
 import 'widgets.dart';
+import 'schedule_evaluation_card.dart';
+import '../domain/schedule_evaluation.dart';
 
 export 'notification_center.dart';
 
@@ -2605,6 +2610,8 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   final formKey = GlobalKey<FormState>();
   late final TextEditingController title;
   late final TextEditingController time;
+  late final TextEditingController departureTime;
+  late DateTime departureDate;
   PlaceLocation? origin;
   PlaceLocation? destination;
 
@@ -2614,6 +2621,10 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     final schedule = widget.schedule;
     title = TextEditingController(text: schedule?.title ?? '잠실야구장');
     time = TextEditingController(text: schedule?.time ?? '19:30');
+    final departure = schedule?.plannedDepartAt;
+    departureTime = TextEditingController(text: departure == null ? '' :
+        '${departure.hour.toString().padLeft(2, '0')}:${departure.minute.toString().padLeft(2, '0')}');
+    departureDate = departure ?? schedule?.date ?? widget.initialDate ?? DateTime.now();
     selectedDate = schedule?.date ?? widget.initialDate ?? DateTime.now();
     origin = schedule?.origin;
     destination = schedule?.destination;
@@ -2627,6 +2638,7 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   void dispose() {
     title.dispose();
     time.dispose();
+    departureTime.dispose();
     super.dispose();
   }
 
@@ -2664,6 +2676,18 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
           ),
           const SizedBox(height: 12),
           _field('반드시 도착해야 하는 시간', time, icon: Icons.schedule),
+          _field('출발 예정시간', departureTime, icon: Icons.schedule),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text('출발 날짜: ${_fullDate(departureDate)}'),
+            trailing: const Icon(Icons.calendar_month_outlined),
+            onTap: () async {
+              final value = await showDatePicker(context: c, initialDate: departureDate,
+                  firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                  lastDate: DateTime.now().add(const Duration(days: 365 * 2)));
+              if (value != null && mounted) setState(() => departureDate = value);
+            },
+          ),
           PlaceSearchField(
             key: const Key('originPlaceField'),
             label: '출발지',
@@ -2718,6 +2742,9 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     if (origin == null || destination == null) return;
     final date = selectedDate;
     final parts = time.text.trim().split(':');
+    final departureParts = departureTime.text.trim().split(':');
+    final plannedDeparture = DateTime(departureDate.year, departureDate.month, departureDate.day,
+        int.parse(departureParts.first), int.parse(departureParts.last));
     final arriveBy = DateTime(
       date.year,
       date.month,
@@ -2733,12 +2760,17 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
       origin: origin!,
       destination: destination!,
       arriveBy: arriveBy,
+      plannedDepartAt: plannedDeparture,
       importance: importance,
       considerLastTrip: considerLastTrip,
       preferredTransport: transport,
       repeatLabel: widget.schedule?.repeatLabel,
       updatedAt: widget.schedule?.updatedAt,
     );
+    if (!plannedDeparture.isBefore(arriveBy)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('출발시각은 도착시각보다 앞서야 합니다.')));
+      return;
+    }
     try {
       if (widget.schedule == null) {
         await widget.repository.addSchedule(schedule);
@@ -2794,7 +2826,7 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
           validator: (value) {
             final text = (value ?? '').trim();
             if (text.isEmpty) return '필수 입력 항목입니다.';
-            if (controller == time &&
+            if ((controller == time || controller == departureTime) &&
                 !RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(text)) {
               return '시간을 HH:mm 형식으로 입력해주세요.';
             }
@@ -2882,83 +2914,11 @@ class ScheduleDetailScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: InfoCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('도착까지 남은 시간'),
-                    SizedBox(height: 7),
-                    Text(
-                      '2시간 48분',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text('(17:57 출발 기준)', style: TextStyle(fontSize: 11)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: InfoCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('데이터 최신성'),
-                    SizedBox(height: 7),
-                    Text('12분 전 업데이트'),
-                    StatusBadge('최신 데이터'),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+        if (repository is ScheduleEvaluationRepository)
+          ScheduleEvaluationCard(repository: repository as ScheduleEvaluationRepository, scheduleId: schedule.id)
+        else
+          const InfoCard(child: Text('이 일정은 서버 예측에 연결되지 않았습니다.')),
         const SizedBox(height: 14),
-        InfoCard(
-          child: Row(
-            children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 75,
-                    height: 75,
-                    child: CircularProgressIndicator(
-                      value: .92,
-                      strokeWidth: 8,
-                      color: DdubiColors.green,
-                      backgroundColor: DdubiColors.surface,
-                    ),
-                  ),
-                  Text('92%', style: Theme.of(c).textTheme.titleLarge),
-                ],
-              ),
-              const SizedBox(width: 18),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('현재 도착 신뢰도'),
-                    StatusBadge('매우 있음'),
-                    Text('평소보다 15분 여유 있어요.', style: TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        PrimaryButton(
-          '추천 경로 보기',
-          onPressed: () => c.push('/recommendations/mock-recommendation-1'),
-        ),
-        const SizedBox(height: 10),
         OutlinedButton.icon(
           key: const Key('editScheduleButton'),
           onPressed: () async {
@@ -4094,94 +4054,57 @@ class _MapPainter extends CustomPainter {
       oldDelegate.selectedKind != selectedKind;
 }
 
-class DelayAlertScreen extends StatelessWidget {
+/// 저장된 일정과 서버 재평가 결과를 조회한다. 교통 데이터가 없을 때 가상의 지연·대안을 만들지 않는다.
+class DelayAlertScreen extends ConsumerStatefulWidget {
   const DelayAlertScreen({super.key, required this.repository});
+  // 기존 라우트 호출과의 호환 인자다. 실제 조회는 scheduleRepositoryProvider를 사용한다.
   final DdubiRepository repository;
   @override
-  Widget build(BuildContext c) => AppPage(
-    title: '상황 변경 알림',
-    child: ListView(
-      padding: _pad,
-      children: [
-        const InfoCard(
-          color: Color(0xFFFFF5ED),
-          child: Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                color: DdubiColors.orange,
-                size: 30,
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '버스 지연이 커졌어요',
-                      style: TextStyle(
-                        color: DdubiColors.orange,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text('현재 경로로는 늦어질 수 있어요.'),
-                  ],
-                ),
-              ),
+  ConsumerState<DelayAlertScreen> createState() => _DelayAlertScreenState();
+}
+
+class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
+  late Future<List<Schedule>> _schedules;
+  @override
+  void initState() {
+    super.initState();
+    _schedules = ref.read(scheduleRepositoryProvider).schedules();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repository = ref.watch(scheduleRepositoryProvider);
+    return AppPage(
+      title: '일정별 교통 상황',
+      child: FutureBuilder<List<Schedule>>(
+        future: _schedules,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: TextButton(
+              onPressed: () => setState(() => _schedules = repository.schedules()),
+              child: const Text('일정을 불러오지 못했습니다. 다시 시도'),
+            ));
+          }
+          if (repository is! ScheduleEvaluationRepository) {
+            return const Center(child: Text('실제 교통 상황은 일정 API 연결 후 확인할 수 있습니다.'));
+          }
+          final schedules = snapshot.data ?? <Schedule>[];
+          if (schedules.isEmpty) return const Center(child: Text('등록된 일정이 없습니다.'));
+          return ListView(padding: _pad, children: [
+            const Text('각 일정의 최신 평가와 데이터 부족 사유를 확인하세요.'),
+            for (final schedule in schedules) ...[
+              const SizedBox(height: 16),
+              Text(schedule.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ScheduleEvaluationCard(key: ValueKey(schedule.id), repository: repository as ScheduleEvaluationRepository, scheduleId: schedule.id),
             ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        const InfoCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text('기존 경로 (버스)'),
-            subtitle: Text('강남역 → 여의도역\n예상 도착  오전 9:47'),
-            trailing: StatusBadge(
-              '+8분 지연',
-              tone: DdubiColors.orange,
-              icon: Icons.warning_amber,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        const InfoCard(
-          child: ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              '새로운 경로 (지하철)',
-              style: TextStyle(color: DdubiColors.blue),
-            ),
-            subtitle: Text('강남역 → 여의도역\n예상 도착  오전 9:39'),
-            trailing: StatusBadge('제시간 도착'),
-          ),
-        ),
-        const SizedBox(height: 12),
-        const InfoCard(
-          color: Color(0xFFF4F8FF),
-          child: Text('✓ 지하철로 변경 시 약 8분을 절약할 수 있어요.'),
-        ),
-        const SpacerBox(),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => Navigator.pop(c),
-                child: const Text('기존 경로 유지'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: FilledButton(
-                onPressed: () => _open(c, MovingScreen(repository: repository)),
-                child: const Text('경로 변경'),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+          ]);
+        },
+      ),
+    );
+  }
 }
 
 class SpacerBox extends StatelessWidget {
@@ -5023,7 +4946,27 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.mail_outline_rounded),
                     title: const Text('이메일'),
-                    subtitle: Text(user.email ?? '이메일 정보 없음'),
+                    subtitle: Text(user.email ?? '등록된 이메일이 없어요'),
+                    trailing: user.email == null
+                        ? const Text(
+                            '등록',
+                            style: TextStyle(
+                              color: Color(0xFF0AAE9D),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          )
+                        : null,
+                    onTap: user.email == null ? _showEmailRegistration : null,
+                  ),
+                  const Divider(),
+                  ListTile(
+                    key: const Key('changePasswordMenuButton'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.lock_reset_rounded),
+                    title: const Text('비밀번호 변경'),
+                    subtitle: const Text('새 비밀번호로 안전하게 변경해요.'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _showPasswordChange,
                   ),
                 ],
               ),
@@ -5053,13 +4996,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
               child: Column(
                 children: [
                   ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.logout_rounded),
-                    title: const Text('로그아웃'),
-                    onTap: _logout,
-                  ),
-                  const Divider(),
-                  ListTile(
+                    key: const Key('withdrawalMenuButton'),
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(
                       Icons.person_remove_outlined,
@@ -5120,35 +5057,258 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
     }
   }
 
-  Future<void> _logout() async {
-    try {
-      await widget.authRepository.logout();
-      if (mounted) context.go('/login');
-    } on AuthException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? '로그아웃하지 못했어요.')),
-        );
-      }
-    }
-  }
+  Future<void> _showEmailRegistration() => _showUnavailableAccountFeature(
+    title: '이메일 등록',
+    icon: Icons.mark_email_unread_outlined,
+    description:
+        '이메일 인증 후 현재 계정에 연결할 수 있도록 화면을 준비했어요. '
+        '계정 연결 API가 제공되면 이곳에서 바로 등록할 수 있어요.',
+  );
+
+  Future<void> _showPasswordChange() => _showUnavailableAccountFeature(
+    title: '비밀번호 변경',
+    icon: Icons.lock_reset_rounded,
+    description:
+        '현재 비밀번호 확인과 새 비밀번호 입력 화면을 준비했어요. '
+        '비밀번호 변경 API가 제공되면 이곳에서 안전하게 변경할 수 있어요.',
+  );
+
+  Future<void> _showUnavailableAccountFeature({
+    required String title,
+    required IconData icon,
+    required String description,
+  }) => showModalBottomSheet<void>(
+    context: context,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (sheetContext) => Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        8,
+        24,
+        24 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 31,
+            backgroundColor: const Color(0xFFDDF8F3),
+            child: Icon(icon, color: const Color(0xFF0CB3A2), size: 32),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF102454),
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            description,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFF64708B), height: 1.55),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: () => Navigator.pop(sheetContext),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF10B8A5),
+              minimumSize: const Size.fromHeight(50),
+              shape: const StadiumBorder(),
+            ),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    ),
+  );
 
   Future<void> _withdraw() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('정말 탈퇴할까요?'),
-        content: const Text('계정과 저장된 정보가 삭제되며 되돌릴 수 없어요.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
+      barrierColor: const Color(0x730B1C2E),
+      builder: (dialogContext) => Dialog(
+        key: const Key('withdrawalConfirmationDialog'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 26),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: const Color(0xFFD7F1ED)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33102A43),
+                    blurRadius: 30,
+                    offset: Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    height: 178,
+                    child: Stack(
+                      alignment: Alignment.bottomCenter,
+                      children: [
+                        Align(
+                          alignment: const Alignment(0, .18),
+                          child: Container(
+                            width: 270,
+                            height: 132,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFFE5FAF7), Color(0xFFCFF4EE)],
+                              ),
+                              borderRadius: BorderRadius.circular(80),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 16,
+                          bottom: 18,
+                          child: Container(
+                            width: 86,
+                            height: 86,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFDCF8F4),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 22,
+                          bottom: 25,
+                          child: Container(
+                            width: 76,
+                            height: 76,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFD7F6F1),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                        Image.asset(
+                          'assets/images/ttubee/withdrawal-confirmation.png',
+                          key: const Key('withdrawalCharacter'),
+                          height: 174,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          semanticLabel: '탈퇴를 재확인하는 슬픈 뚜비',
+                        ),
+                        Positioned(
+                          top: 12,
+                          right: 44,
+                          child: Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF5964),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x33FF5964),
+                                  blurRadius: 10,
+                                  offset: Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.priority_high_rounded,
+                              color: Colors.white,
+                              size: 29,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '정말 탈퇴하시겠습니까?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF102454),
+                      fontSize: 23,
+                      height: 1.25,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -.6,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    '탈퇴하면 계정 정보와 이용 기록이 삭제돼요.\n'
+                    '필요한 내용이 있다면 먼저 확인해 주세요.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF66738D),
+                      fontSize: 13.5,
+                      height: 1.55,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 52,
+                          child: TextButton(
+                            key: const Key('withdrawalCancelButton'),
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF079B8D),
+                              backgroundColor: const Color(0xFFE6F8F5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: const Text(
+                              '취소',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SizedBox(
+                          height: 52,
+                          child: FilledButton(
+                            key: const Key('withdrawalConfirmButton'),
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF4E5A),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: const Text(
+                              '탈퇴하기',
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('탈퇴'),
-          ),
-        ],
+        ),
       ),
     );
     if (confirmed != true) return;
@@ -5246,9 +5406,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (isWide) {
       return AppPage(
-        title: '이동 설정',
-        webTitle: '서비스 설정',
-        webSubtitle: '앱 권한과 계정 상태를 관리하세요.',
+        title: '더보기',
+        webTitle: '더보기',
+        webSubtitle: '뚜비와 더 편리한 이동을 위한 설정을 관리해요.',
         child: content,
       );
     }
@@ -5277,6 +5437,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: _mobileAccountCard(context, user),
             ),
             const SizedBox(height: 2),
+            _weeklyStampBoardCard(context),
+            const SizedBox(height: 14),
             _mobileServiceStatus(context),
             const SizedBox(height: 14),
             _travelHistoryPreview(context),
@@ -5284,6 +5446,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _accountActionsCard(context),
             const SizedBox(height: 14),
             _mobilePermissionCard(),
+            const SizedBox(height: 14),
+            _helpCard(context),
             const SizedBox(height: 14),
             _logoutCard(context),
           ],
@@ -5322,7 +5486,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '이동 설정',
+              '더보기',
               style: TextStyle(
                 color: Color(0xFF102454),
                 fontSize: 30,
@@ -5332,7 +5496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             SizedBox(height: 7),
             Text(
-              '더 편리한 이동을 위한 설정을 관리해요.',
+              '뚜비와 더 편리한 이동을 위한 설정을 관리해요.',
               style: TextStyle(
                 color: Color(0xFF5D6B89),
                 fontSize: 15,
@@ -5342,16 +5506,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ],
-    ),
-  );
-
-  Widget _settingsSectionTitle(String title) => Text(
-    title,
-    style: const TextStyle(
-      color: Color(0xFF102454),
-      fontSize: 21,
-      fontWeight: FontWeight.w900,
-      letterSpacing: -.4,
     ),
   );
 
@@ -5405,6 +5559,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Text('앱 권한과 계정 정보를 한곳에서 관리하세요.'),
                 const SizedBox(height: 16),
                 _permissionCard(),
+                const SizedBox(height: 16),
+                _weeklyStampBoardCard(context),
                 const SizedBox(height: 16),
                 _serviceStatus(context),
                 const SizedBox(height: 16),
@@ -5528,14 +5684,307 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 13),
-            _SettingsAccountAction(
-              icon: Icons.manage_accounts_outlined,
-              label: '계정 관리 화면 열기',
-              onTap: () => context.push('/settings/account'),
+            const Padding(
+              padding: EdgeInsets.only(left: 32),
+              child: Text(
+                '계정 연결 API 연동 후 제공될 예정이에요.',
+                key: Key('accountManagementPreparing'),
+                style: TextStyle(color: Color(0xFF64708B), fontSize: 13),
+              ),
             ),
           ],
         ),
       );
+
+  // ignore: unused_element
+  Future<void> _openAccountManagement(
+    BuildContext context,
+    UserProfile user,
+  ) async {
+    var password = '';
+    var obscured = true;
+    var loading = false;
+    String? errorText;
+
+    final verified = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: const Color(0x730B1C2E),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => Dialog(
+          key: const Key('accountPasswordDialog'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 390),
+            child: SingleChildScrollView(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(32),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x260B1C2E),
+                      blurRadius: 28,
+                      offset: Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: IconButton(
+                          tooltip: '닫기',
+                          onPressed: loading
+                              ? null
+                              : () => Navigator.pop(dialogContext, false),
+                          icon: const Icon(Icons.close_rounded),
+                          color: const Color(0xFF102454),
+                        ),
+                      ),
+                      Container(
+                        width: 168,
+                        height: 168,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [Color(0xFFE0FAF6), Color(0xFFF4FCFB)],
+                          ),
+                        ),
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/images/ttubee/account-password-confirmation.png',
+                            key: const Key('accountPasswordCharacter'),
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.high,
+                            semanticLabel: '자물쇠를 들고 비밀번호 확인을 안내하는 뚜비',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        '비밀번호를 확인할게요',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF102454),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      const Text(
+                        '개인정보 보호를 위해 계정 관리 전 한 번 더 확인해요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF748096),
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      TextField(
+                        key: const Key('accountPasswordField'),
+                        obscureText: obscured,
+                        autofillHints: const [AutofillHints.password],
+                        onChanged: (value) => password = value,
+                        onSubmitted: loading
+                            ? null
+                            : (_) => _verifyAccountPassword(
+                                dialogContext: dialogContext,
+                                email: user.email,
+                                isLocalPreview: user.id == 'debug',
+                                password: password,
+                                setDialogState: setDialogState,
+                                setLoading: (value) => loading = value,
+                                setError: (value) => errorText = value,
+                              ),
+                        decoration: InputDecoration(
+                          hintText: '현재 비밀번호',
+                          hintStyle: const TextStyle(color: Color(0xFF8A96A9)),
+                          prefixIcon: const Icon(
+                            Icons.lock_outline_rounded,
+                            color: Color(0xFF64748B),
+                          ),
+                          errorText: errorText,
+                          suffixIcon: IconButton(
+                            tooltip: obscured ? '비밀번호 보기' : '비밀번호 숨기기',
+                            onPressed: () =>
+                                setDialogState(() => obscured = !obscured),
+                            icon: Icon(
+                              obscured
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFFFBFDFD),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 17,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFCADAE0),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF10B8A5),
+                              width: 1.6,
+                            ),
+                          ),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE85D68),
+                            ),
+                          ),
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE85D68),
+                              width: 1.6,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: FilledButton(
+                          key: const Key('confirmAccountPasswordButton'),
+                          onPressed: loading
+                              ? null
+                              : () => _verifyAccountPassword(
+                                  dialogContext: dialogContext,
+                                  email: user.email,
+                                  isLocalPreview: user.id == 'debug',
+                                  password: password,
+                                  setDialogState: setDialogState,
+                                  setLoading: (value) => loading = value,
+                                  setError: (value) => errorText = value,
+                                ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B8A5),
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: const Color(0xFF9EDCD4),
+                            shape: const StadiumBorder(),
+                            textStyle: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          child: loading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('확인'),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      TextButton(
+                        key: const Key('cancelAccountPasswordButton'),
+                        onPressed: loading
+                            ? null
+                            : () => Navigator.pop(dialogContext, false),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF158F86),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        child: const Text('취소'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (verified == true && context.mounted) {
+      context.push('/settings/account');
+    }
+  }
+
+  Future<void> _verifyAccountPassword({
+    required BuildContext dialogContext,
+    required String? email,
+    required bool isLocalPreview,
+    required String password,
+    required StateSetter setDialogState,
+    required ValueChanged<bool> setLoading,
+    required ValueChanged<String?> setError,
+  }) async {
+    if (password.isEmpty) {
+      setDialogState(() => setError('현재 비밀번호를 입력해주세요.'));
+      return;
+    }
+    if (isLocalPreview) {
+      if (password == 'local1234') {
+        Navigator.pop(dialogContext, true);
+      } else {
+        setDialogState(() => setError('비밀번호가 일치하지 않아요.'));
+      }
+      return;
+    }
+    final normalizedEmail = email?.trim();
+    if (normalizedEmail == null || normalizedEmail.isEmpty) {
+      setDialogState(() => setError('비밀번호 확인이 가능한 이메일 계정 정보가 없어요.'));
+      return;
+    }
+    setDialogState(() {
+      setLoading(true);
+      setError(null);
+    });
+    try {
+      await widget.authRepository.login(
+        email: normalizedEmail,
+        password: password,
+      );
+      if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+    } on AuthException catch (error) {
+      if (dialogContext.mounted) {
+        setDialogState(() {
+          setLoading(false);
+          setError(error.message ?? '비밀번호가 일치하지 않아요.');
+        });
+      }
+    } on Object {
+      if (dialogContext.mounted) {
+        setDialogState(() {
+          setLoading(false);
+          setError('계정 정보를 확인하지 못했어요.');
+        });
+      }
+    }
+  }
 
   Widget _profileImage({required int? characterIndex, Uint8List? bytes}) =>
       bytes != null
@@ -5571,33 +6020,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!_photoAccessExplained) {
       final allowed = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          title: const Text(
-            '사진 접근 권한이 필요해요',
-            style: TextStyle(
-              color: Color(0xFF102454),
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          content: const Text(
-            '프로필 사진을 선택하려면 갤러리 접근 권한이 필요해요.\n권한은 프로필 사진을 선택할 때만 사용돼요.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('나중에'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF12B8A6),
+        barrierColor: const Color(0x730B1C2E),
+        builder: (dialogContext) => Dialog(
+          key: const Key('photoPermissionDialog'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFFFFFFFF), Color(0xFFF5FFFD)],
+                  ),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: const Color(0xFFCDEFEA)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33102A43),
+                      blurRadius: 30,
+                      offset: Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FractionallySizedBox(
+                      widthFactor: .82,
+                      child: Image.asset(
+                        'assets/images/ttubee/photo-permission.png',
+                        key: const Key('photoPermissionCharacter'),
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        semanticLabel: '사진 선택을 안내하는 뚜비',
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(text: '사진 '),
+                          TextSpan(
+                            text: '접근 권한',
+                            style: TextStyle(color: Color(0xFF0AAE9D)),
+                          ),
+                          TextSpan(text: '이 필요해요'),
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF102454),
+                        fontSize: 22,
+                        height: 1.25,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -.5,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      '프로필 사진을 선택하려면 갤러리 접근 권한이 필요해요.\n'
+                      '권한은 프로필 사진을 선택할 때만 사용돼요.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF66738D),
+                        fontSize: 13,
+                        height: 1.55,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: TextButton(
+                              key: const Key('photoPermissionLaterButton'),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFF079B8D),
+                                backgroundColor: const Color(0xFFE6F8F5),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: const Text(
+                                '나중에',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: FilledButton(
+                              key: const Key('photoPermissionAllowButton'),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF12B8A6),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: const Text(
+                                '허용하기',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              child: const Text('허용하기'),
             ),
-          ],
+          ),
         ),
       );
       if (allowed != true) return null;
@@ -5672,6 +6219,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _notificationAllowed = allowed);
   }
 
+  Widget _weeklyStampBoardCard(BuildContext context) => const Card(
+    key: Key('weeklyStampBoardCard'),
+    child: Padding(
+      padding: EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Icon(Icons.workspace_premium_outlined, color: Color(0xFF10B8A5)),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '도장판은 실제 미션 데이터 연동 후 제공될 예정이에요.',
+              key: Key('stampBoardPreparing'),
+              style: TextStyle(color: Color(0xFF64708B), fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
   Widget _mobileServiceStatus(BuildContext context) => _settingsCard(
     color: const Color(0xFFFFFCFA),
     child: Stack(
@@ -5695,20 +6262,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _settingsSectionTitle('서비스 상태'),
+              const SectionHeader('서비스 연결 안내'),
               const SizedBox(height: 10),
               const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.cloud_off_outlined,
-                    color: Color(0xFFFF6B35),
-                    size: 20,
-                  ),
+                  Icon(Icons.cloud_off_outlined, color: Color(0xFFFF6B35), size: 20),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      '최근 교통 정보 업데이트가 지연됐어요.',
+                      '일정별 최신 교통 상황을 확인하세요.',
                       style: TextStyle(
                         color: Color(0xFFFF5A2A),
                         fontSize: 13,
@@ -5720,18 +6283,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 7),
               const Text(
-                '최신 교통정보가 부족하면 Mock 경로로 화면을 확인할 수 있어요.',
-                style: TextStyle(
-                  color: Color(0xFF64708B),
-                  fontSize: 12,
-                  height: 1.4,
-                ),
+                '등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.',
+                style: TextStyle(color: Color(0xFF64708B), fontSize: 12, height: 1.4),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: () => _open(
                   context,
-                  DelayAlertScreen(repository: MockDdubiRepository()),
+                  DelayAlertScreen(repository: widget.repository),
                 ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF0FAE9F),
@@ -5741,10 +6300,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 iconAlignment: IconAlignment.end,
                 icon: const Icon(Icons.chevron_right_rounded, size: 19),
-                label: const Text(
-                  '상세 확인',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
+                label: const Text('상세 확인', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
@@ -5753,10 +6309,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ),
   );
 
+  // ignore: unused_element
+  Future<void> _showStampBoardGuide(BuildContext context) =>
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => const StampBoardGuideSheet(),
+      );
+
+  // ignore: unused_element
+  Future<void> _showStampBoardDetails(BuildContext context) =>
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => const StampBoardDetailSheet(),
+      );
+
   Widget _logoutCard(BuildContext context) => Material(
     color: const Color(0xFFFFF3F5),
     borderRadius: BorderRadius.circular(19),
     child: InkWell(
+      key: const Key('logoutCardButton'),
       onTap: () => _showLogoutDialog(context),
       borderRadius: BorderRadius.circular(19),
       child: const Padding(
@@ -5777,6 +6354,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             Icon(Icons.chevron_right_rounded, color: Color(0xFF667085)),
           ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _helpCard(BuildContext context) => Material(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(22),
+    child: InkWell(
+      key: const Key('helpInquiryButton'),
+      onTap: () => _open(context, const HelpInquiryScreen()),
+      borderRadius: BorderRadius.circular(22),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 17, vertical: 15),
+        child: _MoreMenuRow(
+          icon: Icons.help_outline_rounded,
+          title: '도움말 · 문의하기',
+          subtitle: '궁금한 점이 있다면 언제든 문의해 주세요.',
         ),
       ),
     ),
@@ -5832,41 +6427,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ),
   );
 
-  Widget _accountActionsCard(BuildContext context) => InfoCard(
+  Widget _accountActionsCard(BuildContext context) => _settingsCard(
     child: Column(
       children: [
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.manage_accounts_outlined),
-          title: const Text('계정 관리'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => context.push('/settings/account'),
-        ),
-        const Divider(),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.bookmarks_outlined),
-          title: const Text('저장 장소 관리'),
-          trailing: const Icon(Icons.chevron_right),
+        InkWell(
+          key: const Key('savedPlacesMenuButton'),
           onTap: () => context.push('/settings/places'),
-        ),
-        const Divider(),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.insights_outlined),
-          title: const Text('이동 기록 · 주간 리포트'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => context.push('/settings/records'),
-        ),
-        const Divider(),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(
-            Icons.person_remove_outlined,
-            color: DdubiColors.red,
+          borderRadius: BorderRadius.circular(12),
+          child: const _MoreMenuRow(
+            icon: Icons.bookmark_outline_rounded,
+            title: '저장 장소 관리',
+            subtitle: '자주 가는 장소를 등록하고 관리해요.',
           ),
-          title: const Text('회원 탈퇴', style: TextStyle(color: DdubiColors.red)),
-          onTap: () => _showWithdrawDialog(context),
+        ),
+        const Divider(height: 18, color: Color(0xFFE1E9EE)),
+        InkWell(
+          key: const Key('travelRecordsMenuButton'),
+          onTap: () => context.push('/settings/records'),
+          borderRadius: BorderRadius.circular(12),
+          child: const _MoreMenuRow(
+            icon: Icons.description_outlined,
+            title: '이동 기록 · 주간 리포트',
+            subtitle: '나의 이동 패턴을 한눈에 확인해요.',
+          ),
         ),
       ],
     ),
@@ -5937,22 +6520,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader('서비스 상태'),
+        const SectionHeader('서비스 연결 안내'),
         const SizedBox(height: 10),
         const StatusBadge(
-          '최근 교통 정보 업데이트가 지연됐어요.',
+          '일정별 최신 교통 상황을 확인하세요.',
           tone: DdubiColors.orange,
           icon: Icons.cloud_off_outlined,
         ),
         const SizedBox(height: 6),
-        const Text('최신 교통정보가 부족하면 Mock 경로로 화면을 확인할 수 있어요.'),
+        const Text('등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.'),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,
           child: OutlinedButton(
             onPressed: () => _open(
               context,
-              DelayAlertScreen(repository: MockDdubiRepository()),
+              DelayAlertScreen(repository: widget.repository),
             ),
             child: const Text('상세 확인'),
           ),
@@ -5963,81 +6546,159 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showLogoutDialog(BuildContext context) => showDialog<void>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('로그아웃할까요?'),
-      content: const Text('다시 로그인하면 일정과 추천 경로를 확인할 수 있어요.'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('취소'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            Navigator.pop(dialogContext);
-            try {
-              await widget.authRepository.logout();
-              if (context.mounted) context.go('/login');
-            } on AuthException catch (error) {
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(error.message ?? '로그아웃하지 못했어요.')),
-              );
-            }
-          },
-          child: const Text('로그아웃'),
-        ),
-      ],
+    barrierColor: Colors.black.withValues(alpha: .45),
+    builder: (dialogContext) => _LogoutConfirmationDialog(
+      onCancel: () => Navigator.pop(dialogContext),
+      onLogout: () async {
+        Navigator.pop(dialogContext);
+        try {
+          await widget.authRepository.logout();
+          if (context.mounted) context.go('/login');
+        } on AuthException catch (error) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error.message ?? '로그아웃하지 못했어요.')),
+          );
+        }
+      },
     ),
   );
+}
 
-  Future<void> _showWithdrawDialog(BuildContext context) async {
-    final password = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('회원 탈퇴'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('모든 일정과 기록이 삭제되며 되돌릴 수 없어요.'),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('withdrawPasswordField'),
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: '비밀번호 (소셜 계정은 비워두세요)',
-              ),
+class _LogoutConfirmationDialog extends StatelessWidget {
+  const _LogoutConfirmationDialog({
+    required this.onCancel,
+    required this.onLogout,
+  });
+
+  final VoidCallback onCancel;
+  final Future<void> Function() onLogout;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    key: const Key('logoutConfirmationDialog'),
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 410),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 26),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: const Color(0xFFE1F2EF)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33001F2B),
+              blurRadius: 30,
+              offset: Offset(0, 14),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 196,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 174,
+                      height: 174,
+                      decoration: BoxDecoration(
+                        gradient: const RadialGradient(
+                          colors: [Color(0xFFE4FBF7), Color(0xFFF4FCFB)],
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    Image.asset(
+                      'assets/images/ttubee/logout-sad.png',
+                      key: const Key('logoutDialogCharacter'),
+                      width: 206,
+                      height: 196,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      semanticLabel: '로그아웃을 아쉬워하는 뚜비',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '로그아웃할까요?',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: DdubiColors.navy,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '다시 로그인하면 일정과\n추천 경로를 이어서 확인할 수 있어요.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: const Color(0xFF748096), height: 1.55),
+              ),
+              const SizedBox(height: 26),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: OutlinedButton(
+                        key: const Key('logoutCancelButton'),
+                        onPressed: onCancel,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF009D91),
+                          backgroundColor: const Color(0xFFF8FDFC),
+                          side: const BorderSide(
+                            color: Color(0xFF77D8CF),
+                            width: 1.5,
+                          ),
+                          shape: const StadiumBorder(),
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        child: const Text('취소'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 52,
+                      child: FilledButton(
+                        key: const Key('logoutConfirmButton'),
+                        onPressed: onLogout,
+                        style: FilledButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: const Color(0xFF08AA9D),
+                          shape: const StadiumBorder(),
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          elevation: 1,
+                          shadowColor: const Color(0x55008D82),
+                        ),
+                        child: const Text('로그아웃'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: DdubiColors.red),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('탈퇴'),
-          ),
-        ],
+        ),
       ),
-    );
-    final value = password.text.trim();
-    password.dispose();
-    if (confirmed != true) return;
-    try {
-      await widget.userApi.withdraw(password: value.isEmpty ? null : value);
-      if (context.mounted) context.go('/login');
-    } on Object {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('회원 탈퇴에 실패했어요. 비밀번호를 확인해주세요.')),
-      );
-    }
-  }
+    ),
+  );
 }
 
 class _ProfileCharacterImage extends StatelessWidget {
@@ -6385,6 +7046,66 @@ class _ProfileImageSheetState extends State<_ProfileImageSheet> {
   );
 }
 
+class _MoreMenuRow extends StatelessWidget {
+  const _MoreMenuRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: const BoxDecoration(
+            color: Color(0xFFE4F9F6),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: const Color(0xFF0CB3A2), size: 25),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF102454),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF687691),
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        const Icon(Icons.chevron_right_rounded, color: Color(0xFF425273)),
+      ],
+    ),
+  );
+}
+
+// ignore: unused_element
 class _SettingsAccountAction extends StatelessWidget {
   const _SettingsAccountAction({
     required this.icon,

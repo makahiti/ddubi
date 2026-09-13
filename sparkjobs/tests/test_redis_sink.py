@@ -39,7 +39,7 @@ class _FakePipeline:
         for key, value, ttl, occurred_at, collected_at in self.pending:
             current = json.loads(self.state[key][0]) if key in self.state else None
             should_write = current is None or (
-                (current.get("occurredAt", ""), current.get("collectedAt", ""))
+                (current.get("occurredAt", current.get("computedAt", "")), current.get("collectedAt", current.get("computedAt", "")))
                 <= (occurred_at, collected_at)
             )
             if should_write:
@@ -115,3 +115,16 @@ def test_latest_sink_rejects_missing_order_timestamp(monkeypatch):
     with pytest.raises(ValueError, match="occurredAtOrder"):
         write_latest_with_row_ttl(_FakeDataFrame([invalid]), "redis", 6379, None)
     assert state == {}
+
+
+def test_old_status_replay_cannot_replace_newer_computed_state(monkeypatch):
+    """구간 판정은 occurredAt을 추가하지 않아도 computedAt으로 과거 Replay를 거절해야 한다."""
+    state = {}
+    monkeypatch.setitem(sys.modules, "redis", SimpleNamespace(Redis=lambda **kwargs: _FakeRedis(state, **kwargs)))
+    new_time, old_time = "2026-09-10T12:10:00+09:00", "2026-09-10T12:09:00+09:00"
+    newer = _row("new", new_time, new_time)
+    older = _row("old", old_time, old_time)
+    for row, time, status in [(newer, new_time, "delayed"), (older, old_time, "normal")]:
+        row[VALUE_COL] = json.dumps({"computedAt": time, "status": status})
+        write_latest_with_row_ttl(_FakeDataFrame([row]), "redis", 6379, None)
+    assert json.loads(state[newer[KEY_COL]][0])["status"] == "delayed"

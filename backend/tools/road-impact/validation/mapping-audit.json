@@ -1,0 +1,42 @@
+{
+  "masterVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+  "busCrosswalkSha256": "e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd",
+  "seoulEdgeCount": 40441,
+  "counts": {
+    "BIS_DIRECTIONAL_PATH": 24052,
+    "TOPIS_PATH_COMPLETE": 17465,
+    "ROAD_LINK_MISSING_OR_AMBIGUOUS": 10995,
+    "DIRECTIONAL_LINK_CHAIN_DISCONNECTED": 4190,
+    "TOPIS_PATH_PARTIAL": 6587,
+    "STOP_OCCURRENCE_UNRESOLVED": 1204
+  },
+  "bisPathRate": 0.594742958878366,
+  "operationalMappings": 0,
+  "note": "공식 연결 후보. 자료 유효기간 및 AccInfo 링크 동일성 확인 전 운영 활성화 금지.",
+  "sourceFiles": [
+    {
+      "datasetId": 62,
+      "sha256": "c16952660396556123f807c53128a8e448e3d7e4b33a75751ba259dd848ba3c3"
+    },
+    {
+      "datasetId": 58,
+      "sha256": "9560f790cf37011d442a24511cba72e1a219c01f0609a029487fcbfe3f8e3c8a"
+    },
+    {
+      "datasetId": 63,
+      "sha256": "aaf290d0b5710fc1fa3890e8d6a7c8bf3b955740af5accf7be70a5e68933561f"
+    },
+    {
+      "datasetId": 56,
+      "sha256": "79ec7d18c48fce86bd4b91db1698a1cc5fecb6379c33cda23f01316c8f7d0850"
+    },
+    {
+      "datasetId": 7,
+      "sha256": "16dea98b52433dbfc55618e86b3d21fcd9db3d8b4c7d823d1883e16c7e194729"
+    },
+    {
+      "datasetId": "OA-15061",
+      "sha256": "3ecabd782ac7ebec64fed32e4f61c792de70b38594c9e966736d283ceea3baad"
+    }
+  ]
+}

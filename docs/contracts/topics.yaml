@@ -80,3 +80,27 @@ topics:
     producer: backend
     consumers: [notification]
     archive: false
+
+  road.impact:
+    description: "검증 도로 링크에 대응한 버스 구간의 재평가 신호. 실제 통과시각 판정은 Backend가 수행한다. blocked 상태가 아니다."
+    partitions: 3
+    replicationFactor: 1
+    retentionHours: 24
+    retentionBytes: 1073741824
+    schema: events/road-impact.schema.json
+    key: segmentId
+    producer: spark
+    consumers: [backend]
+    archive: false
+
+  segment.observation:
+    description: "실제 통과시각 원천을 확보한 생산자의 정규화 사실. 도착예측·평균통계는 이 토픽에 발행하지 않는다. Spark가 원문과 offset을 별도 Parquet에 보존한다."
+    partitions: 3
+    replicationFactor: 1
+    retentionHours: 504
+    retentionBytes: 1073741824
+    schema: segment-observation.schema.json
+    key: segmentId
+    producer: verified-observation-adapter
+    consumers: [spark]
+    archive: false

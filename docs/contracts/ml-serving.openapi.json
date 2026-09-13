@@ -42,7 +42,7 @@
     "/v1/bus/predictions:batch": {
       "post": {
         "summary": "Predict",
-        "description": "여러 구간을 한 요청으로 예측한다. timeout 이후 재시도 정책은 호출자가 소유한다.",
+        "description": "스레드 실행 전에 제한된 FIFO에 입장한다. timeout 재시도는 호출자가 소유한다.\n\n대기열 초과/대기 만료는 MODEL_BUSY다. 모델 계산은 이벤트 루프 밖에서 실행하여\n대기 중에도 health 요청을 처리한다. 클라이언트 timeout은 계산 취소를 보장하지 않는다.",
         "operationId": "predict_v1_bus_predictions_batch_post",
         "requestBody": {
           "content": {
@@ -81,6 +81,90 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/environment:prepare": {
+      "post": {
+        "summary": "Prepare Environment",
+        "description": "학습과 같은 point-in-time 선택을 수행한다. 정답/현재 날씨의 과거 소급 입력은 허용하지 않는다.",
+        "operationId": "prepare_environment_v1_bus_environment_prepare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/environment:predict": {
+      "post": {
+        "summary": "Predict Environment",
+        "description": "명시 등록한 별도 모델만 사용한다. v12 모델로 신규 환경 특성을 계산했다고 표시하지 않는다.",
+        "operationId": "predict_environment_v1_bus_environment_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -185,6 +269,185 @@
         ],
         "title": "BatchResponse",
         "description": "배치 공통 버전·서울 계산시각·지원 날짜와 요청 순서대로 정렬된 구간 결과."
+      },
+      "EnvironmentObservation": {
+        "properties": {
+          "segmentId": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 9,
+            "title": "Segmentid"
+          },
+          "masterVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Masterversion"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "weather",
+              "road",
+              "events"
+            ],
+            "title": "Kind"
+          },
+          "eventId": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Eventid"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observedat"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Publishedat"
+          },
+          "collectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Collectedat"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validfrom"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validuntil"
+          },
+          "isForecast": {
+            "type": "boolean",
+            "title": "Isforecast",
+            "default": false
+          },
+          "feedComplete": {
+            "type": "boolean",
+            "title": "Feedcomplete",
+            "default": false
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "maxProperties": 20,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "segmentId",
+          "masterVersion",
+          "kind",
+          "eventId",
+          "source",
+          "observedAt",
+          "publishedAt",
+          "collectedAt",
+          "validFrom",
+          "validUntil",
+          "values"
+        ],
+        "title": "EnvironmentObservation",
+        "description": "공간 매핑이 검증된 한 이력 revision. 발표·수집·대상 시각을 서로 대체하지 않는다."
+      },
+      "EnvironmentPoint": {
+        "properties": {
+          "segmentId": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 9,
+            "title": "Segmentid"
+          },
+          "masterVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Masterversion"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Asof"
+          },
+          "passageAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Passageat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "segmentId",
+          "masterVersion",
+          "asOf",
+          "passageAt"
+        ],
+        "title": "EnvironmentPoint",
+        "description": "Backend가 확정한 canonical 인접 구간과 예측 기준/예상 통과 시각이다."
+      },
+      "EnvironmentRequest": {
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/EnvironmentPoint"
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentObservation"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Observations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request",
+          "observations"
+        ],
+        "title": "EnvironmentRequest",
+        "description": "최대 1,000개 구간 이력 revision을 공통 전처리에 전달한다. 정답 필드는 받지 않는다."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
       },
       "InvalidField": {
         "properties": {
@@ -415,7 +678,47 @@
           "detail"
         ],
         "title": "ServiceUnavailable",
-        "description": "모델 미준비·동시 실행·추론 실패를 구분하는 503 응답이다."
+        "description": "모델 미준비·대기열 초과/만료·추론 실패를 구분하는 503 응답이다."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
       }
     }
   }

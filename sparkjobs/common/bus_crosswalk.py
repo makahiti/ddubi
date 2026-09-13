@@ -17,7 +17,7 @@ SCHEMA=T.StructType([T.StructField(n,T.StringType(),False) for n in
 
 
 def load_crosswalk(spark,path,expected_sha):
-    """기동 시 고정 SHA와 모든 ID를 검증한다. 실행 중 파일을 다시 읽지 않는다."""
+    """기동 시 SHA·ID를 검증하고 집계 인덱스를 한 번 물리화한다. 잡 종료 때 unpersist한다."""
     with open(path,'rb') as stream:raw=stream.read()
     if not expected_sha or hashlib.sha256(raw).hexdigest()!=expected_sha:raise ValueError('crosswalk SHA mismatch')
     # SHA를 확인한 바로 그 바이트를 해제한다. 배포 중 경로가 교체되어도 다른 파일을 다시 열지 않는다.
@@ -42,12 +42,20 @@ def load_crosswalk(spark,path,expected_sha):
         rows.extend([('bus.arrival',ns,parts[0],'',parts[2],e['segmentId']),
                      ('bus.position',ns,parts[0],parts[1],parts[2],e['segmentId'])])
     # 동명/순환 정류장의 여러 진입 edge를 첫 행으로 뽑지 않고 후보 집합으로 남긴다.
-    # 고정 정적 자료는 JVM JSON parser로 옮겨 Python worker/UDF 없이 조인한다.
-    names=[f.name for f in SCHEMA.fields]
-    frozen=json.dumps([dict(zip(names,row)) for row in rows],ensure_ascii=False)
-    frame=spark.range(1).select(F.explode(F.from_json(F.lit(frozen),T.ArrayType(SCHEMA))).alias('edge')).select('edge.*')
+    # 21만 조회 행을 F.lit(JSON)으로 계획에 넣으면 foreachBatch의 매 action마다
+    # JSON 파싱/최적화와 집계가 반복되어 driver 힙을 소진한다. 명시 스키마의 정적
+    # DataFrame으로 만들고 최종 집계 인덱스만 캐시한다. cache()는 지연 평가이므로
+    # count()로 스트리밍 시작 전에 물리화한다. Spark 기본 MEMORY_AND_DISK 캐시는
+    # 메모리가 부족할 때 디스크를 사용할 수 있어 강제 broadcast보다 보수적이다.
+    frame=spark.createDataFrame(rows,SCHEMA)
     index=frame.groupBy('lookupType','namespace','routeId','fromStopId','toStopId')\
-        .agg(F.sort_array(F.collect_set('segmentId')).alias('canonicalCandidates'))
+        .agg(F.sort_array(F.collect_set('segmentId')).alias('canonicalCandidates')).cache()
+    try:
+        index.count()
+    except Exception:
+        # 기동 실패 시 부분 캐시를 남기지 않는다. SHA/버전 검증 실패를 fallback으로 숨기지 않는다.
+        index.unpersist()
+        raise
     return index,data['masterVersion'],expected_sha
 
 

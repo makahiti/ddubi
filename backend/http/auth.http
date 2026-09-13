@@ -619,3 +619,25 @@ POST {{host}}/api/v1/auth/social-links
 Content-Type: application/json
 
 { "provider": "KAKAO", "accessToken": "카카오_SDK_액세스토큰" }
+
+### ⑿ 소셜 해제 — 수단이 둘 이상일 때만 된다
+# 응답: {"providers": ["LOCAL"]}  ← 해제 후 남은 수단
+DELETE {{host}}/api/v1/auth/social-links/KAKAO
+Authorization: Bearer {{meToken}}
+
+### ⒀ 마지막 하나를 떼려 하면 409 LAST_LOGIN_METHOD
+# 떼면 사용자가 자기 계정에서 잠기고 되돌릴 방법이 없다.
+# 프론트는 남은 수단이 하나면 버튼 자체를 비활성화한다.
+DELETE {{host}}/api/v1/auth/social-links/GOOGLE
+Authorization: Bearer {{meToken}}
+
+### ⒁ LOCAL 은 이 API 로 못 뗀다 — 400
+DELETE {{host}}/api/v1/auth/social-links/LOCAL
+Authorization: Bearer {{meToken}}
+
+### ⒂ 연결되지 않은 소셜 — 404
+DELETE {{host}}/api/v1/auth/social-links/NAVER
+Authorization: Bearer {{meToken}}
+
+### ⒃ 로그인 없이 — 401
+DELETE {{host}}/api/v1/auth/social-links/KAKAO

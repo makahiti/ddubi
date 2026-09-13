@@ -119,6 +119,7 @@ class Schedule {
     required this.origin,
     required this.destination,
     required this.arriveBy,
+    this.plannedDepartAt,
     this.importance = ScheduleImportance.high,
     this.considerLastTrip = false,
     this.preferredTransport = TransportPreferenceChoice.balanced,
@@ -131,6 +132,8 @@ class Schedule {
   final PlaceLocation origin;
   final PlaceLocation destination;
   final DateTime arriveBy;
+  // 사용자 입력 출발시각. 서버 추천값과 구분하며 구버전 null을 임의로 역산하지 않는다.
+  final DateTime? plannedDepartAt;
   final ScheduleImportance importance;
   final bool considerLastTrip;
   final TransportPreferenceChoice preferredTransport;
@@ -161,6 +164,7 @@ class Schedule {
       json['destination'] as Map<String, dynamic>,
     ),
     arriveBy: DateTime.parse(json['arriveBy'] as String),
+    plannedDepartAt: DateTime.tryParse(json['plannedDepartAt'] as String? ?? ''),
     importance: ScheduleImportance.fromApi(json['importance'] as String?),
     considerLastTrip: json['considerLastTrip'] as bool? ?? false,
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
@@ -171,6 +175,7 @@ class Schedule {
     'origin': origin.toRequestJson(),
     'destination': destination.toRequestJson(),
     'arriveBy': arriveBy.toIso8601String(),
+    if (plannedDepartAt != null) 'plannedDepartAt': plannedDepartAt!.toIso8601String(),
     'importance': importance.apiValue,
     'considerLastTrip': considerLastTrip,
   };
@@ -185,6 +190,7 @@ class Schedule {
     PlaceLocation? origin,
     PlaceLocation? destination,
     DateTime? arriveBy,
+    DateTime? plannedDepartAt,
     ScheduleImportance? importance,
     bool? considerLastTrip,
     DateTime? updatedAt,
@@ -194,6 +200,7 @@ class Schedule {
     origin: origin ?? this.origin,
     destination: destination ?? this.destination,
     arriveBy: arriveBy ?? this.arriveBy,
+    plannedDepartAt: plannedDepartAt ?? this.plannedDepartAt,
     importance: importance ?? this.importance,
     considerLastTrip: considerLastTrip ?? this.considerLastTrip,
     preferredTransport: preferredTransport,

@@ -13,6 +13,9 @@ spring:
     locations: classpath:db/migration
 
 ddubi:
+  recommendation:
+    monitor-enabled: false
+    kafka-enabled: false
   jwt:
     secret: ddubi-integration-test-secret-key-32-bytes-min
     access-token-validity: 60m

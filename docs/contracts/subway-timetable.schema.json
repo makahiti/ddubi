@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DDUBI normalized dated subway timetable",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "masterDataVersion",
+    "source",
+    "publishedAt",
+    "validFrom",
+    "validUntil",
+    "trips"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "#/$defs/text"
+    },
+    "masterDataVersion": {
+      "$ref": "#/$defs/text"
+    },
+    "source": {
+      "$ref": "#/$defs/text"
+    },
+    "publishedAt": {
+      "$ref": "#/$defs/time"
+    },
+    "validFrom": {
+      "$ref": "#/$defs/time"
+    },
+    "validUntil": {
+      "$ref": "#/$defs/time"
+    },
+    "trips": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/trip"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    }
+  },
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "providerId": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,60}$"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stationId",
+        "providerStationId",
+        "arrivalAt",
+        "departureAt",
+        "stops"
+      ],
+      "properties": {
+        "stationId": {
+          "$ref": "#/$defs/text"
+        },
+        "providerStationId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/providerId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arrivalAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "departureAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stops": {
+          "type": "boolean"
+        }
+      }
+    },
+    "trip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "lineId",
+        "providerLineId",
+        "direction",
+        "trainId",
+        "arrivalDirection",
+        "positionDirection",
+        "arrivalDestination",
+        "positionDestination",
+        "trainType",
+        "serviceDate",
+        "calls"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/text"
+        },
+        "lineId": {
+          "$ref": "#/$defs/text"
+        },
+        "providerLineId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/providerId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "direction": {
+          "$ref": "#/$defs/text"
+        },
+        "trainId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/providerId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arrivalDirection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positionDirection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "arrivalDestination": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positionDestination": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trainType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serviceDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "calls": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/call"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "trainId": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "arrivalDirection": {
+                "type": "null"
+              },
+              "positionDirection": {
+                "type": "null"
+              },
+              "arrivalDestination": {
+                "type": "null"
+              },
+              "positionDestination": {
+                "type": "null"
+              },
+              "trainType": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "providerLineId": {
+                "$ref": "#/$defs/providerId"
+              },
+              "trainId": {
+                "$ref": "#/$defs/providerId"
+              },
+              "arrivalDirection": {
+                "$ref": "#/$defs/text"
+              },
+              "positionDirection": {
+                "$ref": "#/$defs/text"
+              },
+              "arrivalDestination": {
+                "$ref": "#/$defs/text"
+              },
+              "positionDestination": {
+                "$ref": "#/$defs/text"
+              },
+              "trainType": {
+                "$ref": "#/$defs/text"
+              },
+              "calls": {
+                "items": {
+                  "properties": {
+                    "providerStationId": {
+                      "$ref": "#/$defs/providerId"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

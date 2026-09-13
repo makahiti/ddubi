@@ -33,6 +33,17 @@ public class ScheduleUpdateRequest {
     private LocalDateTime arriveBy;
     private boolean arriveByPresent;
 
+    private LocalDateTime plannedDepartAt;
+    private boolean plannedDepartAtPresent;
+
+    /** PATCH 생략은 기존 값 유지, 명시적 null은 감시 기준 제거다. */
+    public void setPlannedDepartAt(LocalDateTime value) {
+        this.plannedDepartAt = value;
+        this.plannedDepartAtPresent = true;
+    }
+    public LocalDateTime getPlannedDepartAt() { return plannedDepartAt; }
+    public boolean isPlannedDepartAtPresent() { return plannedDepartAtPresent; }
+
     private Importance importance;
     private boolean importancePresent;
 
@@ -130,6 +141,6 @@ public class ScheduleUpdateRequest {
 
     public boolean hasNoChanges() {
         return !titlePresent && !originPresent && !destinationPresent
-                && !arriveByPresent && !importancePresent && !considerLastTripPresent;
+                && !arriveByPresent && !importancePresent && !considerLastTripPresent && !plannedDepartAtPresent;
     }
 }

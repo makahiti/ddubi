@@ -2,7 +2,9 @@ package com.ssafy.ddubi.domain.auth.repository;
 
 import com.ssafy.ddubi.domain.auth.entity.AuthProvider;
 import com.ssafy.ddubi.domain.auth.entity.UserAuth;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -16,6 +18,10 @@ public interface UserAuthRepository extends JpaRepository<UserAuth, Long> {
     Optional<UserAuth> findByUserIdAndProvider(Long userId, AuthProvider provider);
 
     List<UserAuth> findAllByUserId(Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select ua from UserAuth ua where ua.user.id = :userId order by ua.provider")
+    List<UserAuth> findAllByUserIdForUpdate(Long userId);
 
     boolean existsByUserIdAndProvider(Long userId, AuthProvider provider);
 

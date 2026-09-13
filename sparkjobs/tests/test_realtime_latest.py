@@ -75,7 +75,7 @@ def test_transform_extracts_typed_metrics_without_copying_raw(spark):
             {
                 "providerRouteId": "R1",
                 "providerStopId": "S1",
-                "raw": {"traTime1": "120", "traTime2": "360", "arrmsg1": "2분 후"},
+                "raw": {"exps1": "120", "exps2": "360", "traTime1": "2", "arrmsg1": "2분 후"},
             },
         ),
         _event(
@@ -104,11 +104,54 @@ def test_transform_extracts_typed_metrics_without_copying_raw(spark):
     rows = {row.eventId: row for row in transform(_kafka_df(spark, events)).collect()}
     assert rows["bus"].providerKey == "R1:S1"
     assert rows["bus"].observation.firstArrivalSeconds == 120
+    assert rows["bus"].observation.firstTravelTimeMinutes == 2
+    assert rows["bus"].observation.arrivalTimeBasis == "SEOUL_EXPS_SECONDS_V1"
     assert rows["road"].observation.speedKph == 22.5
     assert rows["road"].observation.travelTimeSeconds == 91
     assert rows["city"].observation.areaCongestionLevel == "붐빔"
     assert rows["city"].observation.areaPopulationMax == 12000
     assert "raw" not in rows["city"].observation.asDict()
+
+
+def test_subway_timing_preserves_source_time_and_train_type_without_filling_missing(spark):
+    """생성시각 없는 수집을 fresh 도착예측으로 오인하거나 급행을 일반 열차와 섞는 회귀를 막는다."""
+    events = [
+        _event("arrival", "subway.arrival", "2026-09-04T12:00:00+09:00", {
+            "providerLineId": "1002", "providerStationId": "PA", "providerTrainId": "T1",
+            "raw": {"barvlDt": "80", "recptnDt": "2026-09-04 12:00:00", "btrainStt": "급행"},
+        }),
+        _event("position", "subway.position", "2026-09-04T12:00:00+09:00", {
+            "providerLineId": "1002", "providerTrainId": "T1", "raw": {},
+        }),
+    ]
+    payloads = [json.loads(row[VALUE_COL]) for row in to_redis_rows(transform(_kafka_df(spark, events))).collect()]
+    rows = {payload["eventId"]: payload for payload in payloads}
+    assert rows["arrival"]["observation"]["arrivalTrainType"] == "급행"
+    assert rows["arrival"]["observation"]["sourceGeneratedAt"] == "2026-09-04 12:00:00"
+    assert rows["arrival"]["observation"]["arrivalSeconds"] == 80
+    assert rows["position"]["observation"].get("sourceGeneratedAt") is None
+
+
+def test_bus_waiting_preserves_units_identity_status_and_missing_prediction(spark):
+    """분 단위 traTime을 도착예측 초로 재사용하지 않고 운행·순번·제공시각을 함께 전달한다."""
+    raw = {"exps1": "90", "exps2": "110", "traTime1": "7", "staOrd": "3", "mkTm": "2026-09-04 12:00:00.0",
+           "deTourAt": "00", "isArrive1": "0", "isArrive2": "1", "full1": "0", "full2": "1",
+           "vehId1": "101", "vehId2": "102"}
+    events = [
+        _event("current", "bus.arrival", "2026-09-04T12:00:00+09:00", {"providerRouteId": "1", "providerStopId": "2", "raw": raw}),
+        _event("missing", "bus.arrival", "2026-09-04T12:00:00+09:00", {"providerRouteId": "1", "providerStopId": "3", "raw": {"traTime1": "7"}}),
+    ]
+    payloads = [json.loads(row[VALUE_COL]) for row in to_redis_rows(transform(_kafka_df(spark, events))).collect()]
+    by_id = {p["eventId"]: p["observation"] for p in payloads}
+    assert by_id["current"]["firstArrivalSeconds"] == 90
+    assert by_id["current"]["firstTravelTimeMinutes"] == 7
+    assert by_id["current"]["stopOrder"] == 3
+    assert by_id["current"]["sourceGeneratedAt"] == raw["mkTm"]
+    assert by_id["current"]["arrivalTimeBasis"] == "SEOUL_EXPS_SECONDS_V1"
+    assert by_id["current"]["secondTerminalArrivalCode"] == "1"
+    assert by_id["current"]["secondFullCode"] == "1"
+    assert by_id["missing"].get("firstArrivalSeconds") is None
+    assert by_id["missing"].get("sourceGeneratedAt") is None
 
 
 def test_latest_per_provider_uses_event_time_before_collection_order(spark):
@@ -152,25 +195,25 @@ def test_missing_provider_identity_is_countable_but_not_served(spark):
     ("event_type", "payload", "expected_key", "expected_ttl"),
     [
         ("bus.position", {"providerRouteId": "R1", "providerVehicleId": "V1", "raw": {}},
-         "transit:latest:bus-position:R1:V1", 120),
+         "transit:latest:bus-position:R1:V1", 86400),
         ("bus.arrival", {"providerRouteId": "R1", "providerStopId": "S1", "raw": {}},
-         "transit:latest:bus-arrival:R1:S1", 120),
+         "transit:latest:bus-arrival:R1:S1", 86400),
         ("subway.position", {"providerLineId": "1002", "providerTrainId": "T1", "raw": {}},
-         "transit:latest:subway-position:1002:T1", 120),
+         "transit:latest:subway-position:1002:T1", 10800),
         ("subway.arrival", {"providerLineId": "1002", "providerStationId": "0201", "providerTrainId": "T1", "raw": {}},
-         "transit:latest:subway-arrival:1002:0201:T1", 120),
+         "transit:latest:subway-arrival:1002:0201:T1", 1080),
         ("traffic.flow", {"providerLinkId": "L1", "raw": {}},
          "traffic:latest:flow:L1", 900),
         ("traffic.incident", {"providerIncidentId": "I1", "raw": {}},
-         "traffic:latest:incident:I1", 600),
+         "traffic:latest:incident:I1", 2700),
         ("city.realtime", {"providerAreaId": "POI001", "raw": {}},
-         "city:latest:area:POI001", 900),
+         "city:latest:area:POI001", 64800),
         ("sdot.population", {"providerSensorId": "D1", "raw": {}},
          "city:latest:sdot-population:D1", 1800),
         ("subway.alert", {"providerAlertId": "A1", "raw": {}},
-         "transit:latest:subway-alert:A1", 600),
+         "transit:latest:subway-alert:A1", 2700),
         ("topis.notice", {"providerNoticeId": "N1", "raw": {}},
-         "traffic:latest:topis-notice:N1", 1800),
+         "traffic:latest:topis-notice:N1", 2700),
     ],
 )
 def test_redis_key_and_ttl_match_contract(spark, event_type, payload, expected_key, expected_ttl):
@@ -183,6 +226,11 @@ def test_redis_key_and_ttl_match_contract(spark, event_type, payload, expected_k
     assert row[EVENT_TIME_COL] == "2026-09-04T12:00:00.000+09:00"
     assert row[COLLECTED_TIME_COL] == "2026-09-04T12:00:10.000+09:00"
     assert value["canonicalMappingAvailable"] is False
+    # 24시간 보관하는 버스도 현재 관측으로 쓸 수 있는 기간은 120초뿐이다.
+    if event_type.startswith("bus."):
+        assert value["retentionSeconds"] == 86400
+        assert value["freshnessSeconds"] == 120
+        assert value["validUntil"].startswith("2026-09-04T12:02:00")
     assert value["eventType"] == event_type
     assert value["providerKey"]
 
@@ -200,3 +248,34 @@ def test_verified_segment_ids_are_forwarded_without_claiming_exact(spark):
     assert value["canonicalMappingAvailable"] is True
     assert value["segmentIds"] == ["BUS:100100609:123456:123789"]
     assert "EXACT" not in row[VALUE_COL]
+
+
+def test_regional_arrival_units_and_namespace_remain_separate(spark):
+    rows=[]
+    for ns,raw in [('GBIS',{'predictTime1':'2','predictTimeSec2':'90'}),('INCHEON_API',{'ARRIVALESTIMATETIME':'120'})]:
+        rows.append(_event(ns,'bus.arrival','2026-09-04T12:00:00+09:00',dict(providerNamespace=ns,providerRouteId='1',providerStopId='2',providerVehicleId='v',raw=raw)))
+    result={r.eventId:r for r in transform(_kafka_df(spark,rows)).collect()}
+    assert result['GBIS'].observation.firstArrivalSeconds==120
+    assert result['GBIS'].observation.secondArrivalSeconds==90
+    assert result['GBIS'].observation.arrivalTimeBasis=='GBIS_PREDICT_SECONDS_V1'
+    assert result['INCHEON_API'].providerKey=='INCHEON_API:1:2:v'
+    assert result['INCHEON_API'].observation.firstArrivalSeconds==120
+    assert result['INCHEON_API'].observation.secondArrivalSeconds is None
+    assert result['INCHEON_API'].observation.arrivalTimeBasis=='INCHEON_ESTIMATE_SECONDS_V1'
+
+
+def test_road_incidents_reject_invalid_expected_date_and_retain_payload(spark):
+    from streaming.road_incidents import normalize
+    payload=dict(providerIncidentId='1',providerLinkNamespace='SEOUL_ACCINFO_LINK',providerLinkId='2',raw=dict(occurredDate='20260904',occurredTime='110000',expectedClearDate='20260904',expectedClearTime='130000'))
+    good=_event('ok','traffic.incident','2026-09-04T12:00:00+09:00',payload)
+    bad=_event('bad','traffic.incident','2026-09-04T12:00:00+09:00',dict(payload,raw=dict(payload['raw'],expectedClearDate='not-a-date')))
+    valid,rejected=normalize(_kafka_df(spark,[good,bad]))
+    assert [r.eventId for r in valid.collect()]==['ok']
+    invalid=rejected.first()
+    assert invalid.eventId=='bad' and 'not-a-date' in invalid.payload
+
+
+def test_status_clock_is_kst_minute():
+    from streaming.segment_status_live import minute
+    from datetime import datetime
+    assert minute(datetime.fromisoformat('2026-09-10T14:59:59+00:00').timestamp())=='2026-09-10T23:59:00+09:00'

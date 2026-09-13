@@ -1,6 +1,7 @@
 package com.ssafy.ddubi
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -16,6 +17,9 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private companion object {
         const val NAVER_LOGIN_CHANNEL = "com.ssafy.ddubi/naver_login"
+        const val APP_ICON_CHANNEL = "com.ssafy.ddubi/app_icon"
+        const val DAY_ICON_ALIAS = "com.ssafy.ddubi.DayIconAlias"
+        const val NIGHT_ICON_ALIAS = "com.ssafy.ddubi.NightIconAlias"
         const val APP_PERMISSION_CHANNEL = "com.ssafy.ddubi/app_permissions"
         const val LOCATION_PERMISSION_REQUEST = 7102
     }
@@ -85,6 +89,57 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            APP_ICON_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getActiveIcon" -> result.success(getActiveIcon())
+                "setActiveIcon" -> {
+                    val icon = call.argument<String>("icon")
+                    if (icon != "day" && icon != "night") {
+                        result.error("INVALID_ICON", "Icon must be day or night.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    result.success(setActiveIcon(icon))
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun getActiveIcon(): String {
+        val nightState = packageManager.getComponentEnabledSetting(
+            ComponentName(this, NIGHT_ICON_ALIAS),
+        )
+        return if (nightState == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+            "night"
+        } else {
+            "day"
+        }
+    }
+
+    private fun setActiveIcon(icon: String): Boolean {
+        if (getActiveIcon() == icon) return false
+
+        val dayAlias = ComponentName(this, DAY_ICON_ALIAS)
+        val nightAlias = ComponentName(this, NIGHT_ICON_ALIAS)
+        val enabledAlias = if (icon == "day") dayAlias else nightAlias
+        val disabledAlias = if (icon == "day") nightAlias else dayAlias
+
+        packageManager.setComponentEnabledSetting(
+            enabledAlias,
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+        packageManager.setComponentEnabledSetting(
+            disabledAlias,
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+        return true
     }
 
     private fun hasLocationPermission(): Boolean =

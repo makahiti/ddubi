@@ -86,6 +86,15 @@ class KafkaSourceTest(unittest.TestCase):
                     self.assertIn("raw", event["payload"])
                     self.assertNotIn("test-secret", message["value"].decode())
 
+    def test_incident_link_namespace_keeps_existing_partition_key(self):
+        # 출처를 추가해도 기존 사고 ID:링크 ID Kafka key와 원본 보존 계약은 유지한다.
+        raw = dict(incidentId="i1", linkId="l1", occurredDate="20260911", occurredTime="090000")
+        record = to_record("traffic_incident", raw)
+        self.assertEqual(record.key, "i1:l1")
+        self.assertEqual(record.payload["providerLinkNamespace"], "SEOUL_ACCINFO_LINK")
+        self.assertEqual(record.payload["raw"], raw)
+        self.assertIsNone(record.segment_ids)
+
     def test_budget_shared_key_concurrent_atomic_limit_and_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory)/"budget.db")

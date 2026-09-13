@@ -20,6 +20,16 @@ baseUrl: "http://172.26.6.220/internal"   # 서버2 사설 IP, 80 포트
 
 endpoints:
 
+  downloadSubwayMaster:
+    method: GET
+    path: /transit/subway-master
+    description: "Backend가 시작 시 검증한 원본 gzip. 파일 미설정은 404. X-DDUBI-API-KEY 인증은 다른 내부 API와 동일하다."
+    responseContentType: application/gzip
+    responseHeaders:
+      X-Master-Version: "활성 파일의 dataVersion"
+      X-Content-SHA256: "반환 gzip 원본 바이트의 SHA-256"
+      ETag: "같은 SHA-256"
+
   uploadBaselineRows:
     method: POST
     path: /baselines/{baselineType}/versions/{dataVersion}/rows

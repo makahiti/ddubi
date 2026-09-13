@@ -1,0 +1,61 @@
+### 추천 API (S15P21E202-47)
+#
+# ⚠️ 지금 나오는 숫자의 출처를 먼저 알고 보세요.
+#    예측 서비스는 아직 안 붙었고 baseline_serving 도 비어 있습니다(구간 기준선을 올리는
+#    Spark 배치가 없음). 그래서 사실상 카카오가 준 시간으로 계산됩니다.
+#    confidence 는 LOW, fallbackUsed 는 true 로 나오는 게 정상입니다.
+#    자세한 것은 docs/contracts/recommendation-data-provenance.md
+#
+# 준비물: 카카오 길찾기 키(KAKAO_REST_API_KEY)가 .env 에 있어야 합니다. 없으면
+#         경로 후보를 못 받아 404 ROUTE_NOT_FOUND 가 납니다.
+
+@host = http://localhost:8080/api/v1
+@token = 여기에_로그인해서_받은_accessToken
+@scheduleId = 1
+
+### ① 일정 만들기 — 추천은 도착 시각이 있는 일정에만 붙는다
+POST {{host}}/schedules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "면접",
+  "origin":      { "name": "집",   "lat": 37.5010, "lng": 127.0396 },
+  "destination": { "name": "회사", "lat": 37.5665, "lng": 126.9780 },
+  "arriveBy": "2026-09-15T09:00:00",
+  "importance": "HIGH"
+}
+
+### ② 추천 계산 — 도착 시각에서 거꾸로 출발 시각을 구한다
+# departAt = arriveBy - durationMin - bufferMin
+# 다시 호출하면 덮어쓰지 않고 새 행이 생긴다(도메인 규칙 7).
+POST {{host}}/schedules/{{scheduleId}}/recommendations
+Authorization: Bearer {{token}}
+
+### ③ 사용자 새로고침 — trigger 만 다르다
+POST {{host}}/schedules/{{scheduleId}}/recommendations?trigger=REFRESH
+Authorization: Bearer {{token}}
+
+### ④ 최근 추천
+# ②③ 을 두 번 불렀다면 마지막 것(REFRESH)이 나와야 한다.
+GET {{host}}/schedules/{{scheduleId}}/recommendations/latest
+Authorization: Bearer {{token}}
+
+### ⑤ 근거 — 왜 이 시각인가
+# factors: 출처별 소요시간. 지금은 ROUTE_API_SPLIT 하나만 나온다.
+#          synthetic:true 는 "카카오 step 시간을 균등 분배한 값" 이라는 뜻이고,
+#          개별 구간 값을 사실로 읽으면 안 된다. 합만 의미가 있다.
+# candidates: 후보 비교. earlierByMin 은 1순위보다 몇 분 일찍 나가야 하는지.
+# segmentStatusSnapshot: 재현용. 구간마다 어디서 온 숫자인지 남는다.
+@recommendationId = 1
+GET {{host}}/recommendations/{{recommendationId}}/explanation
+Authorization: Bearer {{token}}
+
+### ⑥ 남의 일정 — 403 이어야 한다
+# 다른 계정으로 로그인해 받은 토큰으로 ② 를 그대로 호출한다.
+POST {{host}}/schedules/{{scheduleId}}/recommendations
+Authorization: Bearer 다른_계정_토큰
+
+### ⑦ 없는 추천 — 404
+GET {{host}}/recommendations/999999/explanation
+Authorization: Bearer {{token}}

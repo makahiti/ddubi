@@ -99,7 +99,8 @@ public class SubwaySegmentMatcher {
                 .comparingDouble(Candidate::passingRatio).reversed()
                 .thenComparing(candidate -> candidate.line().subwayId())
                 .thenComparing(candidate -> candidate.line().direction())
-                .thenComparing(Candidate::identity));
+                .thenComparing(Candidate::identity)
+                .thenComparing(candidate -> candidate.line().servicePatternId()));
         List<Candidate> exactCandidates = candidates.stream()
                 .filter(candidate -> candidate.passingRatio() == 1.0)
                 .toList();
@@ -183,22 +184,46 @@ public class SubwaySegmentMatcher {
 
     /** 한 운행 패턴에서 승차역 순번보다 뒤에 있는 하차역 조합만 만든다. */
     private List<Candidate> matchStations(SubwayLineMaster line, SubwayMappingRequest request) {
-        List<SubwayStationMaster> stations = line.stations();
+        List<SubwayStationMaster> stations = traversalStations(line);
+        int cycleLength = stations.size() == line.stations().size()
+                ? 0 : line.stations().size() - 1;
         List<Candidate> result = new ArrayList<>();
-        for (int startIndex = 0; startIndex < stations.size(); startIndex++) {
+        for (int startIndex = 0; startIndex < (cycleLength > 0 ? cycleLength : stations.size()); startIndex++) {
             if (!matchesStation(request.fromStationName(), stations.get(startIndex))) {
                 continue;
             }
             for (int endIndex = startIndex + 1; endIndex < stations.size(); endIndex++) {
+                if (cycleLength > 0 && endIndex - startIndex >= cycleLength) {
+                    break; // 같은 역으로 한 바퀴 돌아오는 이동이나 여러 바퀴 추정을 금지한다.
+                }
                 if (!matchesStation(request.toStationName(), stations.get(endIndex))) {
                     continue;
                 }
                 double passingRatio = passingMatchRatio(
                         request.passingStationNames(), stations.subList(startIndex, endIndex + 1));
-                result.add(new Candidate(line, startIndex, endIndex, passingRatio));
+                result.add(new Candidate(line, stations, startIndex, endIndex, passingRatio));
             }
         }
         return result;
+    }
+
+    /**
+     * 공식 패턴 자체가 같은 역으로 닫히는 단순 순환선만 한 번 이어 읽는다.
+     * 중간에 같은 역이 반복되는 회차/지선 패턴과 열린 단축 운행에는 적용하지 않는다.
+     * 복제한 역의 정적 ID와 원본 순번은 보존하므로 순환 경계에서 순번이 작아질 수 있다.
+     * 소비자는 원본 역 순번이 아니라 출력 edge.order를 이용해 이동 순서를 판단한다.
+     */
+    private List<SubwayStationMaster> traversalStations(SubwayLineMaster line) {
+        List<SubwayStationMaster> original = line.stations();
+        int size = original.size();
+        if (size < 4 || !original.get(0).stationId().equals(original.get(size - 1).stationId())
+                || original.subList(0, size - 1).stream().map(SubwayStationMaster::stationId)
+                .distinct().count() != size - 1) {
+            return original;
+        }
+        List<SubwayStationMaster> expanded = new ArrayList<>(original);
+        expanded.addAll(original.subList(1, size - 1));
+        return List.copyOf(expanded);
     }
 
     /** 별칭이 있으면 정적 stationId만 비교하고, 없을 때만 기본 정규화 이름을 비교한다. */
@@ -242,7 +267,7 @@ public class SubwaySegmentMatcher {
     /** 정적 ID로 segment topology를 만들고 실시간 ID는 각 edge의 별도 crosswalk 필드에 보존한다. */
     private SubwayMappingResult exact(Candidate candidate, int candidateCount) {
         SubwayLineMaster line = candidate.line();
-        List<SubwayStationMaster> stations = line.stations();
+        List<SubwayStationMaster> stations = candidate.stations();
         SubwayStationMaster start = stations.get(candidate.startIndex());
         SubwayStationMaster end = stations.get(candidate.endIndex());
         List<MappedSubwaySegment> segments = new ArrayList<>();
@@ -339,12 +364,13 @@ public class SubwaySegmentMatcher {
     /** 한 방향·서비스 패턴에서 가능한 승차~하차 부분경로와 통과역 검증 비율이다. */
     private record Candidate(
             SubwayLineMaster line,
+            List<SubwayStationMaster> stations,
             int startIndex,
             int endIndex,
             double passingRatio
     ) {
         private String identity() {
-            String path = line.stations().subList(startIndex, endIndex + 1).stream()
+            String path = stations.subList(startIndex, endIndex + 1).stream()
                     .map(SubwayStationMaster::stationId)
                     .reduce((left, right) -> left + '>' + right)
                     .orElse("");

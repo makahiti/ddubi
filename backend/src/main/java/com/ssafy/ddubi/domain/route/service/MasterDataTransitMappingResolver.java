@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 독립적으로 활성화된 수도권 버스·서울 지하철 마스터를 사용해 실제 매칭 알고리즘을 실행한다.
+ * 독립적으로 활성화된 수도권 버스·지하철 마스터를 사용해 실제 매칭 알고리즘을 실행한다.
  *
  * <p>생성 시 마스터를 Matcher의 이름 인덱스로 바꾸므로 요청마다 전체 테이블을 다시
  * 순회하지 않는다. 따라서 DB 구현은 애플리케이션 시작 또는 마스터 버전 교체 시점에
@@ -49,7 +49,7 @@ import java.util.Objects;
 public class MasterDataTransitMappingResolver implements TransitMappingResolver {
 
     private static final Logger log = LoggerFactory.getLogger(MasterDataTransitMappingResolver.class);
-    private static final String MAPPING_POLICY_VERSION = "subway-v6";
+    private static final String MAPPING_POLICY_VERSION = "subway-v7";
 
     private final SeoulTransitMasterDataProvider provider;
     private final ProviderSegmentMappingStore mappingStore;
@@ -87,7 +87,7 @@ public class MasterDataTransitMappingResolver implements TransitMappingResolver 
     }
 
     /**
-     * 서울 지하철 활성 버전 교체 후 지하철 Matcher 스냅샷을 바꾼다. 버스는 독립 Catalog가 관리한다.
+     * 지하철 활성 버전 교체 후 지하철 Matcher 스냅샷을 바꾼다. 버스는 독립 Catalog가 관리한다.
      * 새 객체를 먼저 완성한 뒤 volatile 참조를 교체하므로 요청이 반쯤 만들어진 인덱스를 보지 않는다.
      */
     public synchronized void reload() {

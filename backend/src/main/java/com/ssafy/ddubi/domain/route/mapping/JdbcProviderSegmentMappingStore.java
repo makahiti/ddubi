@@ -6,6 +6,10 @@ import com.ssafy.ddubi.domain.route.service.SegmentResolveRequest;
 import com.ssafy.ddubi.domain.route.model.TransportMode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 import java.util.List;
 
@@ -23,9 +27,22 @@ public class JdbcProviderSegmentMappingStore implements ProviderSegmentMappingSt
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
-    public JdbcProviderSegmentMappingStore(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    private final String resourceVersion;
+    private final String resourceSource;
+
+    /** 검증을 통과한 파일 공급원의 버전과 SHA만 고정한다. 임의 요청의 버전을 등록하지 않는다. */
+    public JdbcProviderSegmentMappingStore(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
+            ResourceSubwayMasterDataProvider resourceProvider) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        var artifact = resourceProvider.artifact();
+        this.resourceVersion = artifact.isPresent() ? resourceProvider.activeVersion().orElseThrow() : null;
+        try {
+            this.resourceSource = artifact.isPresent() ? "resource-sha256:" + HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(artifact.orElseThrow())) : null;
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", exception);
+        }
     }
 
     /**
@@ -71,6 +88,7 @@ public class JdbcProviderSegmentMappingStore implements ProviderSegmentMappingSt
      * 제외하므로 자동 재계산이 운영자의 승인·거절 결정을 덮어쓰지 않는다.
      */
     @Override
+    @Transactional
     public void save(
             String provider,
             String signature,
@@ -81,6 +99,21 @@ public class JdbcProviderSegmentMappingStore implements ProviderSegmentMappingSt
     ) {
         if (result.status() == TransitMappingStatus.NOT_APPLICABLE) {
             return;
+        }
+        // 부모 버전 → 캐시 순서로 잠근다. 파일 버전의 STAGING 등록과 캐시 저장은 같은
+        // 트랜잭션이다. DB ACTIVE 포인터/기존 상태를 바꾸지 않으며 rollback 시 반쪽 등록을 남기지 않는다.
+        if (mappingVersion.equals(resourceVersion)) {
+            jdbcTemplate.update("""
+                    INSERT INTO seoul_transit_master_version (data_version, status, source_name)
+                    VALUES (?, 'STAGING', ?)
+                    ON DUPLICATE KEY UPDATE data_version=VALUES(data_version)
+                    """, resourceVersion, resourceSource);
+            String existing = jdbcTemplate.queryForObject(
+                    "SELECT source_name FROM seoul_transit_master_version WHERE data_version=?",
+                    String.class, resourceVersion);
+            if (!resourceSource.equals(existing)) {
+                throw new IllegalStateException("같은 지하철 마스터 버전의 원본 SHA가 다릅니다.");
+            }
         }
         jdbcTemplate.update("""
                         INSERT INTO provider_segment_mapping

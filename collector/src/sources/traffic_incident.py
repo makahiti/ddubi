@@ -91,7 +91,7 @@ def _element_text(element: ET.Element, tag: str) -> str:
     return (child.text or "").strip() if child is not None else ""
 
 
-def _normalise_row(row: ET.Element) -> dict[str, str]:
+def _normalise_row(row: ET.Element) -> dict:
     fields = {
         child.tag.lower(): (child.text or "").strip()
         for child in row
@@ -108,10 +108,12 @@ def _normalise_row(row: ET.Element) -> dict[str, str]:
         "grs80tmX": fields.get("grs80tm_x", ""),
         "grs80tmY": fields.get("grs80tm_y", ""),
         "description": fields.get("acc_info", ""),
+        # 신규 필드와 원본 필드명을 보존하여 향후 통제 범위·해제 정보도 재처리할 수 있게 한다.
+        "providerFields": {child.tag: (child.text or "") for child in row},
     }
 
 
-def parse_incident_xml(xml_text: str) -> tuple[int, list[dict[str, str]]]:
+def parse_incident_xml(xml_text: str) -> tuple[int, list[dict]]:
     """AccInfo XML의 결과 코드를 검사하고 돌발 목록을 정규화한다."""
     try:
         root = ET.fromstring(xml_text)
@@ -141,7 +143,7 @@ def fetch_incident_page(
     end_index: int,
     *,
     client: httpx.Client | None = None,
-) -> tuple[int, list[dict[str, str]]]:
+) -> tuple[int, list[dict[str, Any]]]:
     """돌발 정보 한 페이지를 XML로 호출해 정규화된 항목을 반환한다."""
     _validate_range(start_index, end_index)
     key = api_key.strip()
@@ -190,7 +192,7 @@ def fetch_incidents(
 
     owns_client = client is None
     http_client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0))
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     current_start = start_index
     current_end = start_index + page_size - 1
     total_count = 0

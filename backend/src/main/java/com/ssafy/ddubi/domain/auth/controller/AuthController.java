@@ -14,6 +14,7 @@ import com.ssafy.ddubi.domain.auth.dto.response.SocialLinkResponse;
 import com.ssafy.ddubi.domain.auth.dto.request.TokenRefreshRequest;
 import com.ssafy.ddubi.domain.auth.dto.response.AuthTokenResponse;
 import com.ssafy.ddubi.domain.auth.dto.response.OAuthLoginResponse;
+import com.ssafy.ddubi.domain.auth.entity.AuthProvider;
 import com.ssafy.ddubi.domain.auth.service.AuthService;
 import com.ssafy.ddubi.domain.auth.service.EmailVerificationService;
 import com.ssafy.ddubi.global.common.ApiResponse;
@@ -23,6 +24,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -174,6 +177,33 @@ public class AuthController {
             @LoginUserId Long userId,
             @Valid @RequestBody SocialLinkRequest request) {
         return ApiResponse.success(authService.linkSocialToCurrentUser(userId, request));
+    }
+
+    @Operation(summary = "마이페이지 소셜 해제",
+            description = """
+                    연결된 소셜 인증 수단을 뗀다. 응답은 해제 후 **남은** 로그인 수단이다.
+
+                    **마지막 하나는 뗄 수 없다.** 떼는 순간 사용자가 자기 계정에서 잠기고,
+                    되돌릴 방법도 없다 — 들어갈 수가 없으니 다시 연결할 화면에도 못 간다.
+                    계정을 없애려는 것이면 `DELETE /users/me`(탈퇴)가 맞는 길이다.
+
+                    `LOCAL` 은 이 API 로 해제할 수 없다. 비밀번호 로그인을 없애는 것은 성격이
+                    다른 일이라(다시 만들려면 이메일 인증부터 해야 한다) 같은 문으로 처리하지 않는다.
+
+                    세션은 건드리지 않는다. 토큰은 사용자에게 발급된 것이지 제공자에게 발급된
+                    것이 아니라, 카카오 연결을 뗐다고 쓰던 앱에서 튕겨 나갈 이유가 없다.
+
+                    | 상황 | 응답 |
+                    | --- | --- |
+                    | 연결돼 있지 않음 | 404 `USER_NOT_FOUND` |
+                    | `LOCAL` 을 지정 | 400 `INVALID_REQUEST` |
+                    | 마지막 남은 수단 | 409 `LAST_LOGIN_METHOD` |
+                    """)
+    @DeleteMapping("/social-links/{provider}")
+    public ApiResponse<SocialLinkResponse> unlinkSocial(
+            @LoginUserId Long userId,
+            @PathVariable AuthProvider provider) {
+        return ApiResponse.success(authService.unlinkSocialFromCurrentUser(userId, provider));
     }
 
     /** 신규 가입만 201. 연동 요구는 실패가 아니므로 200 이다. */

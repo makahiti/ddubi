@@ -1,0 +1,82 @@
+[
+  {
+    "datasetId": 62,
+    "fileId": "10255",
+    "originalName": "구간링크.csv",
+    "pageUrl": "https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=62",
+    "downloadUrl": "https://t-data.seoul.go.kr/dataprovide/download.do?id=10255",
+    "path": "tdata-62-10255.csv",
+    "sizeBytes": 61158871,
+    "sha256": "c16952660396556123f807c53128a8e448e3d7e4b33a75751ba259dd848ba3c3",
+    "collectedAt": "2026-09-11T03:11:52.577741+00:00"
+  },
+  {
+    "datasetId": 58,
+    "fileId": "10251",
+    "originalName": "노선별 경유노드.csv",
+    "pageUrl": "https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=58",
+    "downloadUrl": "https://t-data.seoul.go.kr/dataprovide/download.do?id=10251",
+    "path": "tdata-58-10251.csv",
+    "sizeBytes": 35223357,
+    "sha256": "9560f790cf37011d442a24511cba72e1a219c01f0609a029487fcbfe3f8e3c8a",
+    "collectedAt": "2026-09-11T03:11:58.343955+00:00"
+  },
+  {
+    "datasetId": 63,
+    "fileId": "10256",
+    "originalName": "링크 정보.csv",
+    "pageUrl": "https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=63",
+    "downloadUrl": "https://t-data.seoul.go.kr/dataprovide/download.do?id=10256",
+    "path": "tdata-63-10256.csv",
+    "sizeBytes": 63973884,
+    "sha256": "aaf290d0b5710fc1fa3890e8d6a7c8bf3b955740af5accf7be70a5e68933561f",
+    "collectedAt": "2026-09-11T03:12:08.995828+00:00"
+  },
+  {
+    "datasetId": 56,
+    "fileId": "10249",
+    "originalName": "노선별 좌표정보.csv",
+    "pageUrl": "https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=56",
+    "downloadUrl": "https://t-data.seoul.go.kr/dataprovide/download.do?id=10249",
+    "path": "tdata-56-10249.csv",
+    "sizeBytes": 34126,
+    "sha256": "79ec7d18c48fce86bd4b91db1698a1cc5fecb6379c33cda23f01316c8f7d0850",
+    "collectedAt": "2026-09-11T03:12:09.245395+00:00"
+  },
+  {
+    "datasetId": 7,
+    "fileId": "10200",
+    "originalName": "서울시 표준링크 정보.csv",
+    "pageUrl": "https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=7",
+    "downloadUrl": "https://t-data.seoul.go.kr/dataprovide/download.do?id=10200",
+    "path": "tdata-7-10200.csv",
+    "sizeBytes": 4632509,
+    "sha256": "16dea98b52433dbfc55618e86b3d21fcd9db3d8b4c7d823d1883e16c7e194729",
+    "collectedAt": "2026-09-11T03:13:15.423592+00:00"
+  },
+  {
+    "datasetId": "OA-15061",
+    "path": "OA-15061-20250306.xlsx",
+    "pageUrl": "https://data.seoul.go.kr/dataList/OA-15061/S/1/datasetView.do",
+    "sizeBytes": 208869,
+    "sha256": "3ecabd782ac7ebec64fed32e4f61c792de70b38594c9e966736d283ceea3baad",
+    "collectedAt": "2026-09-11T03:14:30.299320+00:00",
+    "downloadUrl": "https://datafile.seoul.go.kr/bigfile/iot/inf/nio_download.do?&useCache=false",
+    "method": "POST",
+    "form": {
+      "infId": "OA-15061",
+      "seqNo": "",
+      "seq": "4",
+      "infSeq": "1"
+    }
+  },
+  {
+    "datasetId": "OA-13310-sample",
+    "path": "LinkInfo-sample-1220003800.xml",
+    "downloadUrl": "http://openapi.seoul.go.kr:8088/sample/xml/LinkInfo/1/5/1220003800/",
+    "pageUrl": "https://data.seoul.go.kr/dataList/OA-13310/A/1/datasetView.do",
+    "sizeBytes": 424,
+    "sha256": "9544079d1021bf313c7d47516bc24862509f4b8188834de45ce4094ad8b36f7c",
+    "collectedAt": "2026-09-11T03:23:33.787470+00:00"
+  }
+]

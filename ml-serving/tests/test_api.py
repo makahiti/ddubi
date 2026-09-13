@@ -1,5 +1,6 @@
 """데이터 없는 서비스를 정상으로 오인하거나 배치 입력이 조용히 변형되는 장애를 방어한다."""
 import json
+import os
 from pathlib import Path
 import sys
 from threading import Lock
@@ -53,6 +54,12 @@ def test_duplicate_key_is_not_silently_overwritten():
 
 def test_leading_zero_is_preserved():
     assert BatchRequest.model_validate(payload()).segments[0].provider_route_id == '001'
+
+
+def test_published_openapi_matches_runtime():
+    """Backend와 인프라가 읽는 계약이 현재 HTTP 구현과 다르게 남지 않도록 확인한다."""
+    path = Path(__file__).resolve().parents[2] / 'docs/contracts/ml-serving.openapi.json'
+    assert json.loads(path.read_text(encoding='utf-8')) == create_app().openapi()
 
 
 def test_validation_response_does_not_echo_input():
@@ -116,8 +123,9 @@ def test_partial_batch_preserves_order_and_reports_missing():
 
 def test_real_server_parity():
     """자체 다운로드 모델이 있을 때만 실행한다. 모형 시험을 실모델 통과로 대체하지 않는다."""
-    root = Path(__file__).resolve().parents[2] / 'artifacts/ml-serving/20260908-v12'
-    if not (root / 'golden.json').exists():
+    configured = os.environ.get('ML_TEST_BUNDLE_DIR')
+    root = Path(configured) if configured else Path(__file__).resolve().parents[2] / 'artifacts/ml-serving/20260908-v12'
+    if not configured and not root.exists():
         pytest.skip('GPU 서버 모델·참조·golden 자료 미설치')
     golden = json.loads((Path(__file__).resolve().parents[1] / 'examples/v12-server-golden.json').read_text())
     assert any(count == 0 for count in golden['unseen_id_counts']), '실제 수치 비교 표본이 필요하다'
@@ -125,6 +133,11 @@ def test_real_server_parity():
     request = BatchRequest.model_validate({'request_id': 'server-parity', 'segments': [
         {'segment_key': str(i), **row} for i, row in enumerate(golden['requests'])]})
     result = model.predict(request)
+    # 반복 캐시와 변경 전 reader를 모두 비교한다. 수치뿐 아니라 결측·표본·순서도 같아야 한다.
+    assert model.predict(request)['results'] == result['results']
+    import pyarrow.parquet as original_pq
+    model.features.pd, model.features.pq = pd, original_pq
+    assert model.predict(request)['results'] == result['results']
     for i, row in enumerate(result['results']):
         if golden['unseen_id_counts'][i]:
             assert row['reason'] == 'UNSEEN_PROVIDER_ID'

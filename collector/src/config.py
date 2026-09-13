@@ -31,6 +31,8 @@ class Settings:
     # 키 변수 이름은 <소스명>_API_KEY 로 통일한다 (2026-09-10). 같은 실제 키를 여러 변수에 넣어도 되며,
     # 호출 예산(request_budget)은 실제 키 값 기준으로 합산한다.
     API_KEY_NAMES = (
+        "GBIS_API_KEY",
+        "INCHEON_API_KEY",
         "KMA_API_KEY",                # weather (우선)
         "DATA_GO_KR_API_KEY",         # weather (KMA 없을 때)
         "BUS_ARRIVAL_API_KEY",        # bus_arrival
@@ -46,6 +48,7 @@ class Settings:
     # 소스 코드가 실제로 읽는 것만 남긴다 (2026-09-10 정리: SUBWAY_STATIONS·TRAFFIC_LINK_IDS·CITY_AREA_CODES·SDOT_*·
     # SUBWAY_ALERT_API_URL/SERVICE_NAME·TRAFFIC_INCIDENT_SERVICE_NAME·SEOUL_API_PAGE_SIZE 는 어느 소스도 읽지 않아 제거)
     EXTRA_NAMES = (
+        "REGIONAL_BUS_TARGET_IDS",
         "BUS_CROSSWALK_PATH",
         "BUS_CROSSWALK_SHA256",
         "API_BUDGET_PATH",

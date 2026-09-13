@@ -70,6 +70,8 @@ class TrafficIncidentTest(unittest.TestCase):
         self.assertEqual(items[0]["incidentId"], "202609090001")
         self.assertEqual(items[0]["linkId"], "1000000100")
         self.assertIn("2개 차로 통제", items[0]["description"])
+        self.assertEqual(items[0]["providerFields"]["LINK_ID"], "1000000100")
+        self.assertEqual(items[0]["providerFields"]["EXP_CLR_TIME"], "113000")
 
     def test_parse_incident_xml_rejects_api_error(self) -> None:
         invalid = """

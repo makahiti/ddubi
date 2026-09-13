@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * SCH-001~004 공통 일정 응답.
  *
  * @param displayState  화면 표시용 파생 상태. DB status 에 없는 OVERDUE(도착 시각 지남)를 구분한다
- * @param recommendationStatus 추천 계산 상태. Phase 3 전까지는 등록·수정 응답에서 PENDING 고정,
+ * @param recommendationStatus 저장 직후는 PENDING. 실제 평가 상태는 recommendations/latest에서 조회하며,
  *                             조회 응답에서는 null(미노출 — jackson non_null)
  */
 public record ScheduleResponse(
@@ -27,7 +27,8 @@ public record ScheduleResponse(
         String displayState,
         String recommendationStatus,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        LocalDateTime plannedDepartAt
 ) {
 
     public static ScheduleResponse from(Schedule schedule, LocalDateTime now) {
@@ -49,7 +50,7 @@ public record ScheduleResponse(
                 displayState(schedule, now),
                 recommendationStatus,
                 schedule.getCreatedAt(),
-                schedule.getUpdatedAt());
+                schedule.getUpdatedAt(), schedule.getPlannedDepartAt());
     }
 
     private static String displayState(Schedule schedule, LocalDateTime now) {

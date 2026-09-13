@@ -1,10 +1,21 @@
 import '../domain/models.dart';
+import '../domain/schedule_evaluation.dart';
 import 'schedule_api.dart';
 
-class ApiScheduleRepository implements ScheduleRepository {
+class ApiScheduleRepository implements ScheduleRepository, ScheduleEvaluationRepository {
   const ApiScheduleRepository(this._api);
 
   final ScheduleApi _api;
+
+  @override
+  Future<Map<String, dynamic>> latestEvaluation(String id) => _api.latestEvaluation(id);
+  @override
+  Future<void> refreshEvaluation(String id) => _api.evaluationAction(id, 'recommendations');
+  @override
+  Future<void> acceptEvaluation(String id, String evaluationId) =>
+      _api.evaluationAction(id, 'recommendations/accept', {'evaluationId': evaluationId});
+  @override
+  Future<void> confirmDeparture(String id) => _api.evaluationAction(id, 'departure');
 
   @override
   Future<List<Schedule>> schedules() {

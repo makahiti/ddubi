@@ -8,6 +8,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -92,5 +93,12 @@ class AuthEndpointSecurityTest extends IntegrationTestSupport {
                             .content("{}"))
                     .andExpect(status().isBadRequest());
         }
+    }
+
+    @Test
+    @DisplayName("소셜 해제도 로그인이 필요하다")
+    void socialUnlinkRequiresLogin() throws Exception {
+        mockMvc.perform(delete("/api/v1/auth/social-links/KAKAO"))
+                .andExpect(status().isUnauthorized());
     }
 }

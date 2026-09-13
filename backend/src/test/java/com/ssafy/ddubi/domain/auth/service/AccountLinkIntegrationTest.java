@@ -456,4 +456,104 @@ class AccountLinkIntegrationTest extends IntegrationTestSupport {
                 new OAuthIdTokenLoginRequest(AuthProvider.GOOGLE, "google-id-token", "dev-mobile"));
         return userRepository.findByEmail(EMAIL).orElseThrow().getId();
     }
+
+    // ------------------------------------------------------------------
+    // 마이페이지 소셜 해제
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("수단이 둘 이상이면 뗄 수 있다")
+    void unlinksWhenAnotherMethodRemains() {
+        signupLocal(EMAIL, "기존닉네임");
+        Long userId = userRepository.findByEmail(EMAIL).orElseThrow().getId();
+        String linkToken = linkTokenFromKakaoLogin();
+        authService.linkOAuthAccount(new OAuthLinkRequest(linkToken, PASSWORD, "dev-1"));
+
+        var response = authService.unlinkSocialFromCurrentUser(userId, AuthProvider.KAKAO);
+
+        assertThat(response.providers()).containsExactly(AuthProvider.LOCAL);
+        assertThat(userAuthRepository.findProvidersByUserId(userId))
+                .as("실제로 지워졌는지 DB 로 확인한다")
+                .containsExactly(AuthProvider.LOCAL);
+    }
+
+    @Test
+    @DisplayName("마지막 남은 수단은 뗄 수 없다 — 떼면 자기 계정에서 잠긴다")
+    void refusesToRemoveLastLoginMethod() {
+        Long userId = givenGoogleOnlyUser();
+
+        assertThatThrownBy(() -> authService.unlinkSocialFromCurrentUser(userId, AuthProvider.GOOGLE))
+                .as("되돌릴 방법이 없다 — 들어갈 수가 없으니 다시 연결할 화면에도 못 간다")
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(ErrorCode.LAST_LOGIN_METHOD);
+
+        assertThat(userAuthRepository.findProvidersByUserId(userId))
+                .containsExactly(AuthProvider.GOOGLE);
+    }
+
+    @Test
+    @DisplayName("둘을 연달아 떼도 마지막 하나는 남는다")
+    void keepsAtLeastOneAcrossRepeatedUnlinks() {
+        Long userId = givenGoogleOnlyUser();
+        given(naverOAuthClient.provider()).willReturn(AuthProvider.NAVER);
+        given(naverOAuthClient.fetchUserInfoFromAccessToken(any()))
+                .willReturn(new OAuthUserInfo("naver-9", EMAIL, true, "네이버"));
+        authService.linkSocialToCurrentUser(userId,
+                new SocialLinkRequest(AuthProvider.NAVER, "naver-token", null));
+
+        authService.unlinkSocialFromCurrentUser(userId, AuthProvider.NAVER);
+
+        assertThatThrownBy(() -> authService.unlinkSocialFromCurrentUser(userId, AuthProvider.GOOGLE))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(ErrorCode.LAST_LOGIN_METHOD);
+    }
+
+    @Test
+    @DisplayName("LOCAL 은 이 API 로 뗄 수 없다 — 성격이 다른 일이다")
+    void refusesToRemoveLocal() {
+        signupLocal(EMAIL, "기존닉네임");
+        Long userId = userRepository.findByEmail(EMAIL).orElseThrow().getId();
+        String linkToken = linkTokenFromKakaoLogin();
+        authService.linkOAuthAccount(new OAuthLinkRequest(linkToken, PASSWORD, "dev-1"));
+
+        assertThatThrownBy(() -> authService.unlinkSocialFromCurrentUser(userId, AuthProvider.LOCAL))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(ErrorCode.INVALID_REQUEST);
+
+        assertThat(userAuthRepository.findProvidersByUserId(userId))
+                .containsExactlyInAnyOrder(AuthProvider.LOCAL, AuthProvider.KAKAO);
+    }
+
+    @Test
+    @DisplayName("연결되지 않은 소셜을 떼려 하면 404")
+    void refusesUnlinkingWhatIsNotLinked() {
+        signupLocal(EMAIL, "기존닉네임");
+        Long userId = userRepository.findByEmail(EMAIL).orElseThrow().getId();
+
+        assertThatThrownBy(() -> authService.unlinkSocialFromCurrentUser(userId, AuthProvider.NAVER))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("뗀 소셜로는 더 이상 그 계정에 들어올 수 없다")
+    void unlinkedSocialNoLongerLogsIntoTheAccount() {
+        signupLocal(EMAIL, "기존닉네임");
+        Long userId = userRepository.findByEmail(EMAIL).orElseThrow().getId();
+        String linkToken = linkTokenFromKakaoLogin();
+        authService.linkOAuthAccount(new OAuthLinkRequest(linkToken, PASSWORD, "dev-1"));
+
+        authService.unlinkSocialFromCurrentUser(userId, AuthProvider.KAKAO);
+
+        // 같은 카카오로 다시 로그인하면 "이미 연결된 계정" 이 아니라 연동 요구로 돌아가야 한다.
+        givenKakao(KAKAO_ID, EMAIL, true, "카카오닉네임");
+        var result = authService.loginOAuth(kakaoLogin());
+
+        assertThat(result.response().status())
+                .isEqualTo(OAuthLoginResponse.Status.ACCOUNT_LINK_REQUIRED);
+    }
 }

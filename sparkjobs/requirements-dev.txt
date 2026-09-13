@@ -5,3 +5,7 @@ httpx>=0.27,<1
 pydantic>=2.8,<3
 pyspark==3.5.3
 pytest>=8,<9
+
+# 구간 상태 출력과 JSON Schema의 계약 회귀 시험.
+jsonschema>=4,<5
+fakeredis[lua]>=2.38,<3  # cjson 내장 버전: 실제 Lua로 링크 이동/충돌/TTL을 검증한다.

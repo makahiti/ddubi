@@ -8,6 +8,21 @@ class ScheduleApi {
 
   final Dio _dio;
 
+  /// 인증 Dio로 현재 평가 상태를 읽는다. 실패 응답을 빈 정상 결과로 바꾸지 않는다.
+  Future<Map<String, dynamic>> latestEvaluation(String id) async {
+    final response = await _dio.get<Map<String, dynamic>>('${ApiPaths.schedule(id)}/recommendations/latest');
+    final data = response.data?['data'];
+    if (response.data?['success'] != true || data is! Map) {
+      throw const FormatException('일정 평가 응답을 확인할 수 없습니다.');
+    }
+    return data.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  /// 서버에 저장된 평가 ID만 수락하고 사용자 입력 경로/ETA를 전송하지 않는다.
+  Future<void> evaluationAction(String id, String action, [Map<String, dynamic>? body]) async {
+    await _dio.post<Map<String, dynamic>>('${ApiPaths.schedule(id)}/$action', data: body ?? {});
+  }
+
   Future<List<Schedule>> getSchedules({
     required DateTime from,
     required DateTime to,

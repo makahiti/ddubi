@@ -1,0 +1,114 @@
+{
+  "original": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "model_version": "20260908-v12",
+    "batch_size": 10,
+    "iterations": 4,
+    "original_reader": true,
+    "startup_seconds": 1.3785203000006732,
+    "request_seconds": [
+      2.072125699996832,
+      1.8562357999908272,
+      1.931228600005852,
+      1.8151429999998072
+    ],
+    "peak_rss_mib": 1370.1171875,
+    "max_golden_error_seconds": 0.0,
+    "result_sha256": "03083d5658d3f5bf08650ef88a17fe3facf0c0e0e96f790f874995dcf53f21ab",
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "evictions": 0,
+      "entries": 0,
+      "bytes": 0,
+      "max_bytes": 0
+    }
+  },
+  "cached": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "model_version": "20260908-v12",
+    "batch_size": 10,
+    "iterations": 4,
+    "original_reader": false,
+    "startup_seconds": 1.384485600006883,
+    "request_seconds": [
+      1.8333700000075623,
+      1.6140998000046238,
+      1.6288562999980059,
+      1.6485694000002695
+    ],
+    "peak_rss_mib": 1542.921875,
+    "max_golden_error_seconds": 0.0,
+    "result_sha256": "03083d5658d3f5bf08650ef88a17fe3facf0c0e0e96f790f874995dcf53f21ab",
+    "cache": {
+      "hits": 45,
+      "misses": 19,
+      "evictions": 0,
+      "entries": 15,
+      "bytes": 192193315,
+      "max_bytes": 268435456
+    }
+  },
+  "cached-1000": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "model_version": "20260908-v12",
+    "batch_size": 1000,
+    "iterations": 4,
+    "original_reader": false,
+    "startup_seconds": 1.3692678000079468,
+    "request_seconds": [
+      3.5335500000073807,
+      3.382478599989554,
+      3.5021209999977145,
+      3.4285115000093356
+    ],
+    "peak_rss_mib": 1537.390625,
+    "max_golden_error_seconds": 0.0,
+    "result_sha256": "b6ae7be70a80dd152f01ef08b0917254939092869219dd1db842a99cf7383af5",
+    "cache": {
+      "hits": 45,
+      "misses": 19,
+      "evictions": 0,
+      "entries": 15,
+      "bytes": 192193315,
+      "max_bytes": 268435456
+    }
+  },
+  "http": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.14",
+    "model_version": "20260908-v12",
+    "batch_size": 10,
+    "iterations": 2,
+    "original_reader": false,
+    "startup_seconds": 1.2979504999966593,
+    "request_seconds": [
+      1.8974504000070738,
+      1.928793200000655
+    ],
+    "peak_rss_mib": 1570.5,
+    "max_golden_error_seconds": 0.0,
+    "result_sha256": "03083d5658d3f5bf08650ef88a17fe3facf0c0e0e96f790f874995dcf53f21ab",
+    "cache": {
+      "hits": 45,
+      "misses": 19,
+      "evictions": 0,
+      "entries": 15,
+      "bytes": 192193315,
+      "max_bytes": 268435456
+    },
+    "http_requests": [
+      {
+        "status": 200,
+        "seconds": 1.8398438000003807
+      },
+      {
+        "status": 200,
+        "seconds": 3.708002100000158
+      }
+    ]
+  }
+}

@@ -283,6 +283,52 @@ public class AuthService {
     }
 
     // ------------------------------------------------------------------
+    // AUTH-003d 마이페이지 소셜 해제
+    // ------------------------------------------------------------------
+
+    /**
+     * 연결된 소셜 인증 수단을 뗀다.
+     *
+     * <h3>마지막 하나는 뗄 수 없다</h3>
+     * 떼는 순간 <b>사용자가 자기 계정에서 잠긴다.</b> 그리고 되돌릴 방법이 없다 — 들어갈 수가
+     * 없으니 다시 연결할 화면에도 못 간다. 그래서 남은 수단이 하나뿐이면 거절한다.
+     * 계정을 없애려는 것이면 탈퇴({@code DELETE /users/me})가 맞는 길이다.
+     *
+     * <h3>LOCAL 은 여기서 못 뗀다</h3>
+     * 이 API 는 <b>소셜</b> 연결 관리용이다. 비밀번호 로그인을 없애는 것은 성격이 다른 일이라
+     * (다시 만들려면 이메일 인증부터 해야 한다) 같은 문으로 처리하지 않는다.
+     *
+     * <h3>세션은 건드리지 않는다</h3>
+     * 토큰은 사용자에게 발급된 것이지 제공자에게 발급된 것이 아니다. 카카오 연결을 뗐다고
+     * 지금 쓰고 있는 앱에서 튕겨 나갈 이유가 없다.
+     *
+     * @return 해제 후 남은 로그인 수단
+     */
+    @Transactional
+    public SocialLinkResponse unlinkSocialFromCurrentUser(Long userId, AuthProvider provider) {
+        if (provider == AuthProvider.LOCAL) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST,
+                    "비밀번호 로그인은 이 API 로 해제할 수 없습니다.");
+        }
+
+        List<UserAuth> current = userAuthRepository.findAllByUserIdForUpdate(userId);
+        UserAuth target = current.stream()
+                .filter(userAuth -> userAuth.getProvider() == provider)
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
+                        provider + " 계정이 연결되어 있지 않습니다."));
+
+        if (current.size() <= 1) {
+            throw new BusinessException(ErrorCode.LAST_LOGIN_METHOD);
+        }
+
+        userAuthRepository.delete(target);
+        log.info("소셜 연결 해제 — userId={} provider={}", userId, provider);
+
+        return SocialLinkResponse.of(userAuthRepository.findProvidersByUserId(userId));
+    }
+
+    // ------------------------------------------------------------------
     // AUTH-003c 마이페이지 소셜 연결
     // ------------------------------------------------------------------
 

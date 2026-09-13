@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VerifiedSegmentObservation",
+  "description": "실측 인접 구간 통과시간의 정규화 Parquet 논리 스키마. 새 Collector나 Kafka 토픽을 구현/배포했다는 의미가 아니다.",
+  "type": "object",
+  "required": ["eventId", "segmentId", "masterVersion", "occurredAt", "collectedAt", "weatherBucket", "sampleKind", "source", "durationSeconds"],
+  "properties": {
+    "eventId": {"type":"string","minLength":1},
+    "segmentId": {"type":"string","pattern":"^(BUS|SUB):[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$"},
+    "masterVersion": {"type":"string","minLength":1},
+    "occurredAt": {"type":"string","format":"date-time","description":"실제 구간 통과 완료시각, +09:00"},
+    "collectedAt": {"type":"string","format":"date-time"},
+    "weatherBucket": {"enum":["DRY","RAIN","SNOW"]},
+    "sampleKind": {"const":"ACTUAL_TRAVERSAL"},
+    "source": {"type":"string","minLength":1},
+    "durationSeconds": {"type":"number","exclusiveMinimum":0}
+  },
+  "additionalProperties": false
+}

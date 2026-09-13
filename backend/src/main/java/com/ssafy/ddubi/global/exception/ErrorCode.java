@@ -71,6 +71,15 @@ public enum ErrorCode {
      * 안내</b>한다. 마이페이지에서 새 소셜을 추가로 연결하면 된다.
      */
     ACCOUNT_LINK_UNAVAILABLE(HttpStatus.CONFLICT, "이 이메일은 다른 로그인 수단으로 가입되어 있습니다."),
+
+    /**
+     * 마지막 남은 로그인 수단은 해제할 수 없다.
+     *
+     * <p>떼는 순간 <b>사용자가 자기 계정에서 잠긴다.</b> 되돌릴 방법도 없다 — 들어갈 수가
+     * 없으니 다시 연결할 화면에도 못 간다. 계정을 정리하려는 것이면 탈퇴가 맞는 길이다.
+     */
+    LAST_LOGIN_METHOD(HttpStatus.CONFLICT,
+            "마지막 로그인 수단은 해제할 수 없습니다. 다른 방법을 먼저 연결해 주세요."),
     INVALID_STATE(HttpStatus.CONFLICT, "현재 상태에서는 처리할 수 없습니다."),
     STALE_RECOMMENDATION(HttpStatus.CONFLICT, "추천 결과가 최신이 아닙니다. 다시 조회해 주세요."),
 

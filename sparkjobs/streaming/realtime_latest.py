@@ -14,8 +14,8 @@ BUS는 버전 고정 대응표로 검증하고 Collector와 버전이 다르면 
 각 이벤트는 발생시각, 수집시각, Kafka offset 순으로 최신 한 건을 선택한다. 같은 배치가
 checkpoint 복구로 재실행되어도 동일한 Redis 키를 덮어써 멱등적이다. 필수 provider ID가 없거나
 ``unknown``인 행은 키 충돌을 피하려고 Redis에서 제외하되 Kafka/HDFS 원문에는 남고, 제외 건수는
-배치 로그에 기록한다. TTL은 자료 갱신주기의 3~10배로 계약화해 수집 중단 시 오래된 값이 현재값처럼
-남지 않게 한다.
+배치 로그에 기록한다. TTL은 보관 기간이고 validUntil은 관측의 신선도 한계다.
+예산상 긴 수집 주기 때문에 보관 기간을 늘려도 오래된 관측이 현재값으로 바뀌지는 않는다.
 """
 
 from __future__ import annotations
@@ -46,18 +46,25 @@ TOPICS = os.environ.get("SPARK_JOB_TOPICS", "transport.raw,city.raw")
 TRIGGER = "10 seconds"
 
 # 키 접두사와 TTL은 docs/contracts/redis-keys.yaml의 spark 소유 계약과 일치해야 한다.
-# TTL은 정상 수집 간격보다 충분히 길지만 장애 데이터가 무기한 남지는 않도록 정했다.
+# 수집 주기의 세 배를 보관한다. 신선도는 아래 별도 정책을 사용한다.
 EVENT_POLICY = {
-    "bus.position": ("transit:latest:bus-position", 120),
-    "bus.arrival": ("transit:latest:bus-arrival", 120),
-    "subway.position": ("transit:latest:subway-position", 120),
-    "subway.arrival": ("transit:latest:subway-arrival", 120),
+    "bus.position": ("transit:latest:bus-position", 86400),
+    "bus.arrival": ("transit:latest:bus-arrival", 86400),
+    "subway.position": ("transit:latest:subway-position", 10800),
+    "subway.arrival": ("transit:latest:subway-arrival", 1080),
     "traffic.flow": ("traffic:latest:flow", 900),
-    "traffic.incident": ("traffic:latest:incident", 600),
-    "city.realtime": ("city:latest:area", 900),
+    "traffic.incident": ("traffic:latest:incident", 2700),
+    "city.realtime": ("city:latest:area", 64800),
     "sdot.population": ("city:latest:sdot-population", 1800),
-    "subway.alert": ("transit:latest:subway-alert", 600),
-    "topis.notice": ("traffic:latest:topis-notice", 1800),
+    "subway.alert": ("transit:latest:subway-alert", 2700),
+    "topis.notice": ("traffic:latest:topis-notice", 2700),
+}
+# 관측을 "현재"로 사용할 수 있는 기존 상한을 보존한다. 긴 TTL과 혼동하지 않는다.
+# 보관 중이어도 이 시간 이후 Backend/후속 연산은 unknown 또는 기준선 fallback을 사용한다.
+FRESHNESS_SECONDS = {
+    "bus.position": 120, "bus.arrival": 120, "subway.position": 120,
+    "subway.arrival": 120, "traffic.flow": 900, "traffic.incident": 600,
+    "city.realtime": 900, "sdot.population": 1800, "subway.alert": 600, "topis.notice": 1800,
 }
 
 log = logging.getLogger(JOB_NAME)
@@ -155,15 +162,38 @@ def transform(events: DataFrame, crosswalk=None) -> DataFrame:
 
     # 2. API별 raw 명칭 차이를 흡수해 계산에서 바로 단위 확인 가능한 대표 관측값으로 만든다.
     #    필드가 없는 소스는 null이며 Spark JSON 직렬화 시 생략된다.
+    # 지역별 공식 단위를 명시적으로 구분한다. provider 필드명이 같은 숫자라도 서울 basis를 붙이지 않는다.
+    def arrival_seconds(index):
+        return (F.when(namespace == "GBIS", F.coalesce(_json("$.raw.predictTimeSec"+str(index)).cast("int"),
+                        _json("$.raw.predictTime"+str(index)).cast("int")*60))
+                .when((namespace == "INCHEON_API") & F.lit(index == 1), _json("$.raw.ARRIVALESTIMATETIME").cast("int"))
+                .when(namespace == "SEOUL_BUS", _first("$.raw.exps"+str(index),"$.raw.EXPS"+str(index)).cast("int")))
+    basis=(F.when(namespace == "GBIS", "GBIS_PREDICT_SECONDS_V1")
+           .when(namespace == "INCHEON_API", "INCHEON_ESTIMATE_SECONDS_V1")
+           .when(namespace == "SEOUL_BUS", "SEOUL_EXPS_SECONDS_V1"))
     observation = F.struct(
+        _for("bus.position", _first("$.raw.stationSeq", "$.raw.LATEST_STOPSEQ").cast("int")).alias("providerStopOrder"),
+        _for("bus.position", _first("$.raw.stateCd", "$.raw.DIRCD")).alias("providerStateCode"),
+        _for("bus.arrival", _first("$.raw.locationNo1", "$.raw.REST_STOP_COUNT").cast("int")).alias("firstRemainingStops"),
         _for("bus.position", _first("$.raw.sectOrd", "$.raw.SECT_ORD").cast("int")).alias("sectionOrder"),
         _for("bus.position", _first("$.raw.sectDist", "$.raw.SECT_DIST").cast("double")).alias("sectionDistanceMeters"),
         _for("bus.position", _first("$.raw.fullSectDist", "$.raw.FULL_SECT_DIST").cast("double")).alias("fullSectionDistanceMeters"),
         _for("bus.position", _first("$.raw.congetion", "$.raw.congestion", "$.raw.CONGESTION")).alias("congestionCode"),
         _for("bus.position", _first("$.raw.stopFlag", "$.raw.STOP_FLAG")).alias("stopFlag"),
 
-        _for("bus.arrival", _first("$.raw.traTime1", "$.raw.TRA_TIME1").cast("int")).alias("firstArrivalSeconds"),
-        _for("bus.arrival", _first("$.raw.traTime2", "$.raw.TRA_TIME2").cast("int")).alias("secondArrivalSeconds"),
+        # 공식 traTime1/2는 여행시간(분)이다. 도착 대기는 지수평활 도착예측 exps1/2(초)를 사용한다.
+        # basis를 함께 기록해 예전 버전의 같은 이름 필드를 Backend가 초로 오독하지 못하게 한다.
+        _for("bus.arrival", arrival_seconds(1)).alias("firstArrivalSeconds"),
+        _for("bus.arrival", arrival_seconds(2)).alias("secondArrivalSeconds"),
+        _for("bus.arrival", basis).alias("arrivalTimeBasis"),
+        _for("bus.arrival", _first("$.raw.traTime1", "$.raw.TRA_TIME1").cast("double")).alias("firstTravelTimeMinutes"),
+        _for("bus.arrival", _first("$.raw.traTime2", "$.raw.TRA_TIME2").cast("double")).alias("secondTravelTimeMinutes"),
+        _for("bus.arrival", _first("$.raw.staOrd", "$.raw.STA_ORD", "$.raw.staOrder").cast("int")).alias("stopOrder"),
+        _for("bus.arrival", _first("$.raw.deTourAt", "$.raw.DE_TOUR_AT")).alias("detourCode"),
+        _for("bus.arrival", _first("$.raw.isArrive1", "$.raw.IS_ARRIVE1")).alias("firstTerminalArrivalCode"),
+        _for("bus.arrival", _first("$.raw.isArrive2", "$.raw.IS_ARRIVE2")).alias("secondTerminalArrivalCode"),
+        _for("bus.arrival", _first("$.raw.full1", "$.raw.FULL1")).alias("firstFullCode"),
+        _for("bus.arrival", _first("$.raw.full2", "$.raw.FULL2")).alias("secondFullCode"),
         # sectOrd1/2는 '몇 정거장 전'이 아니라 해당 차량의 현재 노선상 구간 순번이다.
         # 정류장 수 차이는 마스터의 승차 정류장 순번과 결합한 뒤 계산해야 하므로 이름으로 과장하지 않는다.
         _for("bus.arrival", _first("$.raw.sectOrd1", "$.raw.SECT_ORD1").cast("int")).alias("firstVehicleSectionOrder"),
@@ -184,6 +214,12 @@ def transform(events: DataFrame, crosswalk=None) -> DataFrame:
         _for("subway.arrival", _first("$.raw.arvlMsg3", "$.raw.ARVL_MSG3")).alias("previousStationMessage"),
         _for("subway.arrival", _first("$.raw.updnLine", "$.raw.UPDN_LINE")).alias("arrivalDirection"),
         _for("subway.arrival", _first("$.raw.bstatnNm", "$.raw.BSTATN_NM")).alias("arrivalDestination"),
+        # 열차번호만 같아도 방향/급행/운행일이 다를 수 있다. Backend 시간표 연결은 이 원문과
+        # 생성시각을 함께 검증한다. 누락된 원본 시각을 수집시각으로 보완해 실시간으로 표시하지 않는다.
+        _for("subway.arrival", _first("$.raw.btrainStt", "$.raw.BTRAIN_STT")).alias("arrivalTrainType"),
+        F.when(F.col("eventType").isin("subway.arrival", "subway.position"),
+               _first("$.raw.recptnDt", "$.raw.RECPTN_DT"))
+         .when(F.col("eventType") == "bus.arrival", _first("$.raw.mkTm", "$.raw.MK_TM")).alias("sourceGeneratedAt"),
 
         _for("traffic.flow", _first("$.raw.SPD", "$.raw.speed", "$.raw.SPEED").cast("double")).alias("speedKph"),
         _for("traffic.flow", _first("$.raw.TRV_TIME", "$.raw.travelTime").cast("int")).alias("travelTimeSeconds"),
@@ -252,7 +288,10 @@ def transform(events: DataFrame, crosswalk=None) -> DataFrame:
     is_bus=F.col("eventType").isin("bus.position","bus.arrival")
     provider_key=F.when(is_bus,
         F.when(namespace=="SEOUL_BUS",provider_key)
-         .when(namespace.isin("GBIS","INCHEON_PUBLIC_CSV") & provider_key.isNotNull(),F.concat_ws(":",namespace,provider_key)))        .otherwise(provider_key)
+         .when(namespace.isin("GBIS","INCHEON_PUBLIC_CSV","INCHEON_API") & provider_key.isNotNull(),F.concat_ws(":",namespace,provider_key)))        .otherwise(provider_key)
+    # 인천은 차량별 도착 행이다. 노선·정류소만 키로 쓰면 다른 차량의 예측이 사라진다.
+    provider_key=F.when((namespace=="INCHEON_API") & (F.col("eventType")=="bus.arrival"),
+        F.when(_usable_id(vehicle_id) & provider_key.isNotNull(),F.concat_ws(":",provider_key,vehicle_id))).otherwise(provider_key)
     normalized = supported.select(
         "eventId", "eventType", "source", "occurredAt", "collectedAt", "latitude", "longitude",
         "segmentIds", "kafkaPartition", "kafkaOffset",
@@ -318,6 +357,12 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
         ttl_entries.extend((F.lit(event_type), F.lit(ttl_seconds)))
     prefix = F.element_at(F.create_map(*prefix_entries), F.col("eventType"))
     ttl = F.element_at(F.create_map(*ttl_entries), F.col("eventType"))
+    freshness_entries = []
+    for event_type, seconds in FRESHNESS_SECONDS.items():
+        freshness_entries.extend((F.lit(event_type), F.lit(seconds)))
+    freshness = F.element_at(F.create_map(*freshness_entries), F.col("eventType"))
+    # event time 기준 유효시각은 Replay 시각으로 다시 계산하지 않는다.
+    valid_until = (F.col("occurredAt").cast("long") + freshness).cast("timestamp")
 
     return df.select(
         F.concat_ws(":", prefix, F.col("providerKey")).alias(KEY_COL),
@@ -328,6 +373,8 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
                 "segmentIds", "canonicalMapping",
                 (F.size(F.coalesce(F.col("segmentIds"), F.array())) > 0).alias("canonicalMappingAvailable"),
                 "occurredAt", "collectedAt", "eventId", "source",
+                valid_until.alias("validUntil"), freshness.alias("freshnessSeconds"),
+                ttl.alias("retentionSeconds"),
             )
         ).alias(VALUE_COL),
         ttl.cast("int").alias(TTL_COL),
@@ -336,6 +383,50 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
         F.date_format("occurredAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(EVENT_TIME_COL),
         F.date_format("collectedAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(COLLECTED_TIME_COL),
     )
+
+
+def process_batch(batch_df: DataFrame, batch_id: int, settings: Settings, crosswalk=None) -> None:
+    """운영과 반복 부하 검증이 공유하는 한 배치 처리다.
+
+    정적 crosswalk는 호출자가 전체 query 수명 동안 소유한다. 이 함수는 배치별 캐시만
+    소유하고 Redis 쓰기 실패를 상위로 전파해 checkpoint가 실패 배치를 건너뛰지 않게 한다.
+    """
+    normalized = transform(batch_df,crosswalk).cache()
+    latest = None
+    rows = None
+    try:
+        supported_count = normalized.count()
+        valid_count = normalized.filter(F.col("providerKey").isNotNull()).count()
+        valid_timestamp_count = normalized.filter(
+            F.col("occurredAt").isNotNull() & F.col("collectedAt").isNotNull()
+        ).count()
+        latest = latest_per_provider(normalized).cache()
+        rows = to_redis_rows(latest).cache()
+        output_count = rows.count()
+        if output_count:
+            write_latest_with_row_ttl(
+                rows,
+                settings.redis_host,
+                settings.redis_port,
+                settings.redis_password,
+            )
+        log.info(
+            "batch=%d supported=%d validIdentity=%d invalidIdentity=%d "
+            "validTimestamp=%d invalidTimestamp=%d redisKeys=%d",
+            batch_id,
+            supported_count,
+            valid_count,
+            supported_count - valid_count,
+            valid_timestamp_count,
+            supported_count - valid_timestamp_count,
+            output_count,
+        )
+    finally:
+        if rows is not None:
+            rows.unpersist()
+        if latest is not None:
+            latest.unpersist()
+        normalized.unpersist()
 
 
 def main() -> int:
@@ -357,60 +448,28 @@ def main() -> int:
     crosswalk_path=os.environ.get("BUS_CROSSWALK_PATH")
     crosswalk=load_crosswalk(spark,crosswalk_path,os.environ.get("BUS_CROSSWALK_SHA256")) if crosswalk_path else None
 
-    def process_batch(batch_df: DataFrame, batch_id: int) -> None:
-        normalized = transform(batch_df,crosswalk).cache()
-        latest = None
-        rows = None
-        try:
-            supported_count = normalized.count()
-            valid_count = normalized.filter(F.col("providerKey").isNotNull()).count()
-            valid_timestamp_count = normalized.filter(
-                F.col("occurredAt").isNotNull() & F.col("collectedAt").isNotNull()
-            ).count()
-            latest = latest_per_provider(normalized).cache()
-            rows = to_redis_rows(latest).cache()
-            output_count = rows.count()
-            if output_count:
-                write_latest_with_row_ttl(
-                    rows,
-                    settings.redis_host,
-                    settings.redis_port,
-                    settings.redis_password,
-                )
-            log.info(
-                "batch=%d supported=%d validIdentity=%d invalidIdentity=%d "
-                "validTimestamp=%d invalidTimestamp=%d redisKeys=%d",
-                batch_id,
-                supported_count,
-                valid_count,
-                supported_count - valid_count,
-                valid_timestamp_count,
-                supported_count - valid_timestamp_count,
-                output_count,
-            )
-        finally:
-            if rows is not None:
-                rows.unpersist()
-            if latest is not None:
-                latest.unpersist()
-            normalized.unpersist()
 
-    events = read_events_stream(spark, settings, TOPICS)
-    query = (
-        events.writeStream.foreachBatch(process_batch)
-        .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
-        .trigger(processingTime=TRIGGER)
-        .queryName(JOB_NAME)
-        .start()
-    )
-    log.info(
-        "started topics=%s checkpoint=%s redis=%s:%s",
-        TOPICS,
-        settings.checkpoint_for(JOB_NAME),
-        settings.redis_host,
-        settings.redis_port,
-    )
-    query.awaitTermination()
+    try:
+        events = read_events_stream(spark, settings, TOPICS)
+        query = (
+            events.writeStream.foreachBatch(lambda frame, batch_id: process_batch(frame, batch_id, settings, crosswalk))
+            .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
+            .trigger(processingTime=TRIGGER)
+            .queryName(JOB_NAME)
+            .start()
+        )
+        log.info(
+            "started topics=%s checkpoint=%s redis=%s:%s",
+            TOPICS,
+            settings.checkpoint_for(JOB_NAME),
+            settings.redis_host,
+            settings.redis_port,
+        )
+        query.awaitTermination()
+    finally:
+        # 정적 인덱스는 배치 종료마다 해제하지 않는다. 전체 query가 끝난 뒤에만 반환한다.
+        if crosswalk is not None:
+            crosswalk[0].unpersist()
     return 0
 
 

@@ -87,6 +87,8 @@ def to_record(name, raw, context="", crosswalk=None):
         ids["providerNoticeId"] = str(raw.get("noticeId") or "")
         source_time = raw.get("updatedAt") or raw.get("createdAt")
     elif name == "traffic_incident":
+        # AccInfo LINK_ID를 표준노드링크나 다른 TOPIS ID와 숫자만으로 조인하지 않는다.
+        ids["providerLinkNamespace"] = "SEOUL_ACCINFO_LINK"
         ids["providerIncidentId"] = str(raw.get("incidentId") or "")
         ids["providerLinkId"] = str(raw.get("linkId") or "")
         try:
@@ -103,7 +105,7 @@ def to_record(name, raw, context="", crosswalk=None):
     payload = {**ids, "raw": raw, "observedAt": received.isoformat(),
                "timestampBasis": "received" if occurred == received else "provider",
                "contentHash": hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}
-    key = ":".join(v for k,v in ids.items() if v and k!="providerNamespace") or payload["contentHash"]
+    key = ":".join(v for k,v in ids.items() if v and k not in {"providerNamespace", "providerLinkNamespace"}) or payload["contentHash"]
     segment_ids=None
     if name.startswith("bus_"):
         mapping=crosswalk.resolve(POLICIES[name][1],payload) if crosswalk else dict(
