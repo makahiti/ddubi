@@ -56,7 +56,7 @@ public class JdbcSeoulTransitMasterDataProvider implements SeoulTransitMasterDat
                                l.service_pattern_id,
                                ls.station_sequence,
                                s.station_id,
-                               s.realtime_station_id,
+                               COALESCE(ls.realtime_station_id, s.realtime_station_id) AS realtime_station_id,
                                s.station_name
                           FROM seoul_subway_line l
                           JOIN seoul_subway_line_station ls

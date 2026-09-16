@@ -54,4 +54,36 @@ class BusPreviewClientTest {
         }
         assertThat(new BusPreviewClient(json,"",1500).predict(input).reason()).isEqualTo("ML_NOT_CONFIGURED");
     }
+
+    @Test void batchCorrelatesReorderedRowsAndRejectsDuplicateOrUnknownKeys() throws Exception {
+        var second = new BusPreviewClient.Input("100","300","400",2,input.date(),9);
+        for (String mode : List.of("reversed", "duplicate", "unknown", "missing")) {
+            var server = HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+            server.createContext("/v1/bus/predictions:batch", exchange -> {
+                var request = json.readTree(exchange.getRequestBody());
+                assertThat(request.path("segments").size()).isEqualTo(2);
+                var response = new LinkedHashMap<String,Object>();
+                response.put("request_id",request.path("request_id").asText());
+                response.put("model_version","test-v12"); response.put("model_type","lightgbm");
+                response.put("target","hourly_mean_bus_segment_seconds"); response.put("production_ready",false);
+                response.put("computed_at",Instant.now().toString());
+                response.put("supported_from",input.date().toString()); response.put("supported_until",input.date().toString());
+                var rows = new ArrayList<Map<String,Object>>();
+                rows.add(Map.of("segment_key","edge-1","status","UNAVAILABLE","reason","UNSEEN_PROVIDER_ID"));
+                if (!mode.equals("missing")) rows.add(Map.of("segment_key",mode.equals("duplicate")?"edge-1":mode.equals("unknown")?"other":"edge-0",
+                        "status","PREVIEW","reason","MODEL_NOT_PRODUCTION_READY","prediction",Map.of("mean_seconds",37.5,
+                        "missing_feature_count",2,"history_sample_count",4,"data_insufficient",false,"training_ids_verified",false)));
+                response.put("results",rows);
+                byte[] bytes=json.writeValueAsBytes(response);
+                exchange.sendResponseHeaders(200,bytes.length); exchange.getResponseBody().write(bytes); exchange.close();
+            }); server.start();
+            try {
+                var result=new BusPreviewClient(json,"http://127.0.0.1:"+server.getAddress().getPort(),1500).predictBatch(List.of(input,second));
+                if (mode.equals("reversed")) {
+                    assertThat(result.get(input).seconds()).isEqualTo(37.5);
+                    assertThat(result.get(second).reason()).isEqualTo("UNSEEN_PROVIDER_ID");
+                } else assertThat(result.values()).allMatch(e -> e.seconds()==null && e.reason().equals("ML_INVALID_RESPONSE"));
+            } finally { server.stop(0); }
+        }
+    }
 }
