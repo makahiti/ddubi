@@ -14,6 +14,7 @@ class SocialAuthScreen extends StatefulWidget {
     required this.provider,
     required this.onAuthenticated,
     required this.repository,
+    this.persistSession = true,
     this.kakaoLoginService,
     this.googleLoginService,
     this.naverLoginService,
@@ -21,6 +22,7 @@ class SocialAuthScreen extends StatefulWidget {
   final String provider;
   final VoidCallback onAuthenticated;
   final AuthRepository repository;
+  final bool persistSession;
   final KakaoLoginService? kakaoLoginService;
   final GoogleLoginService? googleLoginService;
   final NaverLoginService? naverLoginService;
@@ -978,6 +980,7 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
           await widget.repository.loginWithOAuthToken(
             provider: 'KAKAO',
             accessToken: accessToken,
+            persistSession: widget.persistSession,
           );
           break;
         case 'Google':
@@ -989,6 +992,7 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
           await widget.repository.loginWithOAuthIdToken(
             provider: 'GOOGLE',
             idToken: idToken,
+            persistSession: widget.persistSession,
           );
           break;
         case '네이버':
@@ -1002,6 +1006,7 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
             authorizationCode: authorization.authorizationCode,
             redirectUri: authorization.redirectUri,
             state: authorization.state,
+            persistSession: widget.persistSession,
           );
           break;
         default:

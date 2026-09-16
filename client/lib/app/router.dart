@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/constants/layout_constants.dart';
+import '../core/network/dio_provider.dart';
 import '../core/theme.dart';
 import '../domain/models.dart';
 import '../presentation/screens.dart';
@@ -24,9 +25,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final recommendationApi = ref.watch(recommendationApiProvider);
   final arrivalApi = ref.watch(arrivalApiProvider);
   final reportApi = ref.watch(reportApiProvider);
+  final sessionStore = ref.watch(authSessionStoreProvider);
 
   return GoRouter(
-    initialLocation: '/intro',
+    initialLocation: sessionStore.session == null ? '/intro' : '/home',
     routes: [
       GoRoute(path: '/', redirect: (context, state) => '/intro'),
       GoRoute(path: '/intro', builder: (context, state) => const IntroScreen()),

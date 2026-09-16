@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 enum AuthErrorCode {
   invalidCredentials,
   emailAlreadyExists,
@@ -50,6 +54,13 @@ class AuthUser {
       nickname: json['nickname'] as String,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'provider': provider,
+    'email': email,
+    'nickname': nickname,
+  };
 }
 
 class AuthSession {
@@ -77,6 +88,14 @@ class AuthSession {
     );
   }
 
+  Map<String, dynamic> toJson() => {
+    'accessToken': accessToken,
+    'refreshToken': refreshToken,
+    'tokenType': tokenType,
+    'deviceId': deviceId,
+    'user': user.toJson(),
+  };
+
   AuthSession withRefreshedTokens(Map<String, dynamic> json) {
     return AuthSession(
       accessToken: json['accessToken'] as String,
@@ -89,30 +108,83 @@ class AuthSession {
 }
 
 class AuthSessionStore {
+  AuthSessionStore({FlutterSecureStorage? secureStorage})
+    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+
+  static const _sessionKey = 'ddubi.auth.session.v1';
+  final FlutterSecureStorage _secureStorage;
   AuthSession? _session;
 
   AuthSession? get session => _session;
   String? get accessToken => _session?.accessToken;
 
-  void save(AuthSession session) => _session = session;
-  void clear() => _session = null;
+  Future<void> restore() async {
+    try {
+      final encoded = await _secureStorage.read(key: _sessionKey);
+      if (encoded == null || encoded.isEmpty) return;
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map) throw const FormatException('Invalid session');
+      _session = AuthSession.fromJson(
+        decoded.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    } on Object {
+      _session = null;
+      try {
+        await _secureStorage.delete(key: _sessionKey);
+      } on Object {
+        // A damaged or unavailable platform store must not block app startup.
+      }
+    }
+  }
+
+  Future<void> save(AuthSession session, {bool persist = true}) async {
+    _session = session;
+    try {
+      if (!persist) {
+        await _secureStorage.delete(key: _sessionKey);
+        return;
+      }
+      await _secureStorage.write(
+        key: _sessionKey,
+        value: jsonEncode(session.toJson()),
+      );
+    } on Object {
+      // Keep the current login usable even when secure persistence is unavailable.
+    }
+  }
+
+  Future<void> clear() async {
+    _session = null;
+    try {
+      await _secureStorage.delete(key: _sessionKey);
+    } on Object {
+      // Clearing in-memory state still completes logout on this process.
+    }
+  }
 }
 
 abstract interface class AuthRepository {
-  Future<void> login({required String email, required String password});
+  Future<void> login({
+    required String email,
+    required String password,
+    bool persistSession = true,
+  });
   Future<void> loginWithOAuthToken({
     required String provider,
     required String accessToken,
+    bool persistSession = true,
   });
   Future<void> loginWithOAuthCode({
     required String provider,
     required String authorizationCode,
     required String redirectUri,
     required String state,
+    bool persistSession = true,
   });
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
+    bool persistSession = true,
   });
   Future<void> linkOAuthAccount({
     required String linkToken,
@@ -140,7 +212,11 @@ abstract interface class AuthRepository {
 class MockAuthRepository implements AuthRepository {
   final Map<String, String> _credentials = {'member@ddubi.app': 'password123'};
   @override
-  Future<void> login({required String email, required String password}) async {
+  Future<void> login({
+    required String email,
+    required String password,
+    bool persistSession = true,
+  }) async {
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (_credentials[email.toLowerCase()] == password) return;
     throw const AuthException(AuthErrorCode.invalidCredentials);
@@ -150,6 +226,7 @@ class MockAuthRepository implements AuthRepository {
   Future<void> loginWithOAuthToken({
     required String provider,
     required String accessToken,
+    bool persistSession = true,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
@@ -160,6 +237,7 @@ class MockAuthRepository implements AuthRepository {
     required String authorizationCode,
     required String redirectUri,
     required String state,
+    bool persistSession = true,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
@@ -168,6 +246,7 @@ class MockAuthRepository implements AuthRepository {
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
+    bool persistSession = true,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }

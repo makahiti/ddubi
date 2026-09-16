@@ -1095,6 +1095,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await widget.authRepository.login(
         email: email.text.trim(),
         password: password.text,
+        persistSession: keepSignedIn,
       );
       if (context.mounted) _completeLogin(context);
     } on AuthException catch (error) {
@@ -1158,6 +1159,7 @@ class _LoginScreenState extends State<LoginScreen> {
     c,
     SocialAuthScreen(
       provider: provider,
+      persistSession: keepSignedIn,
       repository: widget.authRepository,
       kakaoLoginService: provider == '카카오' ? widget.kakaoLoginService : null,
       googleLoginService: provider == 'Google'
@@ -5067,6 +5069,7 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
   KakaoMapController? _controller;
   StreamSubscription<CameraMoveEndEvent>? _cameraMoveSubscription;
   List<_ProjectedRouteSegment> _projectedSegments = const [];
+  var _projectionGeneration = 0;
 
   LatLng get _center {
     final bounds = widget.routeMap.bounds;
@@ -5167,26 +5170,41 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
   Future<void> _refreshProjectedSegments() async {
     final controller = _controller;
     if (controller == null || kIsWeb) return;
+    final generation = ++_projectionGeneration;
+    final pixelRatio = View.of(context).devicePixelRatio;
     final projected = <_ProjectedRouteSegment>[];
     try {
       for (final segment in widget.routeMap.segments) {
-        final points = <Offset>[];
-        for (final coordinate in segment.coordinates) {
-          final point = await controller.toScreenPoint(
-            position: LatLng(
-              latitude: coordinate.latitude,
-              longitude: coordinate.longitude,
+        final rawPoints = await Future.wait(
+          segment.coordinates.map(
+            (coordinate) => controller.toScreenPoint(
+              position: LatLng(
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+              ),
             ),
-          );
-          if (point != null) points.add(point);
-        }
+          ),
+        );
+        final points = rawPoints
+            .whereType<Offset>()
+            .map((point) => point / pixelRatio)
+            .toList(growable: false);
         projected.add(
           _ProjectedRouteSegment(mode: segment.mode, points: points),
         );
       }
-      if (mounted) setState(() => _projectedSegments = projected);
+      if (mounted && generation == _projectionGeneration) {
+        setState(() => _projectedSegments = projected);
+      }
     } catch (error) {
       debugPrint('Saved route coordinate projection failed: $error');
+    }
+  }
+
+  void _hideProjectedRoute(PointerDownEvent _) {
+    _projectionGeneration++;
+    if (_projectedSegments.isNotEmpty) {
+      setState(() => _projectedSegments = const []);
     }
   }
 
@@ -5204,13 +5222,16 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: KakaoMapConfig.isReady
-                ? KakaoMap(
-                    initialPosition: _center,
-                    initialLevel: kIsWeb ? 5 : 13,
-                    onMapCreated: _onMapCreated,
-                  )
-                : const ColoredBox(color: Color(0xFFEAF2EC)),
+            child: Listener(
+              onPointerDown: _hideProjectedRoute,
+              child: KakaoMapConfig.isReady
+                  ? KakaoMap(
+                      initialPosition: _center,
+                      initialLevel: kIsWeb ? 5 : 13,
+                      onMapCreated: _onMapCreated,
+                    )
+                  : const ColoredBox(color: Color(0xFFEAF2EC)),
+            ),
           ),
           if (hasCoordinates)
             Positioned.fill(
@@ -5312,34 +5333,9 @@ class _SavedRoutePolylinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (projectedSegments.isNotEmpty) {
-      for (final segment in projectedSegments) {
-        _drawSegment(canvas, segment.mode, segment.points);
-      }
-      return;
-    }
-    final bounds = routeMap.bounds;
-    if (bounds == null) return;
-    const padding = 28.0;
-    final width = size.width - padding * 2;
-    final height = size.height - padding * 2;
-    final lngRange = bounds.maxLng - bounds.minLng;
-    final latRange = bounds.maxLat - bounds.minLat;
-
-    Offset point(RouteCoordinate coordinate) => Offset(
-      padding +
-          (lngRange == 0
-              ? width / 2
-              : (coordinate.longitude - bounds.minLng) / lngRange * width),
-      padding +
-          (latRange == 0
-              ? height / 2
-              : (bounds.maxLat - coordinate.latitude) / latRange * height),
-    );
-
-    for (final segment in routeMap.segments) {
-      if (segment.coordinates.length < 2) continue;
-      final points = segment.coordinates.map(point).toList(growable: false);
+    canvas.clipRect(Offset.zero & size);
+    for (final segment in projectedSegments) {
+      final points = segment.points;
       _drawSegment(canvas, segment.mode, points);
     }
   }

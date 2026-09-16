@@ -11,24 +11,78 @@ import 'package:ddubi/services/place_api.dart';
 import 'package:ddubi/services/naver_login_service.dart';
 import 'package:ddubi/services/recommendation_api.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  for (final stamp in ['2026-09-16T05:30:00Z', '2026-09-16T14:30:00+09:00', '2026-09-16T14:30:00']) {
+  AuthSession testSession() => const AuthSession(
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    tokenType: 'Bearer',
+    deviceId: 'device-1',
+    user: AuthUser(
+      id: 7,
+      provider: 'LOCAL',
+      email: 'member@example.com',
+      nickname: '뚜비',
+    ),
+  );
+
+  test('로그인 유지 선택 시 암호화 저장소에서 세션을 복원한다', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await AuthSessionStore().save(testSession());
+
+    final restored = AuthSessionStore();
+    await restored.restore();
+
+    expect(restored.session?.accessToken, 'access-token');
+    expect(restored.session?.refreshToken, 'refresh-token');
+    expect(restored.session?.user.nickname, '뚜비');
+  });
+
+  test('로그인 유지 해제 시 다음 앱 시작에 세션을 복원하지 않는다', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await AuthSessionStore().save(testSession(), persist: false);
+
+    final restored = AuthSessionStore();
+    await restored.restore();
+
+    expect(restored.session, isNull);
+  });
+
+  for (final stamp in [
+    '2026-09-16T05:30:00Z',
+    '2026-09-16T14:30:00+09:00',
+    '2026-09-16T14:30:00',
+  ]) {
     test('추천 시각을 기기 시간대로 표시한다: $stamp', () async {
-      final dio = Dio()..interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
-        handler.resolve(Response<Map<String, dynamic>>(
-          requestOptions: options,
-          statusCode: 200,
-          data: {'success': true, 'data': {
-            'state': 'READY',
-            'result': {'suggestion': {'proposed': {
-              'departureAt': stamp,
-              'estimatedArrivalAt': stamp,
-            }}},
-          }},
-        ));
-      }));
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              handler.resolve(
+                Response<Map<String, dynamic>>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: {
+                    'success': true,
+                    'data': {
+                      'state': 'READY',
+                      'result': {
+                        'suggestion': {
+                          'proposed': {
+                            'departureAt': stamp,
+                            'estimatedArrivalAt': stamp,
+                          },
+                        },
+                      },
+                    },
+                  },
+                ),
+              );
+            },
+          ),
+        );
       final overview = (await RecommendationApi(dio).getLatestOverview('2'))!;
       final expected = DateTime.parse(stamp).toLocal();
       expect(overview.departureAt!.isUtc, isFalse);

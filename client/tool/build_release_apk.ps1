@@ -17,6 +17,29 @@ if (-not (Test-Path -LiteralPath $EnvironmentFile)) {
     throw "Client environment file not found: $EnvironmentFile"
 }
 
+# Only values intentionally shipped in the client may become Dart defines.
+# Passing the entire environment file can accidentally embed server secrets in
+# the APK, even when the Flutter code never reads those keys.
+$clientDefineNames = @(
+    'USE_SCHEDULE_API'
+    'KAKAO_NATIVE_APP_KEY'
+    'KAKAO_JAVASCRIPT_KEY'
+    'GOOGLE_WEB_CLIENT_ID'
+    'NAVER_CLIENT_ID'
+    'NAVER_REDIRECT_URI'
+)
+$clientDefines = @{}
+foreach ($line in Get-Content -LiteralPath $EnvironmentFile) {
+    if ($line -match '^\s*#' -or $line -notmatch '=') {
+        continue
+    }
+    $name, $value = $line -split '=', 2
+    $name = $name.Trim()
+    if ($clientDefineNames -contains $name) {
+        $clientDefines[$name] = $value.Trim()
+    }
+}
+
 $keytoolCommand = Get-Command keytool.exe -ErrorAction SilentlyContinue
 $keytoolPath = if ($keytoolCommand) {
     $keytoolCommand.Source
@@ -55,9 +78,13 @@ try {
 
     Push-Location (Join-Path $PSScriptRoot '..')
     try {
-        & flutter build apk --release `
-            "--dart-define-from-file=$EnvironmentFile" `
-            "--dart-define=API_BASE_URL=$ApiBaseUrl"
+        $buildArguments = @('build', 'apk', '--release', "--dart-define=API_BASE_URL=$ApiBaseUrl")
+        foreach ($name in $clientDefineNames) {
+            if ($clientDefines.ContainsKey($name)) {
+                $buildArguments += "--dart-define=$name=$($clientDefines[$name])"
+            }
+        }
+        & flutter @buildArguments
         if ($LASTEXITCODE -ne 0) {
             throw "Flutter release build failed with exit code $LASTEXITCODE"
         }
