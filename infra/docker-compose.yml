@@ -61,6 +61,10 @@ x-collector-env: &collector-env
   BUS_ROUTE_IDS: ${BUS_ROUTE_IDS:-}
   BUS_ROUTE_LIMIT: ${BUS_ROUTE_LIMIT:-100}
   SUBWAY_LINES: ${SUBWAY_LINES:-}
+  SUBWAY_SKIP_ENABLED: ${SUBWAY_SKIP_ENABLED:-true}
+  SUBWAY_SKIP_START: ${SUBWAY_SKIP_START:-03:30}
+  SUBWAY_SKIP_END: ${SUBWAY_SKIP_END:-04:30}
+  SUBWAY_SKIP_OVERRIDE_DATES: ${SUBWAY_SKIP_OVERRIDE_DATES:-}
   CITY_AREA_IDENTIFIERS: ${CITY_AREA_IDENTIFIERS:-}
   CITY_AREA_REGISTRY_PATH: ${CITY_AREA_REGISTRY_PATH:-}
   # 버스 대응표 위치와 파일 지문(SHA-256). 지문이 틀리면 버스 수집기는 기동을 거부한다(재시작 반복).
@@ -229,6 +233,7 @@ services:
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: topis_notice
+      TOPIS_NOTICE_DEDUP_PATH: /app/data/topis_notice_dedup.sqlite3
 
   # =========================================================================
   # data : MySQL, Redis                                             [서버2]
@@ -569,8 +574,10 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      # 같은 표준 DataFrame을 Redis 최신값과 HDFS Silver에 각각 쓴다.
+      # 같은 표준 DataFrame을 Redis와 HDFS에 쓰되, Silver는 서버 .env에 경로가 있을 때만 켠다.
+      # HDFS Silver가 실패해도 서비스가 읽는 Redis 스트림은 계속 실행한다.
       SILVER_OUTPUT_URI: ${SILVER_OUTPUT_URI:-}
+      WEATHER_REQUIRE_SILVER: ${WEATHER_REQUIRE_SILVER:-false}
       WEATHER_SILVER_TRIGGER: ${WEATHER_SILVER_TRIGGER:-10 minutes}
       WEATHER_SILVER_WATERMARK: ${WEATHER_SILVER_WATERMARK:-2 days}
     volumes:
@@ -603,6 +610,7 @@ services:
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
       SPARK_JOB_TOPICS: transport.raw,city.raw
+      BUS_SILVER_OUTPUT_URI: ${BUS_SILVER_OUTPUT_URI-hdfs://hdfs-namenode:9000/ddubi/silver/bus/realtime-v1}
       # 날씨 잡이 각 워커의 1GiB를 사용하므로 남은 512MiB 안에 executor가 배치되게 한다.
       # 수집기 4개가 켜지면 날씨보다 유입이 많다. 480m 은 Spark 최소치에 가까워 768m 으로, 코어는 1 (2026-09-07)
       SPARK_DRIVER_MEMORY: ${REALTIME_DRIVER_MEMORY:-2g}        # submit.sh 기본 512m 은 대응표 DataFrame 을 못 담는다

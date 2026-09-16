@@ -1,4 +1,4 @@
-"""비기상 실시간 이벤트를 제공자 식별자별 최신 상태로 정규화해 Redis에 저장한다.
+"""비기상 실시간 이벤트를 정규화한다. 버스 Silver는 HDFS와 Redis 양쪽에 저장한다.
 
 파이프라인 위치는 ``Collector → Kafka(transport.raw/city.raw) → 이 Spark 잡 → Redis``다.
 Kafka 원문은 별도 Archiver가 Parquet/HDFS에 보존하므로 이 잡은 서비스가 지금 필요한 작은
@@ -38,6 +38,7 @@ from common.redis_sink import (
     write_latest_with_row_ttl,
 )
 from common.settings import Settings
+from common.bus_stream_sink import output_uri, prepare_live, save_batch
 
 JOB_NAME = os.environ.get("SPARK_JOB_NAME", "realtime_latest")
 # Spark Kafka의 subscribe 옵션은 쉼표 구분 토픽을 지원한다. 하나의 checkpoint에 두 토픽의
@@ -385,12 +386,22 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
     )
 
 
-def process_batch(batch_df: DataFrame, batch_id: int, settings: Settings, crosswalk=None) -> None:
+def process_batch(batch_df: DataFrame, batch_id: int, settings: Settings, crosswalk=None, bus_output=None) -> None:
     """운영과 반복 부하 검증이 공유하는 한 배치 처리다.
 
     정적 crosswalk는 호출자가 전체 query 수명 동안 소유한다. 이 함수는 배치별 캐시만
     소유하고 Redis 쓰기 실패를 상위로 전파해 checkpoint가 실패 배치를 건너뛰지 않게 한다.
     """
+    if bus_output is not None:
+        bus_events = batch_df.filter(F.col("eventType").isin("bus.position", "bus.arrival"))
+        if bus_events.limit(1).count():
+            silver = prepare_live(bus_events, transform(bus_events, crosswalk)).cache()
+            try:
+                count = save_batch(silver, batch_id, bus_output, settings)
+                log.info("batch=%d busSilverRows=%d busRedisKeys=%d busSilver=%s", batch_id, silver.count(), count, bus_output)
+            finally:
+                silver.unpersist()
+        batch_df = batch_df.filter(~F.col("eventType").isin("bus.position", "bus.arrival"))
     normalized = transform(batch_df,crosswalk).cache()
     latest = None
     rows = None
@@ -438,6 +449,7 @@ def main() -> int:
         stream=sys.stdout,
     )
     settings = Settings.from_env()
+    bus_output = output_uri(os.environ)
     spark = (
         SparkSession.builder.appName(f"ddubi-{JOB_NAME}")
         .config("spark.sql.session.timeZone", "Asia/Seoul")
@@ -452,7 +464,7 @@ def main() -> int:
     try:
         events = read_events_stream(spark, settings, TOPICS)
         query = (
-            events.writeStream.foreachBatch(lambda frame, batch_id: process_batch(frame, batch_id, settings, crosswalk))
+            events.writeStream.foreachBatch(lambda frame, batch_id: process_batch(frame, batch_id, settings, crosswalk, bus_output))
             .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
             .trigger(processingTime=TRIGGER)
             .queryName(JOB_NAME)

@@ -44,7 +44,7 @@ def response_for(name):
 def settings_for(name, path):
     return Settings(source=name, kafka_bootstrap_servers="unused", api_keys={POLICIES[name][0]: "test-secret"},
                     extra={"API_BUDGET_PATH": str(path), "BUS_ROUTE_IDS": "100100118",
-                           "SUBWAY_LINES": "2호선", "CITY_AREA_IDENTIFIERS": "POI009"})
+                           "SUBWAY_LINES": "2호선", "SUBWAY_SKIP_ENABLED": "false", "CITY_AREA_IDENTIFIERS": "POI009"})
 
 
 class MemoryProducer:

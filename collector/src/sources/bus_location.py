@@ -36,6 +36,10 @@ DEFAULT_ROUTE_LIMIT = 100
 class BusLocationError(RuntimeError):
     """API 요청 또는 JSON 응답 처리에 실패했을 때 발생한다."""
 
+    def __init__(self, message, retryable=False):
+        self.retryable = retryable
+        super().__init__(message)
+
 
 def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
     """간단한 KEY=VALUE 형식의 환경 파일을 읽는다.
@@ -72,8 +76,8 @@ def _validate_api_response(data: dict[str, Any]) -> None:
 
     header_code = str(header.get("headerCd", "0"))
     if header_code != "0":
-        message = str(header.get("headerMsg", "알 수 없는 오류"))
-        raise BusLocationError(f"서울 버스위치 API 오류({header_code}): {message}")
+        safe_code = header_code if header_code.isdigit() else "INVALID_CODE"
+        raise BusLocationError(f"서울 버스위치 API 오류({safe_code})")
 
 
 def fetch_bus_location(
@@ -105,7 +109,7 @@ def fetch_bus_location(
         )
         if response.status_code != 200:
             # 인증키가 포함된 요청 URL은 예외 메시지에 넣지 않는다.
-            raise BusLocationError(f"서울 버스위치 API가 HTTP {response.status_code}을 반환했습니다")
+            raise BusLocationError(f"서울 버스위치 API가 HTTP {response.status_code}을 반환했습니다", retryable=response.status_code == 408 or 500 <= response.status_code <= 599)
         try:
             data = response.json()
         except ValueError as exc:
@@ -115,7 +119,7 @@ def fetch_bus_location(
         _validate_api_response(data)
         return data
     except httpx.HTTPError as exc:
-        raise BusLocationError(f"서울 버스위치 API 연결에 실패했습니다: {type(exc).__name__}") from exc
+        raise BusLocationError(f"서울 버스위치 API 연결에 실패했습니다: {type(exc).__name__}", retryable=isinstance(exc, httpx.TransportError)) from None
     finally:
         if owns_client:
             http_client.close()
@@ -181,7 +185,10 @@ def fetch_all_bus_locations(
                 if remaining > 0:
                     time.sleep(remaining)
             last_request_started = time.monotonic()
-            response = fetch_bus_location(api_key, route_id, client=http_client)
+            try:
+                response = fetch_bus_location(api_key, route_id, client=http_client)
+            except BusLocationError as exc:
+                raise BusLocationError(f"노선={route_id}: {exc}", retryable=exc.retryable) from None
             route_results[route_id] = response
             total_vehicle_count += _vehicle_count(response)
     finally:

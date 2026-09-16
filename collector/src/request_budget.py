@@ -13,6 +13,17 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
+class RetryWait(RuntimeError):
+    def __init__(self, retry_at, now, message="retry pending"):
+        self.retry_at = retry_at
+        self.wait_seconds = max(1, retry_at - now)
+        super().__init__(message)
+
+
+class RetryScheduled(RetryWait):
+    pass
+
+
 class RequestBudget:
     # 여러 Collector 컨테이너가 같은 Docker volume의 DB를 공유한다. WAL은 읽기와
     # 쓰기의 충돌을 줄이고 busy_timeout은 다른 프로세스의 짧은 쓰기가 끝날 때까지
@@ -30,6 +41,7 @@ class RequestBudget:
             db.execute("CREATE TABLE IF NOT EXISTS requests (key TEXT, at REAL)")
             db.execute("CREATE INDEX IF NOT EXISTS requests_key_at ON requests(key, at)")
             db.execute("CREATE TABLE IF NOT EXISTS cycles (key TEXT, source TEXT, next REAL, PRIMARY KEY(key, source))")
+            db.execute("CREATE TABLE IF NOT EXISTS cycle_retries (key TEXT, source TEXT, retry_at REAL, used INTEGER, PRIMARY KEY(key, source))")
 
     @contextmanager
     def _db(self):
@@ -67,13 +79,18 @@ class RequestBudget:
         finally:
             db.close()
 
-    def claim_cycle(self, source: str, interval: int, expected_requests: int, *, group: str | None = None) -> bool:
+    def claim_cycle(self, source: str, interval: int, expected_requests: int, *, group: str | None = None, allow_retry: bool = False) -> bool:
         """재시작·동시 프로세스가 같은 소스를 연속 수집하지 않도록 선점한다."""
         now = self.clock()
         with self._db() as db:
             row = db.execute("SELECT next FROM cycles WHERE key=? AND source=?", (self.key, source)).fetchone()
+            retry = db.execute("SELECT retry_at FROM cycle_retries WHERE key=? AND source=?", (self.key, source)).fetchone() if allow_retry else None
+            retry_due = bool(row and row[0] > now and retry and retry[0] is not None)
             if row and row[0] > now:
-                return False
+                if not retry_due:
+                    return False
+                if retry[0] > now:
+                    raise RetryWait(retry[0], now)
             if group:
                 group_row = db.execute("SELECT next FROM cycles WHERE key=? AND source=?", (self.key, group)).fetchone()
                 if group_row and group_row[0] > now:
@@ -81,10 +98,37 @@ class RequestBudget:
             used = db.execute("SELECT count(*) FROM requests WHERE key=? AND at>?", (self.key, now-86400)).fetchone()[0]
             if used + expected_requests > self.limit:
                 raise BudgetExceeded("Not enough rolling-24h request budget for this cycle")
-            db.execute("INSERT OR REPLACE INTO cycles VALUES (?, ?, ?)", (self.key, source, now+interval))
+            if retry_due:
+                # Consume the one retry atomically; preserve the regular cycle deadline.
+                db.execute("UPDATE cycle_retries SET retry_at=NULL WHERE key=? AND source=?", (self.key, source))
+            else:
+                db.execute("INSERT OR REPLACE INTO cycles VALUES (?, ?, ?)", (self.key, source, now+interval))
+                db.execute("DELETE FROM cycle_retries WHERE key=? AND source=?", (self.key, source))
+                if allow_retry:
+                    db.execute("INSERT INTO cycle_retries VALUES (?, ?, NULL, 0)", (self.key, source))
             if group:
                 db.execute("INSERT OR REPLACE INTO cycles VALUES (?, ?, ?)", (self.key, group, now+86400))
         return True
+
+    def schedule_retry(self, source, delay_seconds, expected_requests):
+        """Persist one retry within a regular cycle, only when whole-cycle budget fits."""
+        now = self.clock()
+        with self._db() as db:
+            cycle = db.execute("SELECT next FROM cycles WHERE key=? AND source=?", (self.key, source)).fetchone()
+            retry = db.execute("SELECT used FROM cycle_retries WHERE key=? AND source=?", (self.key, source)).fetchone()
+            if not cycle or not retry or retry[0] or now + delay_seconds >= cycle[0]:
+                return None
+            used = db.execute("SELECT count(*) FROM requests WHERE key=? AND at>?", (self.key, now-86400)).fetchone()[0]
+            if used + expected_requests > self.limit:
+                return None
+            at = now + delay_seconds
+            db.execute("UPDATE cycle_retries SET retry_at=?, used=1 WHERE key=? AND source=?", (at, self.key, source))
+            return at
+
+    def next_cycle_at(self, source):
+        with self._db() as db:
+            row = db.execute("SELECT next FROM cycles WHERE key=? AND source=?", (self.key, source)).fetchone()
+            return row[0] if row else None
 
     def before_request(self, request) -> None:
         """HTTP 요청 직전에 커밋. 실패/리다이렉트도 차감하며 환불하지 않는다."""

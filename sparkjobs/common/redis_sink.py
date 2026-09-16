@@ -31,7 +31,7 @@ local current = redis.call('GET', KEYS[1])
 if current then
     local decoded_ok, decoded = pcall(cjson.decode, current)
     if decoded_ok and decoded then
-        local current_occurred = tostring(decoded['occurredAt'] or decoded['computedAt'] or '')
+        local current_occurred = tostring(decoded['_latestOrderAt'] or decoded['occurredAt'] or decoded['computedAt'] or '')
         local current_collected = tostring(decoded['collectedAt'] or decoded['computedAt'] or '')
         local incoming_occurred = tostring(ARGV[3])
         local incoming_collected = tostring(ARGV[4])

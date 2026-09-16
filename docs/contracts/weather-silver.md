@@ -76,7 +76,7 @@ HDFS 주기를 10분으로 둔 이유는 메시지마다 파일을 만들지 않
 환경에 따라 `WEATHER_SILVER_TRIGGER`를 늘릴 수 있다. Redis와 HDFS는 서로 다른 checkpoint를
 사용하므로 재시작하면 각각 마지막 완료 Kafka offset 다음부터 이어간다.
 
-필수 환경값:
+Silver를 켤 때 사용할 환경값:
 
 ```text
 SILVER_OUTPUT_URI=hdfs://hdfs-namenode:9000/ddubi/silver
@@ -84,7 +84,11 @@ WEATHER_SILVER_TRIGGER=10 minutes
 WEATHER_SILVER_WATERMARK=2 days
 ```
 
-`SILVER_OUTPUT_URI`가 비어 있으면 안전하게 Redis만 계속 쓰고 HDFS Silver query는 시작하지 않는다.
+운영 Compose 기본값은 빈 `SILVER_OUTPUT_URI`와 `WEATHER_REQUIRE_SILVER=false`다.
+서버 `.env`에 위 HDFS 경로가 있을 때만 Silver를 시작한다. `WEATHER_REQUIRE_SILVER=true`는
+URI 누락·형식 오류를 기동 설정 오류로 만들고 싶을 때만 사용한다. Silver가 시작하지 못하거나
+실행 중 실패해도 서비스용 Redis 스트림은 계속 실행하며, Redis 실패는 잡 전체 실패로 처리한다.
+설정 누락/잡 정지 조사와 아카이브 복구는 [날씨 Silver 복구 안내](../runbooks/weather-silver-missing.md)를 따른다.
 
 ```text
 /ddubi/silver/weather/
@@ -102,7 +106,7 @@ WEATHER_SILVER_WATERMARK=2 days
 ## 아직 하지 않은 것
 
 - 운영 서버 배포 및 실제 Kafka→HDFS Streaming 검증
-- Streaming 시작 전에 Archive에만 쌓인 과거 데이터 backfill
+- 새 `batch/weather_silver_backfill.py`의 운영 실행 검증 (과거 원본을 별도 버전 경로로 복구하는 코드는 추가됨)
 - `segmentId → (nx, ny)` 대응표 생성
 - 서울 14개 외 경기·인천 격자 수집
 - Redis 소비자의 새 `features` 전환

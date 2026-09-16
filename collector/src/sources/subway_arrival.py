@@ -18,6 +18,11 @@ from urllib.parse import quote
 
 import httpx
 
+if __package__:
+    from .subway_response import validated_rows
+else:
+    from subway_response import validated_rows
+
 API_URL_TEMPLATE = (
     "http://swopenapi.seoul.go.kr/api/subway/"
     "{api_key}/json/realtimeStationArrival/ALL/"
@@ -55,21 +60,6 @@ def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
         os.environ.setdefault(name, value)
 
 
-def _response_metadata(data: dict[str, Any]) -> tuple[str, str, int]:
-    """서울시 응답에서 결과 코드, 메시지, 전체 건수를 읽는다."""
-    error_message = data.get("errorMessage")
-    if not isinstance(error_message, dict):
-        raise SubwayArrivalError("지하철 API 응답에 errorMessage가 없습니다")
-
-    code = str(error_message.get("code", ""))
-    message = str(error_message.get("message", ""))
-    try:
-        total = int(error_message["total"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise SubwayArrivalError("지하철 API 응답의 전체 건수가 올바르지 않습니다") from exc
-    return code, message, total
-
-
 def fetch_all_subway_arrivals(
     api_key: str,
     *,
@@ -101,19 +91,8 @@ def fetch_all_subway_arrivals(
         if not isinstance(data, dict):
             raise SubwayArrivalError("서울 지하철 도착 API JSON의 최상위 값이 객체가 아닙니다")
 
-        code, message, total_count = _response_metadata(data)
-        if code != "INFO-000":
-            raise SubwayArrivalError(f"서울 지하철 도착 API 오류({code}): {message}")
-
-        arrivals = data.get("realtimeArrivalList")
-        if not isinstance(arrivals, list):
-            raise SubwayArrivalError("지하철 API 응답의 realtimeArrivalList가 배열이 아닙니다")
+        data, total_count, arrivals = validated_rows(data, "realtimeArrivalList", SubwayArrivalError)
         received_count = len(arrivals)
-        if received_count != total_count:
-            raise SubwayArrivalError(
-                "서울시 전체 지하철 도착정보가 아닙니다: "
-                f"전체 {total_count}건 중 {received_count}건 수신"
-            )
 
         return {
             "collectedAt": datetime.now(timezone.utc).isoformat(),

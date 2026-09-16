@@ -11,9 +11,12 @@ Redis에 TTL과 함께 저장한다. Kafka 원문 보존은 Spark가 아니라 A
 | `streaming/weather_latest.py` | `city.raw` | `weather.observation` | Redis `weather:latest:{nx}:{ny}` + HDFS `silver/weather` |
 | `streaming/realtime_latest.py` | `transport.raw,city.raw` | 버스·지하철·도로·도시·S-DoT 9종 | `docs/contracts/redis-keys.yaml`의 소스별 latest 키 |
 
-운영의 새 Weather Silver는 Streaming이 Kafka에서 자동 저장한다. Redis latest와 HDFS Silver는
+서버 `.env`에 `SILVER_OUTPUT_URI`가 설정되어 있으면 Weather Silver가 Kafka의 새 관측을 자동 저장한다.
+Silver가 실패해도 Redis latest는 계속 갱신한다. Redis latest와 HDFS Silver는
 `common/weather_normalizer.py`를 공유한다. 컬럼, 결측 처리, 실행 방법은
 [Weather Silver 계약](../docs/contracts/weather-silver.md)을 따른다.
+원본 archive만 있고 Silver가 없을 때의 진단, 컨테이너 환경 반영, 별도 아카이브 backfill은
+[날씨 Silver 복구 안내](../docs/runbooks/weather-silver-missing.md)를 따른다.
 
 `realtime_latest`는 외부 API 원문을 그대로 Redis에 넣지 않는다. 버스 도착예정 초, 지하철
 도착예정 초, 도로 속도(km/h), 통행시간(초), 장소 인구 범위(명)처럼 계산에 필요한 대표값만
@@ -100,6 +103,11 @@ Kafka 이력은 상태 변경과 10분 구획별 전체 기록이며 중복 제�
 상시 스케줄러, 실제 관측 정규화, 공유 파일 배포 및 상태 변경 이력 보관 설정은 별도 연결이 필요하다.
 
 ## 테스트
+
+버스 위치·도착 이력의 제출용 전처리는 `batch/bus_silver.py`가 담당한다.
+Redis 최신값과 달리 전체 관측을 보존하며 원본을 직접 읽어 오류·중복·결측 사유를 남긴다.
+컬럼, 결측 처리 이유, 실행과 제출 기준은 [버스 Silver 안내](../docs/contracts/bus-silver.md)를 따른다.
+새 구간 매핑·날씨 결합·실제 이동시간 Label 생성은 이 잡의 범위가 아니다.
 
 지하철 시간표 연동용 최신값은 `observation.arrivalTrainType`과 `sourceGeneratedAt`을 함께 보존한다.
 버스 대기 연동은 `exps1/2`(초), `staOrd`, 운행/만차/우회 코드와 `mkTm`을 보존한다.

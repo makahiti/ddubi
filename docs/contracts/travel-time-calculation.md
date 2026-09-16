@@ -1,5 +1,7 @@
 # 이동시간 계산 — 구현 근거·선택 이유·전체 합산 정책
 
+> 2026-09-16 후속 요구사항 수정: 사용자는 출발 예정시각과 일정 시작시각을 모두 입력한다. `예상 도착 < 일정 시작`이면 출발 유지, `예상 도착 >= 일정 시작`이면 일정 시작 10분 전 도착을 목표로 최신 출발을 탐색한다. [계산 정책](arrival-deadline-calculation.md), [파트별 구현 계획](arrival-deadline-implementation-plan.md), [원천·컬럼 가이드](arrival-deadline-data-guide.md)에 기록했다. 아래는 기존 구현과 앞선 결정의 설명이며 이번 문서만으로 실행 계약이 변경되지는 않는다.
+
 - 기준일: 2026-09-15, 시간대 Asia/Seoul, 내부 시간 단위 초, 거리 m.
 - Jira: [S15P21E202-46 — 모델링 및 추천 연산·관련 데이터 계산 고도화](https://ssafy.atlassian.net/browse/S15P21E202-46). 자료 조사 관련 작업은 [S15P21E202-69](https://ssafy.atlassian.net/browse/S15P21E202-69).
 - 코드 확인 기준: 최신 `develop`의 `a691749305100e594d4bace9d0c5370ff25ae404`.

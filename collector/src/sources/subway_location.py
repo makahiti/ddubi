@@ -19,6 +19,11 @@ from urllib.parse import quote
 
 import httpx
 
+if __package__:
+    from .subway_response import validated_rows
+else:
+    from subway_response import validated_rows
+
 API_URL_TEMPLATE = (
     "http://swopenapi.seoul.go.kr/api/subway/"
     "{api_key}/json/realtimePosition/0/1000/{subway_line}/"
@@ -83,21 +88,6 @@ def load_subway_lines(path: Path = DEFAULT_SUBWAY_LINES_PATH) -> list[str]:
     return lines
 
 
-def _response_metadata(data: dict[str, Any]) -> tuple[str, str, int]:
-    """서울시 응답에서 결과 코드, 메시지, 전체 건수를 읽는다."""
-    error_message = data.get("errorMessage")
-    if not isinstance(error_message, dict):
-        raise SubwayLocationError("지하철 위치 API 응답에 errorMessage가 없습니다")
-
-    code = str(error_message.get("code", ""))
-    message = str(error_message.get("message", ""))
-    try:
-        total = int(error_message.get("total", 0))
-    except (TypeError, ValueError) as exc:
-        raise SubwayLocationError("지하철 위치 API 응답의 전체 건수가 올바르지 않습니다") from exc
-    return code, message, total
-
-
 def fetch_subway_location(
     api_key: str,
     subway_line: str,
@@ -134,20 +124,11 @@ def fetch_subway_location(
         if not isinstance(data, dict):
             raise SubwayLocationError("서울 지하철 위치 API JSON의 최상위 값이 객체가 아닙니다")
 
-        code, message, total_count = _response_metadata(data)
-        # INFO-200은 운행 열차가 없거나 해당 호선 데이터가 없는 정상적인 빈 응답이다.
-        if code not in {"INFO-000", "INFO-200"}:
-            raise SubwayLocationError(f"서울 지하철 위치 API 오류({code}): {message}")
-
-        positions = data.get("realtimePositionList", [])
-        if not isinstance(positions, list):
-            raise SubwayLocationError("지하철 위치 API의 realtimePositionList가 배열이 아닙니다")
+        try:
+            data, total_count, positions = validated_rows(data, "realtimePositionList", SubwayLocationError)
+        except SubwayLocationError as exc:
+            raise SubwayLocationError(f"호선={line}: {exc}") from None
         received_count = len(positions)
-        if received_count != total_count:
-            raise SubwayLocationError(
-                f"{line} 전체 위치정보가 아닙니다: "
-                f"전체 {total_count}건 중 {received_count}건 수신"
-            )
 
         return {
             "totalCount": total_count,

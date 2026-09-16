@@ -17,11 +17,17 @@ rs=$(docker ps --filter label=com.docker.compose.project=ddubi --format '{{.Name
 #    주기: weather 10분, subway-arrival 6분, subway-location 60분, bus 두 개 480분, city-realtime 360분(6시간), 나머지 15분.
 for c in $(docker ps --format '{{.Names}}' | grep '^collector-'); do
   case $c in *weather) p=10;; *subway-arrival) p=6;; *subway-location) p=60;; *bus-*) p=480;; *city-realtime) p=360;; *) p=15;; esac
-  last=$(docker logs "$c" --since 20h 2>&1 | grep -E 'cycle (ok|failed)' | tail -1)
-  ts=$(echo "$last" | grep -oE '^[0-9-]{10} [0-9:]{8}'); st=$(echo "$last" | grep -oE 'cycle (ok|failed)')
+  last=$(docker logs "$c" --since 20h 2>&1 | grep -E 'cycle (ok|failed|skipped)' | tail -1)
+  ts=$(echo "$last" | grep -oE '^[0-9-]{10} [0-9:]{8}'); st=$(echo "$last" | grep -oE 'cycle (ok|failed|skipped)')
   [ -z "$ts" ] && { r FAIL 수집 "$c" "20시간 안에 사이클 기록 없음"; continue; }
   m=$(age_min $(date -d "$ts" +%s))
-  if [ "$st" = "cycle ok" ] && [ "$m" -le $((p*2)) ]; then r PASS 수집 "$c" "마지막 성공 ${m}분 전 (주기 ${p}분)"
+  if [ "$st" = "cycle skipped" ]; then
+    resume=$(echo "$last" | grep -oE 'resumeAt=[0-9T:+-]+' | cut -d= -f2)
+    resume_epoch=$(date -d "$resume" +%s 2>/dev/null || echo 0)
+    if [ "$resume_epoch" -gt "$now" ]; then r PASS 수집 "$c" "예정된 수집 건너뛰기, 재개 $resume"
+    elif [ "$m" -le $((p*2)) ]; then r PASS 수집 "$c" "수집 재개 대기, 마지막 건너뛰기 ${m}분 전"
+    else r WARN 수집 "$c" "예정 재개 시각 이후 사이클 기록 없음"; fi
+  elif [ "$st" = "cycle ok" ] && [ "$m" -le $((p*2)) ]; then r PASS 수집 "$c" "마지막 성공 ${m}분 전 (주기 ${p}분)"
   elif [ "$st" = "cycle ok" ]; then r WARN 수집 "$c" "마지막 성공 ${m}분 전, 주기 ${p}분의 2배 초과"
   else r WARN 수집 "$c" "마지막 사이클 실패 ${m}분 전 (다음 시도까지 대기)"; fi
 done

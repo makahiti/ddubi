@@ -1,5 +1,11 @@
 # DDUBI 실시간 데이터 Collector
 
+버스 위치의 일시적 호출 실패는 예산이 허용하면 5분 뒤 최대 한 번 재시도한다.
+오류 구분·정기 주기·호출 예산·운영 적용은 [버스 위치 재시도](../docs/contracts/bus-location-retry.md)를 따른다.
+
+지하철 위치·도착은 기본 KST 03:30~04:30에 호출을 건너뛰고, 그 외 시간의 정상 빈 응답은 0건으로 처리한다.
+특별 운행일 해제 설정, 로그와 운영 적용은 [지하철 새벽 수집 정책](../docs/contracts/subway-collection-policy.md)을 따른다.
+
 서울시·공공데이터포털·기상청 API를 주기적으로 호출하고, 응답을 공통 JSON 이벤트로
 변환해 Kafka에 발행하는 서비스다. Collector는 외부 API 수집과 Kafka 발행까지만 담당한다.
 Kafka 이후 원본 장기 보관은 Archiver/HDFS가, 서비스용 최신 상태 처리는 Spark/Redis가 담당한다.
@@ -248,3 +254,8 @@ python -m pytest -q -p no:cacheprovider
 ## 경기·인천 선택 실행 수집기
 
 도착/위치 4개 소스와 namespace·페이지·초 단위 규칙은 [통합 보강 계약](../docs/contracts/transit-service-integration.md)을 따른다. 기존 운영 대상과 주기는 변경하지 않았다.
+# TOPIS 공지 중복 전송
+
+TOPIS는 조회한 공지 중 최초·변경 공지만 Kafka로 전송한다. ACK 성공 기록은 기존
+영속 데이터 볼륨의 SQLite에 유지한다. API 조회 범위는 1,000건, 주기는 15분으로 유지한다.
+전처리는 추가하지 않는다. [비교 규칙·배포·Redis 만료 동작](../docs/contracts/topis-notice-dedup.md)을 참고한다.

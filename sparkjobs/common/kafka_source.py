@@ -33,6 +33,7 @@ ENVELOPE_SCHEMA = StructType(
 def parse_envelope(raw: DataFrame) -> DataFrame:
     """Kafka 원본(key, value, partition, offset, timestamp) → 봉투 컬럼. 배치·스트리밍 공용."""
     parsed = raw.select(
+        F.col("value").cast("string").alias("rawEventJson"),
         F.col("key").cast("string").alias("kafkaKey"),
         F.col("partition").alias("kafkaPartition"),
         F.col("offset").alias("kafkaOffset"),
@@ -40,7 +41,7 @@ def parse_envelope(raw: DataFrame) -> DataFrame:
         F.from_json(F.col("value").cast("string"), ENVELOPE_SCHEMA).alias("e"),
     )
     return parsed.select(
-        "kafkaKey", "kafkaPartition", "kafkaOffset", "kafkaTimestamp",
+        "rawEventJson", "kafkaKey", "kafkaPartition", "kafkaOffset", "kafkaTimestamp",
         F.col("e.eventId").alias("eventId"),
         F.col("e.eventType").alias("eventType"),
         F.col("e.source").alias("source"),

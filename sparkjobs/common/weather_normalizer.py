@@ -118,7 +118,7 @@ def to_weather_silver_stream(normalized: DataFrame, watermark: str = SILVER_WATE
     """실시간 표준 행을 exact-content 기준으로 중복 제거해 HDFS Parquet sink에 전달한다.
 
     현재 시점보다 오래된 Kafka 재생은 watermark에서 제외될 수 있다. 과거 HDFS Archive의
-    별도 backfill 경로는 v1 범위에 포함하지 않는다.
+    별도 backfill은 to_weather_silver_batch와 batch/weather_silver_backfill.py를 사용한다.
     """
 
     return (
@@ -126,3 +126,15 @@ def to_weather_silver_stream(normalized: DataFrame, watermark: str = SILVER_WATE
         .withWatermark("observedAt", watermark)
         .dropDuplicates(["source", "nx", "ny", "observedAt", "weatherContentHash"])
     )
+
+
+def to_weather_silver_batch(normalized: DataFrame) -> DataFrame:
+    """Archive backfill shares columns/content keys, without streaming watermark.
+
+    Retain each correction; select earliest collection deterministically for repeats.
+    Write to a separate versioned backfill root, never into a live file sink directory.
+    """
+    from pyspark.sql import Window
+    keys = ["source", "nx", "ny", "observedAt", "weatherContentHash"]
+    order = Window.partitionBy(*keys).orderBy("collectedAt", "eventId")
+    return _silver_rows(normalized).withColumn("repeatIndex", F.row_number().over(order)).filter("repeatIndex = 1").drop("repeatIndex")

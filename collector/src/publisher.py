@@ -64,12 +64,16 @@ class Publisher:
         else:
             self.sent += 1
 
-    def publish(self, topic: str, key: str, value: dict[str, Any]) -> None:
+    def publish(self, topic: str, key: str, value: dict[str, Any], on_delivery=None) -> None:
+        def delivered(err, msg):
+            self._on_delivery(err, msg)
+            if on_delivery is not None:
+                on_delivery(err, msg)
         self._producer.produce(
             topic=topic,
             key=key.encode("utf-8"),
             value=json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
-            on_delivery=self._on_delivery,
+            on_delivery=delivered,
         )
         self._producer.poll(0)  # 콜백 처리 (블로킹 없이)
 

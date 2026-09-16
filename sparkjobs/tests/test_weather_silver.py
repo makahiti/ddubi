@@ -6,7 +6,7 @@ import pytest
 from pyspark.sql import SparkSession
 
 from common.kafka_source import parse_envelope
-from common.weather_normalizer import normalize_weather, to_weather_silver_stream
+from common.weather_normalizer import normalize_weather, to_weather_silver_stream, to_weather_silver_batch
 
 
 @pytest.fixture(scope="session")
@@ -88,3 +88,16 @@ def test_stream_projection_has_hdfs_partition_and_scalar_columns(spark):
     assert row.eventHour == 8
     assert row.temperatureC == 18.3
     assert "districts" not in row.asDict()
+
+
+def test_archive_backfill_keeps_old_data_and_corrected_revisions(spark):
+    rows = [
+        _weather("repeat", "2026-09-14T08:20:00+09:00", temperature=18.3),
+        _weather("first", "2026-09-14T08:10:00+09:00", temperature=18.3),
+        _weather("corrected", "2026-09-14T08:30:00+09:00", temperature=18.7),
+    ]
+    normalized = normalize_weather(_events(spark, rows))
+    silver = to_weather_silver_batch(normalized).orderBy("collectedAt").collect()
+    assert [row.eventId for row in silver] == ["first", "corrected"]
+    assert [row.temperatureC for row in silver] == [18.3, 18.7]
+    assert to_weather_silver_batch(normalized).columns == to_weather_silver_stream(normalized).columns

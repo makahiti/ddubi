@@ -3,7 +3,8 @@
 같은 표준 DataFrame에서 Redis는 격자(nx, ny)별 최신 관측을 10초 Micro Batch로 갱신하고,
 HDFS는 새 표준 행을 기본 10분 단위로 묶어 Parquet Silver에 append한다. Redis 쓰기 직전에는
 현재값과 시각을 원자 비교해 늦은 과거 관측이 최신값을 되돌리지 않게 한다. HDFS 스트림은
-별도 checkpoint와 2일 watermark로 동일 내용 반복을 제거한다. 과거 Archive backfill은 v1 범위 밖이다.
+별도 checkpoint와 2일 watermark로 동일 내용 반복을 제거한다. 과거 Archive는 별도
+batch/weather_silver_backfill.py로 복구하며 이 스트림에서 자동으로 읽지는 않는다.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from common.redis_sink import (
 )
 from common.settings import Settings
 from common.weather_normalizer import FEATURE_COLUMNS, FEATURE_VERSION, normalize_weather, to_weather_silver_stream
+from common.weather_runtime import silver_configuration, supervise
 
 # 실험(부하 시험)용 인스턴스는 환경변수로 토픽·잡 이름·키 접두사를 바꿔 띄운다.
 # 기본값은 운영 잡(city.raw -> weather:latest) 과 같다.
@@ -78,6 +80,7 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", stream=sys.stdout)
+    silver_target = silver_configuration(os.environ)
     settings = Settings.from_env()
     spark = (
         SparkSession.builder.appName(f"ddubi-{JOB_NAME}")
@@ -103,47 +106,48 @@ def main() -> int:
 
     events = read_events_stream(spark, settings, TOPIC)
     normalized = transform(events)
-    redis_query = (
-        normalized
-        .writeStream.foreachBatch(process_batch)
-        .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
-        .trigger(processingTime=TRIGGER)
-        .queryName(JOB_NAME)
-        .start()
-    )
-    queries = [redis_query]
-    silver_output_uri = os.environ.get("SILVER_OUTPUT_URI", "").strip().rstrip("/")
-    if silver_output_uri:
+
+    def start_redis():
+        query = (
+            normalized
+            .writeStream.foreachBatch(process_batch)
+            .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
+            .trigger(processingTime=TRIGGER)
+            .queryName(JOB_NAME)
+            .start()
+        )
+        log.info("started topic=%s checkpoint=%s redis=%s:%s", TOPIC,
+                 settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port)
+        return query
+
+    start_silver_query = None
+    if silver_target:
         silver_job_name = f"{JOB_NAME}_silver"
-        silver_target = f"{silver_output_uri}/weather"
-        silver_query = (
-            to_weather_silver_stream(normalized, SILVER_WATERMARK)
-            .writeStream.format("parquet")
-            .outputMode("append")
-            .partitionBy("silverVersion", "eventDate", "eventHour")
-            .option("checkpointLocation", settings.checkpoint_for(silver_job_name))
-            .trigger(processingTime=SILVER_TRIGGER)
-            .queryName(silver_job_name)
-            .start(silver_target)
-        )
-        queries.append(silver_query)
-        log.info(
-            "silver stream started output=%s trigger=%s checkpoint=%s watermark=%s",
-            silver_target, SILVER_TRIGGER, settings.checkpoint_for(silver_job_name), SILVER_WATERMARK,
-        )
+
+        def start_silver():
+            query = (
+                to_weather_silver_stream(normalized, SILVER_WATERMARK)
+                .writeStream.format("parquet")
+                .outputMode("append")
+                .partitionBy("silverVersion", "eventDate", "eventHour")
+                .option("checkpointLocation", settings.checkpoint_for(silver_job_name))
+                .trigger(processingTime=SILVER_TRIGGER)
+                .queryName(silver_job_name)
+                .start(silver_target)
+            )
+            log.info("silver stream started output=%s trigger=%s checkpoint=%s watermark=%s",
+                     silver_target, SILVER_TRIGGER, settings.checkpoint_for(silver_job_name), SILVER_WATERMARK)
+            return query
+        start_silver_query = start_silver
     else:
         log.warning("SILVER_OUTPUT_URI is empty; HDFS Weather Silver streaming is disabled")
 
-    log.info("started topic=%s checkpoint=%s redis=%s:%s", TOPIC, settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port)
+    log.info("starting topic=%s checkpoint=%s redis=%s:%s silver=%s startingOffsets=%s (only for new checkpoints; archive is not consumed)",
+             TOPIC, settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port, silver_target, settings.starting_offsets)
     try:
-        spark.streams.awaitAnyTermination()
-        failed = next((query for query in queries if query.exception() is not None), None)
-        if failed is not None:
-            raise RuntimeError(f"streaming query failed: {failed.name}: {failed.exception()}")
+        supervise(start_redis, start_silver_query)
     finally:
-        for query in queries:
-            if query.isActive:
-                query.stop()
+        spark.stop()
     return 0
 
 
