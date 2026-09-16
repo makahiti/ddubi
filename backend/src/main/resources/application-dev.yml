@@ -31,6 +31,12 @@ ddubi:
   jwt:
     secret: ${JWT_SECRET:ddubi-local-dev-only-secret-key-do-not-use-in-production}
 
+  # 개발용 엔드포인트(테스트 알림 발송). 내 PC 에서는 항상 켠다.
+  # 다른 환경에서 켜려면 DDUBI_DEV_ENDPOINTS_ENABLED=true 를 준다 — 기본값은 꺼짐이다.
+  # 프로파일이 아니라 별도 스위치인 이유는 DevNotificationController 주석 참고.
+  dev-endpoints:
+    enabled: ${DDUBI_DEV_ENDPOINTS_ENABLED:true}
+
 logging:
   level:
     com.ssafy.ddubi: DEBUG

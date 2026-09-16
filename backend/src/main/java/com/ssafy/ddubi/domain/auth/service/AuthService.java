@@ -315,7 +315,7 @@ public class AuthService {
         UserAuth target = current.stream()
                 .filter(userAuth -> userAuth.getProvider() == provider)
                 .findFirst()
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
+                .orElseThrow(() -> new BusinessException(ErrorCode.SOCIAL_LINK_NOT_FOUND,
                         provider + " 계정이 연결되어 있지 않습니다."));
 
         if (current.size() <= 1) {
@@ -371,7 +371,7 @@ public class AuthService {
             // 다른 카카오 계정이 이미 붙어 있으면 조용히 갈아치우지 않는다. 갈아치우면
             // 원래 그 계정으로 로그인하던 사람이 어느 날 못 들어온다.
             if (userAuthRepository.existsByUserIdAndProvider(userId, request.provider())) {
-                throw new BusinessException(ErrorCode.DUPLICATE_RESOURCE, String.format(
+                throw new BusinessException(ErrorCode.SOCIAL_PROVIDER_ALREADY_BOUND, String.format(
                         "이미 다른 %s 계정이 연결되어 있습니다. 먼저 해제한 뒤 연결해 주세요.",
                         request.provider()));
             }

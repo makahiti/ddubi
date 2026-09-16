@@ -15,6 +15,9 @@ Redis의 `segment:status:{segmentId}`와 BUS의 4개 콜론 구분 필드는 유
 
 ## 대응표 배포
 
+배포 원본은 `backend/transit-master/`에서 관리한다. `manifest.json`과 `manage.py check`로
+파일별 SHA·호환 조합을 확인하고 `manage.py env`가 출력하는 동일 환경값을 사용한다.
+
 `build_metropolitan_master.py`는 기존 마스터와 별도로 `*.crosswalk.json.gz` 및 SHA manifest를
 만든다. 스키마 버전 1, ID 정책 버전, 마스터 버전·SHA, 인접 edge 목록을 포함한다.
 Collector와 Spark는 `BUS_CROSSWALK_PATH`와 `BUS_CROSSWALK_SHA256`으로 **같은 파일**을 읽는다.
@@ -24,9 +27,27 @@ Collector와 Spark는 `BUS_CROSSWALK_PATH`와 `BUS_CROSSWALK_SHA256`으로 **같
 현재 서울 수집기는 `providerNamespace=SEOUL_BUS`를 명시한다. arrival은 노선·정류장 ID로
 유일한 진입 edge가 있을 때만 연결하고 `ARRIVAL_TARGET_INCOMING_EDGE`로 표시한다.
 이는 차량 현재 구간이나 구간 소요시간 정답이라는 뜻이 아니다. position은 검증된
-from/to 정류장 ID가 모두 제공될 때만 연결한다. 원본 `sectOrd`의 시작/끝 의미를 추측하지 않는다.
+from/to 정류장 ID를 검증한 경우만 연결한다. 서울 `getBusPosByRtid`는
+`stopFlag=0`, 유효한 `sectOrd`, 해당 순번 edge의 `fromStopId=lastStnId`가 모두
+일치할 때만 양 끝 ID를 채운다. `nextStId`가 있으면 도착점도 일치해야 한다.
+정차·순번/정류장 불일치·종점·결측은 미매핑이다. `stationSeq`를 대체 순번으로 쓰지 않는다.
+이는 현재 마스터와 관측 증거가 일치하는 제한된 연결이며 전체 노선의 순번 동치를 보장하지 않는다.
 payload의 `canonicalMapping`에는 마스터/ID 정책 버전, 상태, 의미 범위와 이유를 기록한다.
 Spark는 같은 대응표로 독립 검증한 결과만 전달하고 기존에 들어온 잘못된 BUS segmentIds는 제거한다.
+
+필드 근거: [서울시 버스위치 조회](https://data.seoul.go.kr/dataList/OA-1093/L/1/datasetView.do)의
+`서울특별시_버스위치정보조회_서비스_활용가이드_20230530.docx`(2026-09-14 확인).
+`sectOrd=구간순번`, `lastStnId=최종정류장ID`, `stopFlag=0 운행중/1 도착`이다.
+공식 문서만으로 현재 마스터 순번과의 일치를 단정할 수 없어 출발 ID를 함께 대조한다.
+Collector 실패 이유는 `POSITION_NOT_BETWEEN_STOPS`, `POSITION_SECTION_ORDER_MISSING_OR_INVALID`,
+`POSITION_LAST_STOP_MISSING`, `POSITION_SECTION_NOT_IN_MASTER`, `POSITION_ORDER_STOP_MISMATCH`,
+`POSITION_NEXT_STOP_MISMATCH`, `POSITION_ROUTE_CONTEXT_MISMATCH`로 원본 이벤트에서 집계할 수 있다.
+원본 Kafka payload와 수집 시각은 그대로 보존하며 연결 성공을 데이터 최신성·운행시간 정답으로
+해석하지 않는다. 운영 매핑률과 기존 0건의 실제 원인 확정은 운영 이벤트를 별도로 검사해야 한다.
+
+정상 입력 예시(합성): `routeId=1, vehId=V, sectOrd=1, lastStnId=10, stopFlag=0`.
+마스터 순번 1의 edge가 `10 → 11`이면 `providerFromStopId=10`, `providerToStopId=11`,
+`segmentIds=["BUS:1:10:11"]`, scope=`EXPLICIT_ADJACENT_STOP_PAIR`를 전달한다.
 
 BUS 최신값 키는 서울은 기존 키를 유지한다. 다른 출처는 기존 prefix 뒤에 namespace를 추가한다.
 namespace가 없는 과거 이벤트는 source가 `seoul.bus_*`인 경우만 서울로 해석한다.

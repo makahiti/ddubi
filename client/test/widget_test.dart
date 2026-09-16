@@ -119,8 +119,8 @@ void main() {
     await tester.enterText(find.byType(TextFormField).at(1), 'password123');
     await tester.tap(find.text('로그인'));
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expect(find.text('다음 중요 일정'), findsOneWidget);
-    expect(find.text('추천 출발 시간'), findsOneWidget);
+    expect(find.text('오늘의 일정'), findsOneWidget);
+    expect(find.byKey(const Key('todayScheduleList')), findsOneWidget);
   });
 
   testWidgets('첫 로그인 화면에서 이메일과 비밀번호를 바로 입력한다', (tester) async {
@@ -169,7 +169,7 @@ void main() {
 
     await tester.tap(find.text('카카오 계정으로 계속하기'));
     await tester.pumpAndSettle();
-    expect(find.text('다음 중요 일정'), findsOneWidget);
+    expect(find.text('오늘의 일정'), findsOneWidget);
   });
 
   testWidgets('네이버 로그인은 공급자 인증 화면으로 이동한다', (tester) async {
@@ -193,7 +193,7 @@ void main() {
 
     await tester.tap(find.text('네이버 계정으로 계속하기'));
     await tester.pumpAndSettle();
-    expect(find.text('다음 중요 일정'), findsOneWidget);
+    expect(find.text('오늘의 일정'), findsOneWidget);
   });
 
   testWidgets('Google 로그인은 ID 토큰으로 앱 로그인을 완료한다', (tester) async {
@@ -218,7 +218,7 @@ void main() {
 
     await tester.tap(find.text('Google 계정으로 계속하기'));
     await tester.pumpAndSettle();
-    expect(find.text('다음 중요 일정'), findsOneWidget);
+    expect(find.text('오늘의 일정'), findsOneWidget);
   });
 
   testWidgets('기존 이메일 계정을 확인한 뒤 소셜 계정을 연동한다', (tester) async {
@@ -268,7 +268,10 @@ void main() {
 
     final repository = MockDdubiRepository();
     final container = ProviderContainer(
-      overrides: [scheduleRepositoryProvider.overrideWithValue(repository)],
+      overrides: [
+        ddubiRepositoryProvider.overrideWithValue(repository),
+        scheduleRepositoryProvider.overrideWithValue(repository),
+      ],
     );
     addTearDown(container.dispose);
     await tester.pumpWidget(
@@ -284,11 +287,12 @@ void main() {
       isTrue,
     );
     expect(find.text('뚜비'), findsOneWidget);
-    expect(find.text('09:00 팀 회의'), findsOneWidget);
+    expect(find.text('팀 회의'), findsOneWidget);
+    expect(find.textContaining('09:00'), findsWidgets);
     expect(find.text('강남역 인근'), findsOneWidget);
   });
 
-  testWidgets('Web Home은 대시보드와 추천 경로 하나를 표시한다', (tester) async {
+  testWidgets('Web Home은 실제 API 실패 시 가짜 추천 경로를 표시하지 않는다', (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -309,7 +313,7 @@ void main() {
     expect(find.text('이동 대시보드'), findsOneWidget);
     expect(find.text('서비스 정상'), findsOneWidget);
     expect(find.text('도착 예정'), findsNWidgets(2));
-    expect(find.byType(RouteCard), findsOneWidget);
+    expect(find.byType(RouteCard), findsNothing);
   });
 
   testWidgets('일정 화면은 너비에 따라 모바일과 Web 구성을 나눈다', (tester) async {
@@ -367,15 +371,28 @@ void main() {
 
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), '병원 예약');
-    await tester.enterText(fields.at(1), '14:30');
-    // 출발 예정시간도 필수 입력이다. 누락하면 저장하지 않으므로 navigation Future가 끝나지 않는다.
-    await tester.enterText(fields.at(2), '13:30');
+    expect(
+      find.byKey(const Key('scheduleDepartureDateButton')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('scheduleDepartureTimeButton')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('scheduleDateButton')), findsOneWidget);
+    expect(find.byKey(const Key('scheduleArrivalTimeButton')), findsOneWidget);
+    expect(find.text('중요도'), findsNothing);
+    expect(find.text('교통수단 선호'), findsNothing);
+    await tester.ensureVisible(find.byKey(const Key('destinationPlaceField')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('destinationPlaceField')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('placeSearchQuery')), '서울 병원');
     await tester.tap(find.byKey(const Key('placeSearchButton')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('placeSearchResult0')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('originPlaceField')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('originPlaceField')));
     await tester.pumpAndSettle();
@@ -396,10 +413,15 @@ void main() {
     final saved = await repository.schedules();
     expect(saved.any((schedule) => schedule.title == '병원 예약'), isTrue);
     expect(saved.any((schedule) => schedule.place == '서울병원'), isTrue);
-    expect(saved.any((schedule) => schedule.time == '14:30'), isTrue);
-    final created = saved.singleWhere((schedule) => schedule.title == '병원 예약');
-    expect(created.plannedDepartAt?.hour, 13);
-    expect(created.plannedDepartAt?.minute, 30);
+    expect(saved.any((schedule) => schedule.time == '19:30'), isTrue);
+    expect(
+      saved.any(
+        (schedule) =>
+            schedule.plannedDepartAt?.hour == 18 &&
+            schedule.plannedDepartAt?.minute == 30,
+      ),
+      isTrue,
+    );
     expect(
       saved.any(
         (schedule) =>
@@ -408,6 +430,66 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  testWidgets('일정 등록 화면은 Galaxy S10 크기에서 넘치지 않는다', (tester) async {
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ScheduleFormScreen(
+          repository: MockDdubiRepository(),
+          placeSearchService: const _FakePlaceSearchService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('어디서 출발해서\n어디로 가시나요?'), findsOneWidget);
+    expect(
+      find.byKey(const Key('scheduleDepartureDateButton')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('scheduleArrivalTimeButton')), findsOneWidget);
+    await tester.drag(
+      find.byKey(const Key('scheduleFormScrollView')),
+      const Offset(0, -900),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('considerLastTripSwitch')), findsOneWidget);
+    expect(find.text('저장하기'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('일정을 저장하지 않아도 뒤로가기로 일정 목록에 돌아간다', (tester) async {
+    final repository = MockDdubiRepository();
+    final container = ProviderContainer(
+      overrides: [
+        ddubiRepositoryProvider.overrideWithValue(repository),
+        scheduleRepositoryProvider.overrideWithValue(repository),
+        placeApiProvider.overrideWithValue(const _FakePlaceSearchService()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(container: container, child: const DdubiApp()),
+    );
+
+    final router = container.read(appRouterProvider);
+    router.go('/schedules');
+    await tester.pumpAndSettle();
+    final navigation = router.push<bool>('/schedules/new');
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('scheduleFormBackButton')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('scheduleFormBackButton')));
+    await tester.pumpAndSettle();
+
+    expect(await navigation, isNull);
+    expect(find.byKey(const Key('mobileScheduleLayout')), findsOneWidget);
   });
 
   test('일정 API 요청은 좌표와 문자열 중요도 및 updatedAt을 보존한다', () {
@@ -452,13 +534,19 @@ void main() {
     final router = container.read(appRouterProvider);
     router.go('/schedules/schedule-meeting');
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('editScheduleButton')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -80));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('editScheduleButton')));
     await tester.pumpAndSettle();
 
     expect(find.text('일정 수정'), findsWidgets);
     await tester.enterText(find.byType(TextFormField).first, '수정된 팀 회의');
-    // 이전 Mock 일정에는 출발시각이 없다. 기존 일정 수정에서도 사용자가 입력해야 저장된다.
-    await tester.enterText(find.byType(TextFormField).at(2), '08:00');
+    // 이전 Mock 일정에는 출발시각이 없어 도착 희망 시간 1시간 전으로 초기화된다.
     await tester.fling(
       find.byType(ListView).last,
       const Offset(0, -1400),
@@ -473,6 +561,41 @@ void main() {
     expect(updated?.title, '수정된 팀 회의');
     expect(updated?.updatedAt, isNotNull);
     expect(updated?.plannedDepartAt?.hour, 8);
+  });
+
+  testWidgets('일정 상세의 저장 경로에서 실제 구간과 지도 좌표를 연다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = MockDdubiRepository();
+    final schedule = (await repository.schedules()).first;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ScheduleDetailScreen(
+          repository: repository,
+          routeRepository: repository,
+          recommendationApi: _SavedRouteRecommendationApi(),
+          scheduleId: schedule.id,
+          arrivalApi: ArrivalApi(Dio()),
+          initialSchedule: schedule,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final savedRoute = find.byKey(const Key('savedRoute-31'));
+    await tester.scrollUntilVisible(savedRoute, 250);
+    await tester.tap(savedRoute);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mobileSavedRouteLayout')), findsOneWidget);
+    expect(find.byKey(const Key('savedRouteDetail')), findsOneWidget);
+    expect(find.byKey(const Key('savedRoutePolyline')), findsOneWidget);
+    expect(find.textContaining('버스 146'), findsOneWidget);
+    expect(find.text('서버 경로 좌표 · 2개 점'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('낮은 데스크톱 Web 로그인 화면은 하단 영역만 스크롤한다', (tester) async {
@@ -642,7 +765,7 @@ void main() {
 
     expect(find.byKey(const Key('webRouteMapLayout')), findsOneWidget);
     expect(find.byKey(const Key('mobileRouteMapLayout')), findsNothing);
-    expect(find.byType(ChoiceChip), findsOneWidget);
+    expect(find.byType(ChoiceChip), findsNothing);
   });
 
   testWidgets('알림과 설정은 Web에서 데스크톱 정보 구조를 사용한다', (tester) async {
@@ -808,7 +931,7 @@ void main() {
     expect(find.byKey(const Key('withdrawalConfirmationDialog')), findsNothing);
   });
 
-    testWidgets('프로필 갤러리 선택 전에 사진 접근 권한 팝업을 표시한다', (tester) async {
+  testWidgets('프로필 갤러리 선택 전에 사진 접근 권한 팝업을 표시한다', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -873,13 +996,36 @@ void main() {
     expect(find.text('현재 위치 (Mock)'), findsOneWidget);
     expect(find.text('출발 · 강남역'), findsOneWidget);
     expect(find.text('도착 · 여의도역'), findsOneWidget);
-    expect(find.byType(ChoiceChip), findsOneWidget);
+    expect(find.byType(ChoiceChip), findsNothing);
     expect(find.byKey(const Key('mapEntireRouteButton')), findsOneWidget);
     expect(find.byKey(const Key('mapCurrentLocationButton')), findsOneWidget);
 
-    await tester.tap(find.byType(ChoiceChip));
+    expect(find.text('17:57  출발 · 강남역'), findsOneWidget);
+  });
+
+  testWidgets('경로 이탈 시 인앱 배너를 표시하고 닫는다', (tester) async {
+    tester.view.physicalSize = const Size(360, 760);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: RouteMapScreen(
+          repository: MockDdubiRepository(),
+          selectedRoute: MockDdubiRepository.routeData.first,
+          initialRouteDeviation: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mobileRouteMapLayout')), findsOneWidget);
+    expect(find.byKey(const Key('routeDeviationBanner')), findsOneWidget);
+    expect(find.textContaining('추천 경로에서 벗어났어요.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byKey(const Key('dismissRouteDeviationBanner')));
     await tester.pump();
-    expect(find.text('17:57 출발'), findsOneWidget);
+    expect(find.byKey(const Key('routeDeviationBanner')), findsNothing);
   });
 
   testWidgets('출발 안내 후 이동 중 상태로 전환한다', (tester) async {
@@ -925,7 +1071,12 @@ class _FakeNaverLoginService implements NaverLoginService {
   const _FakeNaverLoginService();
 
   @override
-  Future<String> login(BuildContext context) async => 'test-naver-access-token';
+  Future<NaverAuthorizationResult> login(BuildContext context) async =>
+      const NaverAuthorizationResult(
+        authorizationCode: 'test-naver-authorization-code',
+        state: 'test-state',
+        redirectUri: naverRedirectUri,
+      );
 }
 
 class _FakePlaceSearchService implements PlaceSearchService {
@@ -963,4 +1114,85 @@ class _FakeRecommendationApi extends RecommendationApi {
   Future<List<RouteOption>> searchRoutes(
     RouteSearchCondition condition,
   ) async => MockDdubiRepository.routeData;
+}
+
+class _SavedRouteRecommendationApi extends RecommendationApi {
+  _SavedRouteRecommendationApi() : super(Dio());
+
+  @override
+  Future<RecommendationOverview?> getLatestOverview(String scheduleId) async =>
+      null;
+
+  @override
+  Future<List<SavedRouteSummary>> getSavedRoutes(String scheduleId) async => [
+    const SavedRouteSummary(
+      routeId: '31',
+      rankNo: 1,
+      selected: true,
+      baseDurationMin: 25,
+      fromName: '집',
+      toName: '역삼역',
+      segmentCount: 2,
+      modes: ['WALK', 'BUS'],
+    ),
+  ];
+
+  @override
+  Future<SavedRouteDetail> getSavedRouteDetail(String routeId) async =>
+      const SavedRouteDetail(
+        routeId: '31',
+        scheduleId: '12',
+        rankNo: 1,
+        selected: true,
+        baseDurationMin: 25,
+        providerPathId: 'path-1',
+        segments: [
+          SavedRouteSegment(
+            seq: 1,
+            mode: 'WALK',
+            fromName: '집',
+            toName: '강남역',
+            baseDurationMin: 5,
+          ),
+          SavedRouteSegment(
+            seq: 2,
+            mode: 'BUS',
+            providerRouteKey: '146',
+            fromName: '강남역',
+            toName: '역삼역',
+            baseDurationMin: 20,
+          ),
+        ],
+      );
+
+  @override
+  Future<SavedRouteMap> getSavedRouteMap(String routeId) async =>
+      const SavedRouteMap(
+        routeId: '31',
+        bounds: RouteMapBounds(
+          minLat: 37.4979,
+          minLng: 127.0276,
+          maxLat: 37.5006,
+          maxLng: 127.0364,
+        ),
+        segments: [
+          RouteMapSegment(
+            seq: 1,
+            mode: 'WALK',
+            fromName: '집',
+            toName: '강남역',
+            coordinates: [],
+          ),
+          RouteMapSegment(
+            seq: 2,
+            mode: 'BUS',
+            fromName: '강남역',
+            toName: '역삼역',
+            coordinates: [
+              RouteCoordinate(latitude: 37.4979, longitude: 127.0276),
+              RouteCoordinate(latitude: 37.5006, longitude: 127.0364),
+            ],
+          ),
+        ],
+      );
 }

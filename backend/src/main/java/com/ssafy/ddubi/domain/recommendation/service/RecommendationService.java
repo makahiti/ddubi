@@ -1,5 +1,6 @@
 package com.ssafy.ddubi.domain.recommendation.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.ddubi.domain.recommendation.entity.Recommendation;
 import com.ssafy.ddubi.domain.recommendation.entity.TriggerType;
 import com.ssafy.ddubi.domain.recommendation.repository.RecommendationRepository;
@@ -71,6 +72,8 @@ public class RecommendationService {
     private final RouteCandidateAssembler assembler;
     private final TravelTimeEstimator estimator;
     private final RecommendationReasonWriter reasonWriter;
+    /** 저장된 근거 JSON에서 표시용 요약을 꺼낼 때만 쓴다. 원문은 파싱하지 않고 그대로 내보낸다. */
+    private final ObjectMapper objectMapper;
 
     /**
      * 도착 시각 앞에 두는 공통 안전 여유(분).
@@ -93,6 +96,7 @@ public class RecommendationService {
                                  RouteCandidateAssembler assembler,
                                  TravelTimeEstimator estimator,
                                  RecommendationReasonWriter reasonWriter,
+                                 ObjectMapper objectMapper,
                                  @Value("${ddubi.recommendation.safety-buffer-min:5}") int safetyBufferMin) {
         this.scheduleRepository = scheduleRepository;
         this.routeSearchService = routeSearchService;
@@ -102,6 +106,7 @@ public class RecommendationService {
         this.assembler = assembler;
         this.estimator = estimator;
         this.reasonWriter = reasonWriter;
+        this.objectMapper = objectMapper;
         this.safetyBufferMin = safetyBufferMin;
     }
 
@@ -154,18 +159,44 @@ public class RecommendationService {
         return recommendation;
     }
 
+    /** 추천 하나와, 저장된 근거에서 꺼낸 표시용 요약. 요약은 예전 형식이면 null 이다. */
+    public record Explanation(Recommendation recommendation, ScheduleEvaluationWorkflow.Persistence persistence) {
+    }
+
     /**
      * 추천 하나의 근거. 소유권은 <b>추천이 매달린 일정</b>으로 판단한다 —
      * 추천 ID 는 순번이라 남의 것을 찍어 볼 수 있다.
      */
     @Transactional(readOnly = true)
-    public Recommendation explanation(Long userId, Long recommendationId) {
+    public Explanation explanation(Long userId, Long recommendationId) {
         Recommendation recommendation = recommendationRepository.findById(recommendationId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RECOMMENDATION_NOT_FOUND));
         if (!recommendation.isOwnedBy(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_RESOURCE);
         }
-        return recommendation;
+        return new Explanation(recommendation, persistence(recommendation));
+    }
+
+    /**
+     * 저장된 근거 JSON에서 표시용 요약만 꺼낸다.
+     *
+     * <p>형식이 다르면 <b>조회를 실패시키지 않고 null 을 준다.</b> 이 컬럼에는 sched-v1 의
+     * Outcome 말고 {@link RecommendationReasonWriter} 가 쓴 예전 형식도 들어 있다. 요약 한 줄을
+     * 못 읽는다고 근거 조회 전체를 500 으로 만들면, 정작 필요한 원문까지 못 보게 된다.
+     */
+    private ScheduleEvaluationWorkflow.Persistence persistence(Recommendation recommendation) {
+        if (recommendation.getReasons() == null || recommendation.getReasons().isBlank()) {
+            return null;
+        }
+        try {
+            var node = objectMapper.readTree(recommendation.getReasons()).get("persistence");
+            return node == null || node.isNull()
+                    ? null
+                    : objectMapper.treeToValue(node, ScheduleEvaluationWorkflow.Persistence.class);
+        } catch (Exception unreadable) {
+            log.debug("추천 근거 요약을 읽지 못했습니다 recommendationId={}", recommendation.getId(), unreadable);
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------

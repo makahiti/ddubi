@@ -53,4 +53,27 @@ chmod 600 "$out"
 deleted=$(find "$BACKUP_DIR" -name "$DB-*.sql.gz" -mtime +"$KEEP_DAYS" -print -delete | wc -l)
 size=$(du -h "$out" | cut -f1)
 count=$(ls "$BACKUP_DIR"/$DB-*.sql.gz | wc -l)
-echo "$(date '+%F %T') OK: $out ($size) 보관 ${count}개, 삭제 ${deleted}개"
+
+# 서버1 로 사본 보내기. 백업이 MySQL 과 같은 서버2 디스크에만 있으면 서버2 디스크를 잃을 때 원본과 백업이 함께 사라진다.
+# 배포용 키(~/.ssh/ddubi_deploy)로 서버1 ~/backups/mysql-from-server2/ 에 복사하고, 서버1에서도 KEEP_DAYS 지난 것을 지운다.
+# 복사가 실패해도 백업 자체는 성공이므로 종료 코드는 0 으로 두고, 로그 줄에 WARN 을 붙인다. 아침 브리핑이 WARN 을 보면 알린다.
+COPY_HOST="${COPY_HOST:-$(grep -E '^SERVER1_PRIVATE_IP=' "$(dirname "$0")/../.env" 2>/dev/null | cut -d= -f2- | tr -d '\r')}"
+COPY_KEY="${COPY_KEY:-$HOME/.ssh/ddubi_deploy}"
+COPY_DIR="${COPY_DIR:-backups/mysql-from-server2}"
+copy_note=""
+if [ -z "$COPY_HOST" ]; then
+  copy_note=" WARN: 서버1 주소(SERVER1_PRIVATE_IP)를 몰라 사본을 못 보냈다"
+elif ! [ -r "$COPY_KEY" ]; then
+  copy_note=" WARN: 복사용 키 $COPY_KEY 가 없어 사본을 못 보냈다"
+else
+  ssh_opts=(-i "$COPY_KEY" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+  if ssh "${ssh_opts[@]}" "ubuntu@$COPY_HOST" "mkdir -p '$COPY_DIR' && chmod 700 '$COPY_DIR'" \
+     && scp -q "${ssh_opts[@]}" "$out" "ubuntu@$COPY_HOST:$COPY_DIR/" \
+     && ssh "${ssh_opts[@]}" "ubuntu@$COPY_HOST" "find '$COPY_DIR' -name '$DB-*.sql.gz' -mtime +$KEEP_DAYS -delete; ls '$COPY_DIR'/$DB-*.sql.gz | wc -l" > /tmp/backup-copy-count 2>/dev/null; then
+    copy_note=" 서버1 사본 OK(보관 $(cat /tmp/backup-copy-count)개)"
+  else
+    copy_note=" WARN: 서버1 사본 복사 실패(ssh/scp). 서버1 접속과 키를 확인"
+  fi
+  rm -f /tmp/backup-copy-count
+fi
+echo "$(date '+%F %T') OK: $out ($size) 보관 ${count}개, 삭제 ${deleted}개.$copy_note"

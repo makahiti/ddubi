@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "bus/metropolitan-bus-v6.crosswalk.json.gz",
+      "version": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "sha256": "e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.crosswalk.json.manifest.json",
+      "version": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "sha256": "6f116b54bc3399bd54f7f4f040f28eaadd1fdf3ccd2298549e54fabb9eabcc7c",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.json.gz",
+      "version": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "sha256": "e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.json.manifest.json",
+      "version": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "sha256": "6562fafe54f3cb7fee61a8b7a716dd3c4c20eb6e680a903cdb305a9d31e8ce6b",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "subway/metropolitan-subway-coordinates.json",
+      "version": "metro-20260910-b192e5734f46814a",
+      "sha256": "5a94b3ddb842709ae72abbb39a7a01a082ea47294239375728b91a18b292b7a0",
+      "source": "subway/metropolitan-subway-master.sources.json",
+      "referenceDate": null
+    },
+    {
+      "path": "subway/metropolitan-subway-master.json.gz",
+      "version": "metro-20260910-b192e5734f46814a",
+      "sha256": "f90444ef16df7a1658388d4cdd3946776df9df759cbf760e36369a5057fd7433",
+      "source": "subway/metropolitan-subway-master.sources.json",
+      "referenceDate": null
+    },
+    {
+      "path": "subway/metropolitan-subway-master.sources.json",
+      "version": "metro-20260910-b192e5734f46814a",
+      "sha256": "dd3aabb10462212d231953e38ca7d4979d90d68137b08a5902cb492608e8188c",
+      "source": "subway/metropolitan-subway-master.sources.json",
+      "referenceDate": null
+    }
+  ],
+  "compatibleSets": [
+    {
+      "busMasterVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "busMasterSha256": "e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64",
+      "busCrosswalkSha256": "e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd",
+      "idPolicy": "canonical-adjacent-v2",
+      "subwayVersion": "metro-20260910-b192e5734f46814a",
+      "roadVersion": null
+    }
+  ],
+  "road": {
+    "status": "REVIEW_REQUIRED",
+    "artifact": null
+  },
+  "referenceDateNote": "출처별 기준일은 source 문서 참조. 단일 기준일이 검증되지 않아 null 사용."
+}

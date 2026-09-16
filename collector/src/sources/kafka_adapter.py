@@ -70,7 +70,7 @@ def to_record(name, raw, context="", crosswalk=None):
     if name.startswith("bus_"):
         # 이 adapter의 버스 API는 서울 제공자다. 지역 문자열이나 노선 번호로 출처를 추정하지 않는다.
         ids["providerNamespace"] = "SEOUL_BUS"
-        ids["providerRouteId"] = str(raw.get("busRouteId") or context)
+        ids["providerRouteId"] = str(raw.get("busRouteId") or raw.get("routeId") or context)
         if name == "bus_arrival":
             ids["providerStopId"] = str(raw.get("stId") or "")
             source_time = raw.get("mkTm")
@@ -108,9 +108,19 @@ def to_record(name, raw, context="", crosswalk=None):
     key = ":".join(v for k,v in ids.items() if v and k not in {"providerNamespace", "providerLinkNamespace"}) or payload["contentHash"]
     segment_ids=None
     if name.startswith("bus_"):
+        position_reason = None
+        if name == "bus_location" and crosswalk:
+            # Kafka partition key는 차량 단위로 유지한다. pair는 key 계산 뒤 payload에만
+            # 넣어 구간 변경 때 차량 관측의 순서가 다른 partition으로 흩어지지 않게 한다.
+            pair, position_reason = crosswalk.seoul_position_pair(ids['providerRouteId'], raw)
+            if context and ids['providerRouteId'] != str(context):
+                pair, position_reason = {}, 'POSITION_ROUTE_CONTEXT_MISMATCH'
+            payload.update(pair)
         mapping=crosswalk.resolve(POLICIES[name][1],payload) if crosswalk else dict(
             segmentIds=[],state="UNRESOLVED",scope="NONE",reason="CROSSWALK_NOT_CONFIGURED",
             masterVersion=None,idPolicy=BUS_ID_POLICY,crosswalkSha256=None)
+        if position_reason and position_reason != 'NONE':
+            mapping['reason'] = position_reason
         segment_ids=mapping["segmentIds"] or None
         payload["canonicalMapping"]={k:v for k,v in mapping.items() if k!="segmentIds"}
     return Record(key=key, event_type=POLICIES[name][1], occurred_at=occurred, payload=payload,segment_ids=segment_ids)

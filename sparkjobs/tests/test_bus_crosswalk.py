@@ -52,6 +52,26 @@ def test_region_namespaces_do_not_overwrite_each_other_and_mismatch_drops_claim(
     assert {r[KEY_COL] for r in rows}=={'transit:latest:bus-arrival:1:11','transit:latest:bus-arrival:GBIS:1:11'}
 
 
+def test_seoul_position_pair_survives_spark_revalidation(spark, tmp_path):
+    """Collector가 만든 실제 pair가 같은 SHA 대응표로 재검증되고 Redis에 유지된다."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]/'collector/src'))
+    from bus_crosswalk import BusCrosswalk
+    from sources.kafka_adapter import to_record, make_source
+    from sources.base import now_kst
+    from events import build_event
+    path, sha = fixture(tmp_path)
+    cw = BusCrosswalk(path, sha)
+    raw = dict(routeId='1', vehId='V', sectOrd='1', lastStnId='10', stopFlag='0')
+    event = build_event(make_source('bus_location'), to_record('bus_location', raw, '1', cw), now_kst())
+    index = load_crosswalk(spark, path, sha)
+    result = to_redis_rows(latest_per_provider(transform(_kafka_df(spark, [event]), index))).collect()
+    assert len(result) == 1
+    value = json.loads(result[0][VALUE_COL])
+    assert value['segmentIds'] == ['BUS:1:10:11']
+    assert value['canonicalMapping']['scope'] == 'EXPLICIT_ADJACENT_STOP_PAIR'
+    assert result[0][KEY_COL] == 'transit:latest:bus-position:1:V'
+
+
 def test_missing_crosswalk_or_unknown_namespace_never_accepts_claimed_bus_ids(spark):
     event=_event('x','bus.arrival','2026-09-10T00:00:00+09:00',dict(providerRouteId='1',providerStopId='11'),segment_ids=['BUS:fake:A:B'])
     row=transform(_kafka_df(spark,[event])).collect()[0]
@@ -75,7 +95,7 @@ def release_static_indexes(spark):
 def test_full_serving_artifact_reuses_materialized_index_without_json_literal(spark):
     # 실배포 105,070 edge → 210,140 조회 행으로 검증한다. 원본 ID 보존뿐 아니라
     # 반복 배치의 실행 계획이 JSON 리터럴을 재파싱하지 않고 캐시를 읽는지도 검사한다.
-    path=Path(__file__).resolve().parents[2]/'backend/transit-master/metropolitan-bus-v6.crosswalk.json.gz'
+    path=Path(__file__).resolve().parents[2]/'backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz'
     raw=path.read_bytes();data=json.loads(gzip.decompress(raw))
     index,version,sha=load_crosswalk(spark,path,hashlib.sha256(raw).hexdigest())
     from pyspark.sql import functions as F

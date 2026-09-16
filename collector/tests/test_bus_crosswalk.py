@@ -67,9 +67,61 @@ def test_tampered_digest_is_rejected(tmp_path):
     with pytest.raises(ValueError,match='SHA'):BusCrosswalk(path,'0'*64)
 
 
+def test_seoul_position_evidence_and_vehicle_partition_key(tmp_path):
+    """운행 중인 차량의 순번과 출발점이 일치하면 Spark가 재검증할 pair를 전달한다."""
+    cw = BusCrosswalk(*artifact(tmp_path))
+    raw = dict(routeId='1', vehId='V', sectOrd='1', lastStnId='10', stopFlag='0')
+    result = to_record('bus_location', raw, '1', cw)
+    assert result.segment_ids == ['BUS:1:10:11']
+    assert result.payload['providerFromStopId'] == '10'
+    assert result.payload['providerToStopId'] == '11'
+    assert result.key == to_record('bus_location', raw, '1').key
+    assert result.payload['raw'] == raw
+    schema=json.loads((Path(__file__).resolve().parents[2]/'docs/contracts/events/transport-event.schema.json').read_text(encoding='utf-8'))
+    import jsonschema
+    jsonschema.validate(build_event(make_source('bus_location'), result, now_kst()), schema)
+
+
+@pytest.mark.parametrize('override,reason', [
+    ({'stopFlag':'1'}, 'POSITION_NOT_BETWEEN_STOPS'),
+    ({'sectOrd':'0'}, 'POSITION_SECTION_ORDER_MISSING_OR_INVALID'),
+    ({'sectOrd':'1.5'}, 'POSITION_SECTION_ORDER_MISSING_OR_INVALID'),
+    ({'sectOrd':None, 'stationSeq':'1'}, 'POSITION_SECTION_ORDER_MISSING_OR_INVALID'),
+    ({'lastStnId':None}, 'POSITION_LAST_STOP_MISSING'),
+    ({'sectOrd':'2'}, 'POSITION_SECTION_NOT_IN_MASTER'),
+    ({'lastStnId':'11'}, 'POSITION_ORDER_STOP_MISMATCH'),
+    ({'nextStId':'12'}, 'POSITION_NEXT_STOP_MISMATCH'),
+    ({'routeId':'2'}, 'POSITION_ROUTE_CONTEXT_MISMATCH'),
+])
+def test_position_conflicting_or_missing_evidence_is_not_mapped(tmp_path, override, reason):
+    cw = BusCrosswalk(*artifact(tmp_path))
+    raw = dict(routeId='1', vehId='V', sectOrd='1', lastStnId='10', stopFlag='0')
+    raw.update(override)
+    result = to_record('bus_location', raw, '1', cw)
+    assert result.segment_ids is None
+    assert result.payload['canonicalMapping']['reason'] == reason
+    assert 'providerFromStopId' not in result.payload
+
+
+def test_shared_manifest_is_current_and_detects_tampering(tmp_path):
+    """공통 묶음의 파일 유실/변조가 환경값 출력 전에 발견되어야 한다."""
+    import importlib.util
+    import shutil
+    root = Path(__file__).resolve().parents[2]/'backend/transit-master'
+    spec = importlib.util.spec_from_file_location('transit_manifest', root/'manage.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.check()['road']['status'] == 'REVIEW_REQUIRED'
+    shutil.copytree(root, tmp_path/'master')
+    with (tmp_path/'master/subway/metropolitan-subway-coordinates.json').open('ab') as stream:
+        stream.write(b' ')
+    with pytest.raises(ValueError, match='manifest mismatch'):
+        module.check(tmp_path/'master')
+
+
 def test_serving_artifact_has_valid_ids_in_every_source():
     root=Path(__file__).resolve().parents[2]
-    path=root/'backend/transit-master/metropolitan-bus-v6.crosswalk.json.gz'
+    path=root/'backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz'
     manifest=json.loads(path.with_suffix('.manifest.json').read_text(encoding='utf-8'))
     crosswalk=BusCrosswalk(path,manifest['sha256'])
     assert crosswalk.version==manifest['masterVersion']

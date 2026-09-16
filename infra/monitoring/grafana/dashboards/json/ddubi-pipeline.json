@@ -33,7 +33,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -97,9 +97,9 @@
       "title": "MySQL 생존",
       "description": "mysql_up (mysqld-exporter 가 exporter 계정으로 접속 성공). 0 이면 MySQL 다운 또는 exporter 계정 문제",
       "gridPos": {
-        "x": 4,
+        "x": 3,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -163,9 +163,9 @@
       "title": "Redis 생존",
       "description": "redis_up. 0 이면 Redis 다운 또는 비밀번호 불일치",
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -175,6 +175,72 @@
       "targets": [
         {
           "expr": "redis_up",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "다운",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "정상",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 131,
+      "type": "stat",
+      "title": "ML 예측 생존",
+      "description": "ml-serving 의 /health/ready 를 blackbox-exporter 가 대신 확인한 결과. 0 이면 죽었거나 모델 미준비이고, backend 는 카카오 값으로 대체 동작한다.",
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"ml-serving\"}",
           "legendFormat": "",
           "refId": "A"
         }

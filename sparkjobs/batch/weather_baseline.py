@@ -32,14 +32,14 @@ def aggregate(weather: DataFrame, as_of: date, window_days: int) -> DataFrame:
 
     dow: 1=일 … 7=토 (Spark dayofweek), hour: 관측 시각(occurredAt, KST) 의 시.
     """
-    keyed = weather.withColumn("dow", F.dayofweek("occurredAt")).withColumn("hour", F.hour("occurredAt"))
+    keyed = weather.withColumn("dow", F.dayofweek("observedAt")).withColumn("hour", F.hour("observedAt"))
     obs = keyed.select(
         "nx", "ny", "dow", "hour", "districts",
-        F.col("observations")["T1H"].alias("t1h"),
-        F.col("observations")["REH"].alias("reh"),
-        F.col("observations")["WSD"].alias("wsd"),
-        F.col("observations")["RN1"].alias("rn1"),
-        F.col("observations")["PTY"].alias("pty"),
+        F.col("temperatureC").alias("t1h"),
+        F.col("humidityPercent").alias("reh"),
+        F.col("windSpeedMps").alias("wsd"),
+        F.col("precipitationMm").alias("rn1"),
+        F.col("precipitationTypeCode").alias("pty"),
     )
     return obs.groupBy("nx", "ny", "dow", "hour").agg(
         F.count(F.lit(1)).alias("samples"),
@@ -50,7 +50,11 @@ def aggregate(weather: DataFrame, as_of: date, window_days: int) -> DataFrame:
         F.round(F.avg("reh"), 1).alias("humidityAvg"),
         F.round(F.avg("wsd"), 1).alias("windAvg"),
         F.round(F.avg("rn1"), 2).alias("rain1hAvg"),
-        F.round(F.avg(F.when(F.col("pty") > 0, 1.0).otherwise(0.0)), 3).alias("precipRatio"),  # 강수 있었던 비율
+        F.round(F.avg(
+            F.when(F.col("pty").isNull(), F.lit(None).cast("double"))
+            .when(F.col("pty") > 0, 1.0)
+            .otherwise(0.0)
+        ), 3).alias("precipRatio"),  # 결측을 무강수로 세지 않은 강수 관측 비율
     ).withColumn("asOf", F.lit(as_of.isoformat())).withColumn("windowDays", F.lit(window_days))
 
 

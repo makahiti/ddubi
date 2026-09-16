@@ -1,5 +1,6 @@
 package com.ssafy.ddubi.domain.recommendation.service;
 
+import com.ssafy.ddubi.domain.recommendation.entity.Confidence;
 import com.ssafy.ddubi.domain.recommendation.entity.TriggerType;
 import com.ssafy.ddubi.domain.recommendation.evaluation.*;
 import com.ssafy.ddubi.domain.route.client.PublicTransitRouteClient;
@@ -22,12 +23,14 @@ public class ScheduleEvaluationWorkflow {
     private final PublicTransitRouteClient routes;
     private final RouteEvidenceAssembler evidence;
     private final MlRoutePreview previews;
+    private final EvaluationNotificationPlanner notifications;
     private final ScheduleMonitoringPolicy monitoring;
 
     public ScheduleEvaluationWorkflow(ScheduleEvaluationStore store, PublicTransitRouteClient routes,
-            RouteEvidenceAssembler evidence, MlRoutePreview previews,
+            RouteEvidenceAssembler evidence, MlRoutePreview previews, EvaluationNotificationPlanner notifications,
             @Value("${ddubi.recommendation.candidate-ttl-seconds:900}") int candidateTtl) {
         this.store = store; this.routes = routes; this.evidence = evidence; this.previews = previews;
+        this.notifications = notifications;
         // 초기 실험 주기이며 검증된 도착 보장 임계값이 아니다. 여유시간으로 가산하지 않는다.
         monitoring = new ScheduleMonitoringPolicy(Duration.ofHours(1), Duration.ofMinutes(30), Duration.ofMinutes(10),
                 Duration.ofMinutes(10), Duration.ofMinutes(5), Duration.ofMinutes(1), Duration.ofSeconds(candidateTtl));
@@ -38,18 +41,56 @@ public class ScheduleEvaluationWorkflow {
     /** 화면에서 변경 경로를 확인하는 최소 정보. 외부 raw 응답은 포함하지 않는다. */
     public record RouteStep(String mode, String fromName, String toName, List<String> vehicles) { }
     /**
+     * 추천 행을 남겼는지와 그 근거의 출처다. 화면이 Outcome 전체를 파싱하지 않고
+     * <b>"검증용"</b> 표시와 <b>"왜 추천이 없는가"</b>를 읽을 수 있게 한다.
+     *
+     * <h3>왜 preview 라는 이유로 저장을 막지 않나</h3>
+     * 예측 서비스가 미승인({@code production_ready=false})이라 지금은 <b>모든</b> 결과가
+     * PREVIEW다. 그걸 이유로 저장을 막으면 추천 행이 하나도 안 생기고, 최신 추천·추천 근거
+     * API가 영영 빈손이다(2026-09-14 합의). 대신 검증용이라는 사실을 지우지 않고 이 값으로
+     * 함께 남긴다. <b>일정 변경(accept)은 계속 막는다</b> — 저장은 되돌릴 수 있지만 사용자의
+     * 출발 시각을 실제로 바꾸는 것은 성격이 다르다. 자동 알림은 설정으로 연다(기본 꺼짐,
+     * 2026-09-15 프론트 요청). {@link EvaluationNotificationPlanner} 참고.
+     *
+     * @param saved     추천 행을 남겼는가
+     * @param reason    저장하지 않은 사유. saved=true면 null이다
+     * @param preview   검증용 결과인가. 지금은 항상 true다
+     * @param status    비교기가 매긴 상태 그대로. 현재는 {@code "PREVIEW"}
+     * @param productionReady 모델 승인 여부. 지금은 항상 false다
+     * @param confidence 저장했거나 저장했을 신뢰도. 미승인 모델이라 지금은 항상 LOW다.
+     *                  추천 근거 API를 한 번 더 부르지 않고도 화면이 등급을 띄울 수 있게 여기 둔다
+     * @param source    선택 후보의 계산 출처 (API_ONLY / ML_PREVIEW / SUBWAY_PREVIEW / MIXED_PREVIEW)
+     * @param fallbackUsed 경로 API 시간을 그대로 쓴 step이 있는가. 도보도 경로 API라 사실상 항상
+     *                  true다 — 출처를 구분하려면 {@code source}와 step 개수를 봐야 한다
+     * @param reasons   선택 후보의 사유 전체. 데이터 부족 사유가 여기 들어간다. 서버가 "부족"만
+     *                  골라내지 않는 이유는, 분류 규칙이 코드마다 갈라지면 화면에 보이는 근거와
+     *                  저장된 근거가 어긋나기 때문이다
+     */
+    public record Persistence(boolean saved, String reason, boolean preview, String status, boolean productionReady,
+            Confidence confidence, String source, boolean fallbackUsed, int mlSteps, int apiSteps, int subwaySteps,
+            int busWaitSteps, List<String> reasons) {
+        public Persistence { reasons = reasons == null ? List.of() : List.copyOf(reasons); }
+    }
+
+    /**
      * 계산 시각의 입력·후보·증거를 보존한다. 내부 Instant는 절대시각이고 프론트는 KST로 표시한다.
      * selected는 기존 선택 경로, preview.fastest는 같은 출발의 최소시간 검증 후보다.
-     * suggestion.proposed는 응답 호환용 동일 후보이며 PREVIEW는 수락·알림을 허용하지 않는다.
+     * suggestion.proposed는 응답 호환용 동일 후보이며 PREVIEW는 수락을 허용하지 않는다.
+     * recommendationId·persistence는 저장 결과이며 store가 채운다.
      */
     public record Outcome(String evaluationId, long scheduleId, Long recommendationId, Instant plannedDepartAt,
             Instant arriveBy, Instant checkedAt, String selectedKey, Result selected,
             DepartureSuggestionService.Suggestion suggestion, List<CandidateInfo> candidates,
-            RouteEvidenceAssembler.Snapshot evidence, TriggerType trigger, String policyVersion, long eventRevision, MlRoutePreview.Comparison preview) {
+            RouteEvidenceAssembler.Snapshot evidence, TriggerType trigger, String policyVersion, long eventRevision,
+            MlRoutePreview.Comparison preview, Persistence persistence) {
         public Outcome { candidates = List.copyOf(candidates); }
         public Outcome withRecommendationId(Long id) {
             return new Outcome(evaluationId, scheduleId, id, plannedDepartAt, arriveBy, checkedAt, selectedKey,
-                    selected, suggestion, candidates, evidence, trigger, policyVersion, eventRevision, preview);
+                    selected, suggestion, candidates, evidence, trigger, policyVersion, eventRevision, preview, persistence);
+        }
+        public Outcome withPersistence(Persistence value) {
+            return new Outcome(evaluationId, scheduleId, recommendationId, plannedDepartAt, arriveBy, checkedAt,
+                    selectedKey, selected, suggestion, candidates, evidence, trigger, policyVersion, eventRevision, preview, value);
         }
     }
 
@@ -87,11 +128,16 @@ public class ScheduleEvaluationWorkflow {
             var info = new ArrayList<CandidateInfo>();
             for (RouteCandidate c : search.candidates()) info.add(new CandidateInfo(RouteEvidenceAssembler.key(c), evidence.riskReasons(c, snapshot), c.segments().stream().map(s -> new RouteStep(s.mode().name(), s.fromName(), s.toName(), s.vehicles().stream().map(v -> v.name()).toList())).toList()));
             var result = new Outcome(job.token(), scheduleId, null, job.departure(), job.arriveBy(), now,
-                    selectedKey, selected, suggestion, info, snapshot, trigger, "ml-prev-v1", job.eventRevision(), comparison);
-            // 검증용 모델은 결과 화면에만 제공한다. 운영 추천/출발 변경/FCM에 전파하지 않는다.
+                    selectedKey, selected, suggestion, info, snapshot, trigger, "ml-prev-v1", job.eventRevision(), comparison, null);
+            // 출발 변경(accept)은 계속 막는다 — 미승인 모델 값으로 사용자의 일정을 바꾸지 않는다.
+            // 알림은 설정으로 연다(기본 꺼짐). 보낼 것이 없으면 두 값이 null 이고,
+            // 그때 dispatcher 는 아무것도 하지 않는다. EvaluationNotificationPlanner 참고.
+            var planned = notifications.plan(job, result);
             Instant proposed = suggestion.proposed() == null ? null : suggestion.proposed().departureAt();
             return store.complete(job, search, refresh, result, monitoring.nextEvaluation(now, job.departure(), proposed),
-                    null, null, Instant.now());
+                    planned.map(p -> store.write(p.command())).orElse(null),
+                    planned.map(EvaluationNotificationPlanner.Planned::key).orElse(null),
+                    Instant.now());
         } catch (RuntimeException failure) {
             String reason = failure instanceof BusinessException ? "EVALUATION_UNAVAILABLE" : "EVALUATION_FAILED";
             store.fail(job, reason, now);

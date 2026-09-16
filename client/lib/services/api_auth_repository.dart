@@ -49,7 +49,36 @@ class ApiAuthRepository implements AuthRepository {
         provider: provider,
         accessToken: accessToken,
       );
-      _saveSession(response.data);
+      _handleOAuthResponse(response.data, provider);
+    } on DioException catch (error) {
+      final linkRequired = _accountLinkRequired(error, provider);
+      if (linkRequired != null) throw linkRequired;
+      throw _mapDioException(error);
+    } on AuthException {
+      rethrow;
+    } on Object {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '소셜 로그인 처리 중 문제가 발생했습니다.',
+      );
+    }
+  }
+
+  @override
+  Future<void> loginWithOAuthCode({
+    required String provider,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
+  }) async {
+    try {
+      final response = await _api.loginWithOAuthCode(
+        provider: provider,
+        authorizationCode: authorizationCode,
+        redirectUri: redirectUri,
+        state: state,
+      );
+      _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
       final linkRequired = _accountLinkRequired(error, provider);
       if (linkRequired != null) throw linkRequired;
@@ -88,6 +117,49 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<List<String>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  }) async {
+    try {
+      final response = await _api.linkSocialAccount(
+        provider: provider,
+        accessToken: accessToken,
+        idToken: idToken,
+      );
+      return _socialProviders(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<List<String>> unlinkSocialAccount(String provider) async {
+    try {
+      final response = await _api.unlinkSocialAccount(provider);
+      return _socialProviders(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  List<String> _socialProviders(Map<String, dynamic>? body) {
+    final rawData = body?['data'];
+    final data = rawData is Map
+        ? rawData.map((key, value) => MapEntry(key.toString(), value))
+        : const <String, dynamic>{};
+    final providers = data['providers'];
+    if (body?['success'] != true || providers is! List) {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '소셜 계정 연결 응답을 확인할 수 없습니다.',
+      );
+    }
+    return providers.map((item) => item.toString()).toList(growable: false);
+  }
+
+  @override
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
@@ -97,7 +169,7 @@ class ApiAuthRepository implements AuthRepository {
         provider: provider,
         idToken: idToken,
       );
-      _saveSession(response.data);
+      _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
       final linkRequired = _accountLinkRequired(error, provider);
       if (linkRequired != null) throw linkRequired;
@@ -120,8 +192,48 @@ class ApiAuthRepository implements AuthRepository {
         message: '로그인 응답 형식을 확인할 수 없습니다.',
       );
     }
-    _sessionStore.save(AuthSession.fromJson(data));
+    final tokens = data['tokens'];
+    final sessionData = tokens is Map
+        ? tokens.map((key, value) => MapEntry(key.toString(), value))
+        : data;
+    _sessionStore.save(AuthSession.fromJson(sessionData));
     _deviceTokenService.registerAfterAuthentication();
+  }
+
+  void _handleOAuthResponse(
+    Map<String, dynamic>? body,
+    String fallbackProvider,
+  ) {
+    final rawData = body?['data'];
+    if (body?['success'] != true || rawData is! Map) {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '로그인 응답 형식을 확인할 수 없습니다.',
+      );
+    }
+    final data = rawData.map((key, value) => MapEntry(key.toString(), value));
+    final status = data['status']?.toString();
+    if (status == 'ACCOUNT_LINK_REQUIRED') {
+      final linkToken = data['linkToken']?.toString() ?? '';
+      if (linkToken.isEmpty) {
+        throw const AuthException(
+          AuthErrorCode.serverError,
+          message: '계정 연동 정보를 확인할 수 없습니다.',
+        );
+      }
+      throw AccountLinkRequiredException(
+        linkToken: linkToken,
+        provider: data['provider']?.toString() ?? fallbackProvider,
+        email: data['email']?.toString() ?? '',
+      );
+    }
+    if (status != null && status != 'AUTHENTICATED') {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '지원하지 않는 로그인 상태입니다.',
+      );
+    }
+    _saveSession(body);
   }
 
   @override

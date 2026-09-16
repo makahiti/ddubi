@@ -1,17 +1,36 @@
 # 서버2(서비스, j15e202) 전용 오버레이.
 # 사용: docker compose -f docker-compose.yml -f docker-compose.server2.yml --profile <...> up -d
 #
-# 목적
-#  - hdfs-datanode2 가 서버1의 namenode·datanode1 을 호스트명으로 찾을 수 있게 사설 IP 를 박는다
-#  - datanode2 의 포트를 호스트에 공개해 서버1의 클라이언트(archiver·Spark)와 복제가 닿게 한다
-# .env 에 SERVER1_PRIVATE_IP 가 반드시 설정되어 있어야 한다
+# 이 파일이 하는 일.
+#  - 서버2의 HDFS 컨테이너(데이터노드2, 세컨더리 네임노드)가 서버1에 있는 네임노드와 데이터노드1을 호스트명으로 찾을 수 있게
+#    사설 IP 를 extra_hosts 로 박아 준다. HDFS 는 노드를 호스트명으로 안내하기 때문에 이름 풀이가 꼭 필요하다.
+#  - 데이터노드2의 포트를 호스트에 공개해서, 서버1의 아카이버·Spark 와 블록 복제가 서버2까지 닿게 한다.
+# .env 에 SERVER1_PRIVATE_IP 가 반드시 있어야 한다.
+#
+# HDFS_NAMENODE_HOST 는 평소 비워 둔다. 비어 있으면 데이터노드2는 서버1(SERVER1_PRIVATE_IP)을 네임노드로 본다.
+# 서버1 네임노드를 잃어 서버2의 예비 네임노드로 이어받을 때는 scripts/failover-namenode.sh 가 이 값을 서버2 자기 IP 로
+# .env 에 써 넣는다. 그래야 데이터노드2가 예비 네임노드에 붙고, 이후 배포에서도 그 설정이 유지된다.
+
+x-nn-hosts: &nn-hosts
+  extra_hosts:
+    - "hdfs-namenode:${HDFS_NAMENODE_HOST:-${SERVER1_PRIVATE_IP:?.env 에 SERVER1_PRIVATE_IP 를 설정하세요}}"
+    - "hdfs-datanode1:${SERVER1_PRIVATE_IP:?.env 에 SERVER1_PRIVATE_IP 를 설정하세요}"
 
 services:
   hdfs-datanode2:
+    <<: *nn-hosts
+    ports:
+      - "9864:9864"   # 데이터노드 HTTP. WebHDFS 가 읽기·쓰기를 이 주소로 넘긴다
+      - "9866:9866"   # 데이터노드 데이터 전송. 블록 복제가 이 포트로 이어진다
+      - "9867:9867"   # 데이터노드 IPC
+
+  # 세컨더리 네임노드는 언제나 서버1 네임노드를 본다. 이어받기 뒤에는 멈춰 있으므로 HDFS_NAMENODE_HOST 와 무관하다.
+  hdfs-secondarynamenode:
     extra_hosts:
       - "hdfs-namenode:${SERVER1_PRIVATE_IP:?.env 에 SERVER1_PRIVATE_IP 를 설정하세요}"
       - "hdfs-datanode1:${SERVER1_PRIVATE_IP:?.env 에 SERVER1_PRIVATE_IP 를 설정하세요}"
-    ports:
-      - "9864:9864"   # DataNode HTTP (WebHDFS 리다이렉트 대상)
-      - "9866:9866"   # DataNode 데이터 전송 (블록 복제 파이프라인)
-      - "9867:9867"   # DataNode IPC
+
+  # 예비 네임노드가 서버1의 데이터노드1(살아 있다면)을 호스트명으로 찾을 수 있게 한다.
+  hdfs-namenode-standby:
+    extra_hosts:
+      - "hdfs-datanode1:${SERVER1_PRIVATE_IP:?.env 에 SERVER1_PRIVATE_IP 를 설정하세요}"

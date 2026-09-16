@@ -16,3 +16,7 @@ modules:
           capacity_total_bytes: '{ .CapacityTotal }'
           capacity_used_bytes: '{ .CapacityUsed }'
           capacity_remaining_bytes: '{ .CapacityRemaining }'
+          # 서버2 세컨더리 네임노드가 일하고 있는지 보는 값 두 개. 마지막으로 목차 사본을 만든 시각(밀리초 단위 epoch)과,
+          # 그 뒤 네임노드에 쌓인 변경 건수다. 정상이면 시각이 한 시간 안쪽이다. 세 시간을 넘으면 Grafana 알림 "HDFS 체크포인트 멈춤" 이 뜬다.
+          last_checkpoint_time_ms: '{ .LastCheckpointTime }'
+          transactions_since_last_checkpoint: '{ .TransactionsSinceLastCheckpoint }'

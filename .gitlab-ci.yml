@@ -82,13 +82,15 @@ contracts-validate:
 # ---------------------------------------------------------------------------
 # test
 # ---------------------------------------------------------------------------
+# 캐시 키는 파일 지문이 아니라 잡 이름으로 고정한다 (2026-09-15). pip·Maven·pub 캐시는 내려받은 파일 창고라 옛 항목이 섞여도 무해한데,
+# 지문 방식은 requirements 가 바뀔 때마다 새 사본(sparkjobs 는 670MB)이 러너 볼륨에 쌓여 11GB 까지 커졌다. unprotect 는 보호·일반 브랜치 캐시를 하나로 합친다.
 collector-test:
   stage: test
   image: python:3.11-slim
   cache:
-    key:
-      files: [collector/requirements.txt]
+    key: collector-pip
     paths: [.cache/pip]
+    unprotect: true
   script:
     - pip install -r collector/requirements.txt
     - cd collector && python -m pytest -q
@@ -101,9 +103,9 @@ archiver-test:
   stage: test
   image: python:3.11-slim
   cache:
-    key:
-      files: [archiver/requirements.txt]
+    key: archiver-pip
     paths: [.cache/pip]
+    unprotect: true
   script:
     - pip install -r archiver/requirements.txt
     - cd archiver && python -m pytest -q
@@ -115,9 +117,9 @@ sparkjobs-test:
   stage: test
   image: python:3.8-slim   # 클러스터(apache/spark:3.5.3-python3)와 같은 파이썬 버전
   cache:
-    key:
-      files: [sparkjobs/requirements-dev.txt]
+    key: sparkjobs-pip
     paths: [.cache/pip]
+    unprotect: true
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends default-jre-headless > /dev/null
   script:
@@ -146,9 +148,9 @@ backend-test:
     # 정리 컨테이너(ryuk)는 dind 에서 자주 막힌다. 잡이 끝나면 dind 가 통째로 사라지므로 없어도 된다
     TESTCONTAINERS_RYUK_DISABLED: "true"
   cache:
-    key:
-      files: [backend/pom.xml]
+    key: backend-m2
     paths: [.m2/repository]
+    unprotect: true
   script:
     # mvnw 가 깃에 실행 권한 없이(100644) 올라가 있어 chmod 가 필요하다. 권한이 고쳐지면 지워도 된다
     - cd backend && chmod +x mvnw && ./mvnw -B -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository test
@@ -165,9 +167,9 @@ backend-test:
   variables:
     PUB_CACHE: "$CI_PROJECT_DIR/.pub-cache"   # 잡 사이에 패키지 캐시를 유지하기 위해 프로젝트 안으로
   cache:
-    key:
-      files: [client/pubspec.lock]
+    key: client-pub
     paths: [.pub-cache]
+    unprotect: true
   before_script:
     - cd client
     - flutter --version

@@ -106,14 +106,17 @@ Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니�
 
 | 데이터 | 보호 방식 | 잃는 경우 | 복구 |
 |---|---|---|---|
-| HDFS 아카이브·체크포인트 | 복제 2 (서버1·2 각 1부) | **두 서버 디스크가 동시에** 망가질 때만 | 재처리 불가(원본 소실). 그 위험은 인정하고 감수 |
+| HDFS 아카이브·체크포인트(블록) | 복제 2 (서버1·2 각 1부) | **두 서버 디스크가 동시에** 망가질 때만 | 재처리 불가(원본 소실). 그 위험은 인정하고 감수 |
+| **HDFS 네임노드 메타데이터**(어느 블록이 어느 파일인지) | **서버2 세컨더리 네임노드가 매시간 사본**(볼륨 `hdfs-namesecondary-data`) + 서버1 일일 tar 백업 7일(2026-09-14 도입) | 서버1 네임노드 볼륨 손실 | 서버2 예비 네임노드로 이어받기 — [절차서](runbooks/hdfs-namenode-metadata-loss.md). 손실은 마지막 사본 뒤 최대 1시간치 파일 이름표이고, 그 파일은 Kafka 원본으로 다시 아카이브한다 |
 | Kafka | 없음(서버1 볼륨 1부) | 서버1 볼륨 손실 | 아카이브에서 replay 로 필요한 구간만 재생 |
 | Redis | 없음 | 볼륨 손실·flush | 다음 수집 사이클(10분·30초)에 자동 재생성 |
 | MySQL 기준선 서빙 | 없음 | 볼륨 손실 | Spark 배치 재실행 → 업로드·activate |
 | **MySQL 서비스 데이터(회원·일정 등)** | **일일 논리 백업 7일**(2026-09-09 도입) | 서버2 볼륨 손실 | 아래 절차 |
 | Grafana 대시보드·알림 | 깃 파일 프로비저닝 | 볼륨 손실 | 재배포로 복원 |
 
-**MySQL 백업** — `infra/scripts/backup-db.sh` 가 매일 04:10(KST, 크론은 UTC 19:10) 에 `mysqldump --single-transaction`(서비스 중단 없음)으로 `ddubi` 를 gzip 해 서버2 `~/backups/mysql/ddubi-<날짜>.sql.gz` 로 저장하고, 무결성 확인 뒤 7일 지난 파일을 지웁니다. 크론은 서버2 `ubuntu` 사용자에 등록되어 있고 결과는 같은 폴더의 `backup.log` 에 한 줄씩 남습니다. 백업이 서버2 안에만 있으므로 서버2 디스크 전체가 망가지면 백업도 잃습니다. 발표 전 한 번은 다른 곳(개인 PC)으로 내려받아 두는 것을 권합니다.
+**MySQL 백업** — `infra/scripts/backup-db.sh` 가 매일 04:10(KST, 크론은 UTC 19:10) 에 `mysqldump --single-transaction`(서비스 중단 없음)으로 `ddubi` 를 gzip 해 서버2 `~/backups/mysql/ddubi-<날짜>.sql.gz` 로 저장하고, 무결성 확인 뒤 7일 지난 파일을 지웁니다. 크론은 서버2 `ubuntu` 사용자에 등록되어 있고 결과는 같은 폴더의 `backup.log` 에 한 줄씩 남습니다. **2026-09-15 부터는 같은 스크립트가 백업 파일을 서버1 `~/backups/mysql-from-server2/` 에도 복사합니다**(배포용 키 사용, 서버1에서도 7일 보존). 그래서 서버2 디스크를 잃어도 전날 새벽까지의 백업은 서버1에 남습니다. 복사가 실패하면 로그 줄에 WARN 이 붙고 아침 브리핑이 "백업 확인 필요" 로 알립니다.
+
+**서버2 생존 감시** — 알림을 보내는 Grafana·Prometheus 와 브리핑이 모두 서버2에 있어서, 서버2가 통째로 죽으면 알림도 함께 죽어 아무도 모르는 구조였습니다. 2026-09-15 부터 서버1 크론이 5분마다 `infra/scripts/check-server2.sh` 로 서버2의 nginx, backend, Prometheus, Grafana 를 확인하고, 두 번 연속 실패하면 Mattermost 로 직접 "서버2 응답 없음" 을 보냅니다. 복구되면 "복구" 를 한 번 보냅니다. 기록은 서버1 `~/check-server2.log` 에 남습니다.
 
 **MySQL 복구 절차** (서버2)
 ```
@@ -124,6 +127,23 @@ $DC2 --profile serving start backend
 curl -s -o /dev/null -w "%{http_code}\n" https://j15e202.p.ssafy.io/api/health   # 401
 ```
 덤프에 `flyway_schema_history` 가 포함되어 있어 복구 뒤 backend 의 Flyway 검증이 그대로 통과합니다. 백업 시점 이후의 변경은 사라진다는 점을 팀에 알립니다.
+
+**볼륨을 새로 만들어 복구했을 때 한 가지 더** — 덤프에는 `ddubi` 데이터베이스만 들어 있고 MySQL 계정은 들어 있지 않습니다. 볼륨을 지우고 다시 만들면 compose 가 `MYSQL_USER` 계정은 다시 만들지만, 감시용 `exporter` 계정(2026-09-08 손으로 만든 것)은 없어져 Grafana 의 MySQL 지표가 끊기고 "MySQL 다운" 알림이 뜹니다. 복구 뒤 아래를 한 번 실행합니다(비밀번호는 서버2 `.env` 의 `MYSQL_EXPORTER_PASSWORD` 값).
+```
+docker exec -i mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"' <<'SQL'
+CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED BY '<MYSQL_EXPORTER_PASSWORD 값>' WITH MAX_USER_CONNECTIONS 3;
+GRANT PROCESS, REPLICATION CLIENT ON *.* TO 'exporter'@'%';
+GRANT SELECT ON performance_schema.* TO 'exporter'@'%';
+FLUSH PRIVILEGES;
+SQL
+docker restart mysqld-exporter
+```
+
+**HDFS 네임노드 메타데이터** (2026-09-14 도입) — HDFS 의 블록(데이터 본체)은 쓰는 순간 두 서버에 함께 저장되지만, "어느 블록이 어느 파일인지" 적힌 네임노드 메타데이터는 서버1 볼륨 한 곳에만 있었습니다. 서버1 디스크를 잃으면 서버2 에 블록이 다 있어도 읽을 수 없는 구조였습니다. 서버가 2대라 네임노드 자동 이중화(저널노드·ZooKeeper 3대의 다수결)는 만들 수 없어, 대신 아래 두 겹으로 보호합니다.
+1. **서버2 세컨더리 네임노드**(`hdfs-secondarynamenode`, hdfs2 프로필, 항상 켜져 있음)가 매시간 서버1 네임노드의 fsimage·edits 를 받아 합친 새 fsimage 를 서버2 볼륨에 두고 서버1 에도 되돌려 줍니다. 사람이 할 일은 없습니다. 3시간 넘게 사본이 안 만들어지면 Grafana 알림 "HDFS 체크포인트 멈춤" 이 뜹니다.
+2. **서버1 일일 tar 백업** — `infra/scripts/backup-namenode.sh` 가 매일 04:20(KST, 크론 UTC 19:20) 네임노드 컨테이너의 `current/` 를 서버1 `~/backups/hdfs-name/namenode-<날짜>.tar.gz` 로 묶어 7일 보존합니다(16MB 안팎). 결과는 같은 폴더 `backup.log` 에 한 줄씩 남고, 가장 새 fsimage 가 26시간을 넘으면 WARN 을 함께 적습니다.
+
+복구는 서버2 의 **예비 네임노드**(`hdfs-namenode-standby`, hdfs-standby 프로필, 평소 꺼져 있음)를 `infra/scripts/failover-namenode.sh` 로 켜서 사본으로 시작하는 것입니다. 사람이 "서버1 이 정말 죽었다" 를 확인한 뒤 명령 한 줄로 실행하며, 최대 1시간치 파일 이름표를 잃지만 그 파일들은 Kafka 21일 보관에서 다시 아카이브할 수 있습니다. 자세한 절차와 되돌리기는 [runbooks/hdfs-namenode-metadata-loss.md](runbooks/hdfs-namenode-metadata-loss.md) 에 있습니다.
 
 ## 8. 이 문서를 갱신해야 하는 때
 

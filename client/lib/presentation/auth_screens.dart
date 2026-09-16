@@ -996,10 +996,12 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
           if (service == null) {
             throw const NaverLoginException('네이버 로그인 설정을 확인해주세요.');
           }
-          final accessToken = await service.login(context);
-          await widget.repository.loginWithOAuthToken(
+          final authorization = await service.login(context);
+          await widget.repository.loginWithOAuthCode(
             provider: 'NAVER',
-            accessToken: accessToken,
+            authorizationCode: authorization.authorizationCode,
+            redirectUri: authorization.redirectUri,
+            state: authorization.state,
           );
           break;
         default:

@@ -77,6 +77,18 @@ public class Notification extends BaseTimeEntity {
     @Column(name = "status", nullable = false)
     private NotificationStatus status;
 
+    /**
+     * 보내지 않은 이유. {@link NotificationStatus#SUPPRESSED} 일 때만 채워진다.
+     *
+     * <p>발송을 시도하는 행은 먼저 SUPPRESSED 로 저장됐다가 결과에 따라 SENT/FAILED 로
+     * 올라간다(푸시 payload 에 넣을 id 가 먼저 있어야 한다). 그 사이 상태에서는 사유가
+     * 없으므로 null 이다. <b>SUPPRESSED 인데 사유가 null 이면</b> 발송 도중 트랜잭션이
+     * 끊긴 것이거나 이 컬럼이 생기기 전(2026-09-14 이전)에 쌓인 행이다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suppress_reason")
+    private SuppressReason suppressReason;
+
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
 
@@ -87,7 +99,8 @@ public class Notification extends BaseTimeEntity {
     @Builder
     private Notification(User user, Schedule schedule, Long recommendationId,
                          NotificationType type, String title, String body,
-                         String suppressKey, NotificationStatus status, LocalDateTime sentAt) {
+                         String suppressKey, NotificationStatus status,
+                         SuppressReason suppressReason, LocalDateTime sentAt) {
         this.user = user;
         this.schedule = schedule;
         this.recommendationId = recommendationId;
@@ -96,6 +109,7 @@ public class Notification extends BaseTimeEntity {
         this.body = body;
         this.suppressKey = suppressKey;
         this.status = status;
+        this.suppressReason = suppressReason;
         this.sentAt = sentAt;
     }
 

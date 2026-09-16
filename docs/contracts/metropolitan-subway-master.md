@@ -4,7 +4,7 @@
 
 ## 적용과 ID
 
-- 배포 파일: `backend/src/main/resources/transit/metropolitan-subway-master.json.gz`.
+- 배포 파일: `backend/transit-master/subway/metropolitan-subway-master.json.gz`.
 - 공급원: `ResourceSubwayMasterDataProvider` → 기존 `MasterDataTransitMappingResolver` → `SubwaySegmentMatcher`.
 - `ddubi.transit-mapping.subway-master-resource=classpath:transit/metropolitan-subway-master.json.gz`를 설정하고 재시작하면 사용한다. 미설정이면 기존 JDBC 활성 버전을 사용한다. 파일 지정 후 읽기·검증 실패는 기동 실패이며 DB로 조용히 전환하지 않는다.
 - DB·Redis를 적재/초기화하지 않는다. 실제 배포·활성화는 별도다. Collector/Spark에는 같은 버전의 ID·crosswalk를 배포해야 추가 호선을 조회할 수 있다.

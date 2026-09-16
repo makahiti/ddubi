@@ -30,7 +30,7 @@ BIS 링크 ID가 같더라도 시작/종료 노드까지 같은 경우만 연결
 재현 (프로젝트 루트):
 
 ```powershell
-python backend/tools/road-impact/audit.py --directory data/road-impact-20260911 --bus-crosswalk backend/transit-master/metropolitan-bus-v6.crosswalk.json.gz
+python backend/tools/road-impact/audit.py --directory data/road-impact-20260911 --bus-crosswalk backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz
 ```
 
 결과: `mapping-audit.json`, `mapping-candidates.jsonl`, `mapping-rejected.jsonl`.

@@ -432,7 +432,7 @@ class AccountLinkIntegrationTest extends IntegrationTestSupport {
                 .as("갈아치우면 원래 그 계정으로 로그인하던 사람이 못 들어온다")
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
-                .isEqualTo(ErrorCode.DUPLICATE_RESOURCE);
+                .isEqualTo(ErrorCode.SOCIAL_PROVIDER_ALREADY_BOUND);
     }
 
     @Test
@@ -536,7 +536,8 @@ class AccountLinkIntegrationTest extends IntegrationTestSupport {
         assertThatThrownBy(() -> authService.unlinkSocialFromCurrentUser(userId, AuthProvider.NAVER))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
-                .isEqualTo(ErrorCode.USER_NOT_FOUND);
+                .as("사용자가 없는 게 아니라 연결이 없는 것이다 — 프론트가 로그아웃시키면 안 된다")
+                .isEqualTo(ErrorCode.SOCIAL_LINK_NOT_FOUND);
     }
 
     @Test

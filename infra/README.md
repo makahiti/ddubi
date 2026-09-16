@@ -35,11 +35,12 @@
 | `data` | mysql, redis | |
 | `collect` | collector-weather, -bus-arrival, -bus-location, -subway-arrival, -subway-location, -subway-alert, -city-realtime, -traffic-incident, -topis-notice | 수집기 9개 전부. 배포 잡이 항상 켠다. 키가 비어 있는 수집기는 재시작을 반복하므로 서버 `.env` 의 "수집기 전용" 절을 먼저 채운다. 상세는 [수집 가이드](../docs/data-collection-guide.md) |
 | `hdfs` | hdfs-namenode, hdfs-datanode1 | archiver·spark가 HDFS를 쓰므로 함께 필요 |
-| `hdfs2` | hdfs-datanode2 | 서버2 전용. 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
+| `hdfs2` | hdfs-datanode2, hdfs-secondarynamenode | 서버2 전용. 세컨더리 네임노드는 매시간 네임노드 메타데이터 사본을 서버2 볼륨에 만든다(2026-09-14). 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
+| `hdfs-standby` | hdfs-namenode-standby | 서버2 전용, **평소 켜지 않는다**. 서버1 네임노드 메타데이터를 잃었을 때 `scripts/failover-namenode.sh` 가 켠다. [절차서](../docs/runbooks/hdfs-namenode-metadata-loss.md) |
 | `spark` | spark-master, spark-worker-1/2, spark-streaming-weather, spark-streaming-realtime | |
 | `batch` | spark-batch | 일회성 실행기. `run --rm`으로만 쓴다 |
 | `archive` | archiver | |
-| `monitoring` | prometheus, grafana, node-exporter, redis-exporter·mysqld-exporter | 서버2 몫. 스크랩 대상: 양 서버 node + 서버1 kafka-exporter |
+| `monitoring` | prometheus, grafana, node-exporter, redis-exporter·mysqld-exporter, blackbox-exporter | 서버2 몫. 스크랩 대상: 양 서버 node + 서버1 kafka-exporter. blackbox-exporter 는 ml-serving 의 /health/ready 를 대신 찔러 probe_success 지표로 바꾼다(2026-09-15) |
 | `exporters` | node-exporter, kafka-exporter, hdfs-exporter | 서버1 몫 (kafka-exporter 는 Kafka 옆에 있어야 함) |
 
 ## 새 PC에서 처음 시작하기 (로컬 개발)
@@ -85,7 +86,7 @@
    docker compose --profile core --profile collect up -d collector-weather   # 10분 주기
    ```
    나머지 수집기 8개는 `.env` 의 "수집기 전용" 절에 해당 API 키를 넣은 뒤 이름을 지정해 켭니다. 키가 비어 있으면 그 수집기만 "키 없음" 으로 재시작을 반복합니다.
-   버스 수집기 2개와 `spark-streaming-realtime` 은 저장소의 버스 대응표(`backend/transit-master/metropolitan-bus-v6.crosswalk.json.gz`)를
+   버스 수집기 2개와 `spark-streaming-realtime` 은 저장소의 버스 대응표(`backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz`)를
    읽기 전용으로 마운트해 기동 시 한 번 읽습니다(구간 ID `BUS:노선:정류장A:정류장B` 부여). 파일 지문(SHA-256)은 compose 기본값에 있고
    manifest 와 다르면 기동을 거부하므로, 대응표를 새로 만들면 compose 의 기본값(또는 `.env`)을 manifest 값으로 함께 갱신합니다.
    ```

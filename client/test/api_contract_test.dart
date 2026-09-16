@@ -8,6 +8,8 @@ import 'package:ddubi/services/api_auth_repository.dart';
 import 'package:ddubi/services/auth_api.dart';
 import 'package:ddubi/services/app_api.dart';
 import 'package:ddubi/services/place_api.dart';
+import 'package:ddubi/services/naver_login_service.dart';
+import 'package:ddubi/services/recommendation_api.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,6 +24,7 @@ void main() {
     );
     expect(ApiPaths.refresh, '/auth/refresh');
     expect(ApiPaths.logout, '/auth/logout');
+    expect(ApiPaths.oauthLogin, '/auth/oauth');
     expect(ApiPaths.oauthTokenLogin, '/auth/oauth/token');
     expect(ApiPaths.oauthIdTokenLogin, '/auth/oauth/id-token');
     expect(ApiPaths.oauthLink, '/auth/oauth/link');
@@ -117,26 +120,82 @@ void main() {
     expect(notificationLocationFromData(const {}), '/notifications');
   });
 
-  test('소셜 로그인 계정 충돌 응답을 연동 확인 흐름으로 변환한다', () async {
+  test('인가 코드 로그인 요청과 중첩 토큰 응답을 처리한다', () async {
+    late RequestOptions captured;
     final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
       ..interceptors.add(
         InterceptorsWrapper(
-          onRequest: (options, handler) => handler.reject(
-            DioException(
-              requestOptions: options,
-              response: Response<Map<String, dynamic>>(
+          onRequest: (options, handler) {
+            captured = options;
+            handler.resolve(
+              Response<Map<String, dynamic>>(
                 requestOptions: options,
-                statusCode: 409,
+                statusCode: 200,
                 data: {
-                  'success': false,
-                  'error': {'code': 'ACCOUNT_LINK_REQUIRED'},
+                  'success': true,
                   'data': {
-                    'linkToken': 'one-time-link-token',
-                    'provider': 'KAKAO',
-                    'email': 'm***@example.com',
+                    'status': 'AUTHENTICATED',
+                    'tokens': {
+                      'accessToken': 'access',
+                      'refreshToken': 'refresh',
+                      'tokenType': 'Bearer',
+                      'deviceId': 'device-1',
+                      'user': {
+                        'id': 7,
+                        'provider': 'NAVER',
+                        'email': 'member@example.com',
+                        'nickname': '뚜비',
+                      },
+                    },
                   },
                 },
               ),
+            );
+          },
+        ),
+      );
+    final store = AuthSessionStore();
+    final repository = ApiAuthRepository(
+      api: AuthApi(dio),
+      sessionStore: store,
+      deviceTokenService: DeviceTokenService(dio, store),
+    );
+
+    await repository.loginWithOAuthCode(
+      provider: 'NAVER',
+      authorizationCode: 'authorization-code',
+      redirectUri: naverRedirectUri,
+      state: 'verified-state',
+    );
+
+    expect(captured.path, '/auth/oauth');
+    expect(captured.data, {
+      'provider': 'NAVER',
+      'authorizationCode': 'authorization-code',
+      'redirectUri': naverRedirectUri,
+      'state': 'verified-state',
+    });
+    expect(store.session?.accessToken, 'access');
+    expect(store.session?.user.provider, 'NAVER');
+  });
+
+  test('200 계정 연동 필요 응답을 연동 확인 흐름으로 변환한다', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) => handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'success': true,
+                'data': {
+                  'status': 'ACCOUNT_LINK_REQUIRED',
+                  'linkToken': 'one-time-link-token',
+                  'provider': 'NAVER',
+                  'email': 'm***@example.com',
+                },
+              },
             ),
           ),
         ),
@@ -149,9 +208,11 @@ void main() {
     );
 
     await expectLater(
-      repository.loginWithOAuthToken(
-        provider: 'KAKAO',
-        accessToken: 'provider-token',
+      repository.loginWithOAuthCode(
+        provider: 'NAVER',
+        authorizationCode: 'authorization-code',
+        redirectUri: naverRedirectUri,
+        state: 'verified-state',
       ),
       throwsA(
         isA<AccountLinkRequiredException>()
@@ -160,8 +221,61 @@ void main() {
               'linkToken',
               'one-time-link-token',
             )
-            .having((error) => error.provider, 'provider', 'KAKAO')
+            .having((error) => error.provider, 'provider', 'NAVER')
             .having((error) => error.email, 'email', 'm***@example.com'),
+      ),
+    );
+  });
+
+  test('네이버 인가 URL과 Callback 주소를 정확히 구성한다', () {
+    const state = 'random-state';
+    final uri = createNaverAuthorizationUri(
+      clientId: 'client-id',
+      redirectUri: naverRedirectUri,
+      state: state,
+    );
+
+    expect(uri.host, 'nid.naver.com');
+    expect(uri.queryParameters['response_type'], 'code');
+    expect(uri.queryParameters['client_id'], 'client-id');
+    expect(uri.queryParameters['redirect_uri'], naverRedirectUri);
+    expect(uri.queryParameters['state'], state);
+    expect(
+      isNaverRedirect(
+        Uri.parse('$naverRedirectUri?code=code&state=$state'),
+        naverRedirectUri,
+      ),
+      isTrue,
+    );
+    expect(
+      isNaverRedirect(
+        Uri.parse('https://example.com/oauth/naver?code=code&state=$state'),
+        naverRedirectUri,
+      ),
+      isFalse,
+    );
+    final callback = parseNaverAuthorizationCallback(
+      Uri.parse('$naverRedirectUri?code=code&state=$state'),
+      expectedState: state,
+      redirectUri: naverRedirectUri,
+    );
+    expect(callback.authorizationCode, 'code');
+    expect(callback.state, state);
+  });
+
+  test('네이버 Callback state가 다르면 인증 코드를 사용하지 않는다', () {
+    expect(
+      () => parseNaverAuthorizationCallback(
+        Uri.parse('$naverRedirectUri?code=code&state=wrong-state'),
+        expectedState: 'expected-state',
+        redirectUri: naverRedirectUri,
+      ),
+      throwsA(
+        isA<NaverLoginException>().having(
+          (error) => error.message,
+          'message',
+          contains('로그인 요청을 확인할 수 없어요'),
+        ),
       ),
     );
   });
@@ -323,5 +437,290 @@ void main() {
     ]);
     expect(requests[1].queryParameters['activeOnly'], isTrue);
     expect(requests[2].data, {'actualArrival': null, 'locationConsent': false});
+  });
+
+  test('최신 추천과 추천 근거 응답을 화면 모델로 변환한다', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            final data = options.path.endsWith('/explanation')
+                ? {
+                    'recommendationId': 31,
+                    'departAt': '2026-09-15T08:10:00',
+                    'eta': '2026-09-15T08:42:00',
+                    'durationMin': 32,
+                    'confidence': 'LOW',
+                    'dataCheckedAt': '2026-09-15T08:00:00',
+                    'preview': true,
+                    'source': 'API_ONLY',
+                    'fallbackUsed': true,
+                    'reasonCodes': ['VALIDATION_ONLY'],
+                  }
+                : {
+                    'state': 'READY',
+                    'result': {
+                      'recommendationId': 31,
+                      'plannedDepartAt': '2026-09-15T08:10:00',
+                      'preview': {
+                        'fastest': {
+                          'departureAt': '2026-09-15T08:10:00',
+                          'estimatedArrivalAt': '2026-09-15T08:42:00',
+                        },
+                      },
+                      'persistence': {
+                        'preview': true,
+                        'confidence': 'LOW',
+                        'source': 'API_ONLY',
+                        'fallbackUsed': true,
+                        'reasons': ['VALIDATION_ONLY'],
+                      },
+                    },
+                  };
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'success': true, 'data': data},
+              ),
+            );
+          },
+        ),
+      );
+    final api = RecommendationApi(dio);
+
+    final latest = await api.getLatestOverview('12');
+    final explanation = await api.getExplanation('31');
+
+    expect(latest?.recommendationId, '31');
+    expect(latest?.durationMin, 32);
+    expect(latest?.source, 'API_ONLY');
+    expect(latest?.preview, isTrue);
+    expect(explanation.reasonCodes, ['VALIDATION_ONLY']);
+    expect(explanation.dataCheckedAt, DateTime(2026, 9, 15, 8));
+  });
+
+  test('마이페이지 소셜 연결과 해제 API 계약을 사용한다', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'success': true,
+                  'data': {
+                    'providers': options.method == 'DELETE'
+                        ? ['LOCAL']
+                        : ['LOCAL', 'KAKAO'],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+    final store = AuthSessionStore();
+    final repository = ApiAuthRepository(
+      api: AuthApi(dio),
+      sessionStore: store,
+      deviceTokenService: DeviceTokenService(dio, store),
+    );
+
+    expect(
+      await repository.linkSocialAccount(
+        provider: 'KAKAO',
+        accessToken: 'kakao-access-token',
+      ),
+      ['LOCAL', 'KAKAO'],
+    );
+    expect(await repository.unlinkSocialAccount('KAKAO'), ['LOCAL']);
+    expect(requests[0].path, '/auth/social-links');
+    expect(requests[0].data, {
+      'provider': 'KAKAO',
+      'accessToken': 'kakao-access-token',
+    });
+    expect(requests[1].path, '/auth/social-links/KAKAO');
+    expect(requests[1].method, 'DELETE');
+  });
+
+  test('홈과 알림 API가 실제 응답을 파싱하고 읽음 요청을 보낸다', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            final data = switch (options.path) {
+              '/home' => {
+                'nextSchedule': null,
+                'todaySchedules': <Object>[],
+                'unreadNotificationCount': 1,
+                'dataState': 'NORMAL',
+              },
+              '/notifications' => {
+                'unreadCount': 1,
+                'content': [
+                  {
+                    'id': 7,
+                    'scheduleId': 12,
+                    'type': 'ROUTE_CHANGE',
+                    'title': '더 빠른 경로가 있어요',
+                    'body': '경로를 확인해주세요.',
+                    'status': 'SENT',
+                    'createdAt': '2026-09-15T08:00:00',
+                    'readAt': null,
+                  },
+                ],
+              },
+              _ => <String, Object?>{},
+            };
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'success': true, 'data': data},
+              ),
+            );
+          },
+        ),
+      );
+    final store = AuthSessionStore()
+      ..save(
+        const AuthSession(
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          tokenType: 'Bearer',
+          deviceId: 'device',
+          user: AuthUser(
+            id: 1,
+            provider: 'LOCAL',
+            email: 'member@ddubi.app',
+            nickname: '뚜비',
+          ),
+        ),
+      );
+    final home = await HomeApi(dio, store).getSummary();
+    final notifications = NotificationApi(dio, store);
+    final inbox = await notifications.getInbox();
+    await notifications.markRead('7');
+    await notifications.markAllRead();
+
+    expect(home.dataState, 'NORMAL');
+    expect(inbox.items.single.scheduleId, '12');
+    expect(requests.map((request) => request.path), [
+      '/home',
+      '/notifications',
+      '/notifications/7/read',
+      '/notifications/read-all',
+    ]);
+  });
+
+  test('일정의 저장 경로 목록과 상세 및 지도 좌표를 순서대로 파싱한다', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            final data = switch (options.path) {
+              '/schedules/12/routes' => [
+                {
+                  'routeId': 31,
+                  'rankNo': 1,
+                  'selected': true,
+                  'baseDurationMin': 25,
+                  'fromName': '집',
+                  'toName': '역삼역',
+                  'segmentCount': 2,
+                  'modes': ['WALK', 'BUS'],
+                },
+              ],
+              '/routes/31' => {
+                'routeId': 31,
+                'scheduleId': 12,
+                'rankNo': 1,
+                'selected': true,
+                'baseDurationMin': 25,
+                'providerPathId': 'path-1',
+                'segments': [
+                  {
+                    'seq': 1,
+                    'mode': 'WALK',
+                    'fromName': '집',
+                    'toName': '강남역',
+                    'baseDurationMin': 5,
+                  },
+                  {
+                    'seq': 2,
+                    'mode': 'BUS',
+                    'providerRouteKey': '146',
+                    'fromName': '강남역',
+                    'toName': '역삼역',
+                    'baseDurationMin': 20,
+                  },
+                ],
+              },
+              '/routes/31/map' => {
+                'routeId': 31,
+                'bounds': {
+                  'minLat': 37.4979,
+                  'minLng': 127.0276,
+                  'maxLat': 37.5006,
+                  'maxLng': 127.0364,
+                },
+                'segments': [
+                  {
+                    'seq': 1,
+                    'mode': 'WALK',
+                    'fromName': '집',
+                    'toName': '강남역',
+                    'coordinates': <Object>[],
+                  },
+                  {
+                    'seq': 2,
+                    'mode': 'BUS',
+                    'fromName': '강남역',
+                    'toName': '역삼역',
+                    'coordinates': [
+                      {'longitude': 127.0276, 'latitude': 37.4979},
+                      {'longitude': 127.0364, 'latitude': 37.5006},
+                    ],
+                  },
+                ],
+              },
+              _ => <String, Object?>{},
+            };
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'success': true, 'data': data},
+              ),
+            );
+          },
+        ),
+      );
+    final api = RecommendationApi(dio);
+
+    final routes = await api.getSavedRoutes('12');
+    final detail = await api.getSavedRouteDetail(routes.single.routeId);
+    final map = await api.getSavedRouteMap(routes.single.routeId);
+
+    expect(routes.single.selected, isTrue);
+    expect(routes.single.modes, ['WALK', 'BUS']);
+    expect(detail.segments.last.providerRouteKey, '146');
+    expect(map.segments.first.coordinates, isEmpty);
+    expect(map.coordinates.length, 2);
+    expect(map.bounds?.maxLng, 127.0364);
+    expect(requests.map((request) => request.path), [
+      '/schedules/12/routes',
+      '/routes/31',
+      '/routes/31/map',
+    ]);
   });
 }

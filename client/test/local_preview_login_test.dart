@@ -63,7 +63,7 @@ void main() {
       await tester.tap(find.text('건너뛰기'));
       await tester.pumpAndSettle();
       await _enterCredentials(tester, 'localadmin', 'local1234');
-      expect(find.text('다음 중요 일정'), findsOneWidget);
+      expect(find.text('오늘의 일정'), findsOneWidget);
       expect(container.read(authSessionStoreProvider).session, isNull);
       expect(requests, isEmpty);
       expect(tester.takeException(), isNull);
@@ -81,7 +81,7 @@ void main() {
           authRepository: repository,
           kakaoLoginService: const KakaoSdkLoginService(),
           googleLoginService: const GoogleSdkLoginService(),
-          naverLoginService: const NaverSdkLoginService(),
+          naverLoginService: const NaverWebLoginService(),
           onAuthenticated: () => authenticated = true,
         ),
       ),
@@ -108,7 +108,7 @@ void main() {
             authRepository: repository,
             kakaoLoginService: const KakaoSdkLoginService(),
             googleLoginService: const GoogleSdkLoginService(),
-            naverLoginService: const NaverSdkLoginService(),
+            naverLoginService: const NaverWebLoginService(),
             onAuthenticated: () => authenticated = true,
           ),
         ),

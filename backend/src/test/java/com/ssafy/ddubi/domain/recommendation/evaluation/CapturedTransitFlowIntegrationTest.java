@@ -116,7 +116,15 @@ class CapturedTransitFlowIntegrationTest extends IntegrationTestSupport {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(json.readTree(latest).path("data").path("result")).isEqualTo(expected);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM route_segment_edge",Integer.class)).isPositive();
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recommendation",Integer.class)).isZero();
+        // 검증용 결과도 추천 행으로 남는다(2026-09-14). 프론트가 근거 화면을 열 수 있어야 한다.
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recommendation",Integer.class)).isEqualTo(1);
+        long recommendationId = expected.path("recommendationId").asLong();
+        assertThat(recommendationId).isPositive();
+        http.perform(get("/api/v1/recommendations/{id}/explanation",recommendationId).header("Authorization",bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.preview").value(true))
+                .andExpect(jsonPath("$.data.productionReady").value(false))
+                .andExpect(jsonPath("$.data.confidence").value("LOW"));
         http.perform(post("/api/v1/schedules/{id}/recommendations",id).header("Authorization",bearer)).andExpect(status().isOk());
         verify(routeClient,times(1)).search(any());
         http.perform(get("/api/v1/schedules/{id}/recommendations/latest",id)).andExpect(status().isUnauthorized());

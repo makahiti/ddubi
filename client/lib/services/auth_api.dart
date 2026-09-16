@@ -64,6 +64,25 @@ class AuthApi {
     );
   }
 
+  Future<Response<Map<String, dynamic>>> loginWithOAuthCode({
+    required String provider,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
+    String? deviceId,
+  }) {
+    return _dio.post<Map<String, dynamic>>(
+      ApiPaths.oauthLogin,
+      data: {
+        'provider': provider,
+        'authorizationCode': authorizationCode,
+        'redirectUri': redirectUri,
+        'state': state,
+        'deviceId': ?deviceId,
+      },
+    );
+  }
+
   Future<Response<Map<String, dynamic>>> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
@@ -89,6 +108,22 @@ class AuthApi {
       },
     );
   }
+
+  Future<Response<Map<String, dynamic>>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  }) => _dio.post<Map<String, dynamic>>(
+    ApiPaths.socialLinks,
+    data: {
+      'provider': provider,
+      'accessToken': ?accessToken,
+      'idToken': ?idToken,
+    },
+  );
+
+  Future<Response<Map<String, dynamic>>> unlinkSocialAccount(String provider) =>
+      _dio.delete<Map<String, dynamic>>(ApiPaths.socialLink(provider));
 
   Future<void> logout({
     required String refreshToken,

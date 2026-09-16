@@ -31,7 +31,7 @@ x-collector: &collector
   volumes:
     - collector-budget:/app/data
     # 수도권 버스 대응표(정류장 ID → 인접 구간 segment_id). 저장소 파일을 읽기 전용으로 붙인다.
-    # 버스 수집기 2개만 읽고 나머지는 무시한다. 파일·SHA 는 backend/transit-master/*.manifest.json 이 진실
+    # 버스 수집기 2개만 읽고 나머지는 무시한다. 파일·SHA 는 backend/transit-master/bus/*.manifest.json 이 진실
     - ../backend/transit-master:/opt/ddubi/transit-master:ro
   depends_on:
     kafka:
@@ -65,8 +65,8 @@ x-collector-env: &collector-env
   CITY_AREA_REGISTRY_PATH: ${CITY_AREA_REGISTRY_PATH:-}
   # 버스 대응표 위치와 파일 지문(SHA-256). 지문이 틀리면 버스 수집기는 기동을 거부한다(재시작 반복).
   # 기본값을 여기(compose)에 두는 이유: 파일이 저장소에 있으니 지문도 같은 커밋에서 함께 바뀌어야 한다.
-  # 파일을 새로 만들면 backend/transit-master/metropolitan-bus-v6.crosswalk.json.manifest.json 의 sha256 으로 갱신
-  BUS_CROSSWALK_PATH: ${BUS_CROSSWALK_PATH:-/opt/ddubi/transit-master/metropolitan-bus-v6.crosswalk.json.gz}
+  # 파일을 새로 만들면 backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.manifest.json 의 sha256 으로 갱신
+  BUS_CROSSWALK_PATH: ${BUS_CROSSWALK_PATH:-/opt/ddubi/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz}
   BUS_CROSSWALK_SHA256: ${BUS_CROSSWALK_SHA256:-e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd}
 
 # Spark 3개 노드가 공유하는 마운트. 설정은 infra/spark/conf/ 디렉터리를 /opt/spark/conf 에 마운트
@@ -306,6 +306,30 @@ services:
   #  - 외부 공개는 nginx 의 80/443 뿐. backend 는 호스트 포트를 열지 않는다
   #  - JWT_SECRET 이 비어 있으면 backend 가 기동을 거부한다 (.env 에 반드시 설정)
   # =========================================================================
+  ml-serving:
+    <<: *common
+    build:
+      context: ../ml-serving
+      dockerfile: Dockerfile
+    image: ddubi/ml-serving:${APP_VERSION:-0.1.0}
+    container_name: ml-serving
+    profiles: ["serving"]
+    mem_limit: 4g
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      ML_BUNDLE_DIR: /models/v12
+      ML_MAX_WAITING_REQUESTS: ${ML_MAX_WAITING_REQUESTS:-4}
+      ML_QUEUE_WAIT_SECONDS: ${ML_QUEUE_WAIT_SECONDS:-5}
+      ML_REFERENCE_CACHE_MIB: ${ML_REFERENCE_CACHE_MIB:-256}
+    volumes:
+      - ${ML_BUNDLE_DIR:-../artifacts/ml-serving/20260908-v12}:/models/v12:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      retries: 10
+      start_period: 60s
+
   backend:
     <<: *common
     build:
@@ -353,6 +377,9 @@ services:
       # 서버1·서버2 .env 에 같은 값이 있어야 한다 (2026-09-07 인프라 확인).
       # 비어 있으면 backend 가 /internal 을 503 으로 닫는다.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # 개발용 테스트 알림 발송(POST /api/v1/dev/notifications/test). 프론트 연동 확인용이다.
+      # 기본 false — 켜면 로그인한 본인에게 알림을 임의로 만들 수 있다. 발표 전에 되돌린다.
+      DDUBI_DEV_ENDPOINTS_ENABLED: ${DDUBI_DEV_ENDPOINTS_ENABLED:-false}
       DDUBI_TRANSIT_MASTER_IMPORT_ENABLED: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:-false}
       DDUBI_TRANSIT_MASTER_DATA_VERSION: ${DDUBI_TRANSIT_MASTER_DATA_VERSION:-}
       DDUBI_TRANSIT_MASTER_BUS_WORKBOOK: ${DDUBI_TRANSIT_MASTER_BUS_WORKBOOK:-}
@@ -361,8 +388,10 @@ services:
       DDUBI_TRANSIT_MASTER_ALIASES: ${DDUBI_TRANSIT_MASTER_ALIASES:-}
       # 수도권 버스 마스터(V4) 관리 적재. 일반 기동은 false. 적재는 backend 팀과 함께 플래그를 켜 한 번 재기동 → 다시 false
       DDUBI_METROPOLITAN_BUS_IMPORT_ENABLED: ${DDUBI_METROPOLITAN_BUS_IMPORT_ENABLED:-false}
-      DDUBI_METROPOLITAN_BUS_ARTIFACT: ${DDUBI_METROPOLITAN_BUS_ARTIFACT:-/opt/ddubi/transit-master/metropolitan-bus-v6.json.gz}
+      DDUBI_METROPOLITAN_BUS_ARTIFACT: ${DDUBI_METROPOLITAN_BUS_ARTIFACT:-/opt/ddubi/transit-master/bus/metropolitan-bus-v6.json.gz}
+      DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE: ${DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE:-}
       DDUBI_METROPOLITAN_BUS_SHA256: ${DDUBI_METROPOLITAN_BUS_SHA256:-e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64}   # metropolitan-bus-v6.json.manifest.json 의 sha256
+      DDUBI_RECOMMENDATION_ML_PREVIEW_BASE_URL: ${DDUBI_RECOMMENDATION_ML_PREVIEW_BASE_URL:-http://ml-serving:8000}
       JAVA_OPTS: -Xms256m -Xmx512m
     volumes:
       # 기본값을 저장소의 backend/transit-master 로(9/11). 이전 기본값 ./transit-master 는 서버에 빈 폴더였다.
@@ -374,6 +403,11 @@ services:
         required: false
       redis:
         condition: service_healthy
+        required: false
+      # ML 은 보조 축(실패 시 backend 가 카카오 값으로 fallback). healthy 를 기다리게 두면 ml-serving 이미지 실패·
+      # 모델 로드 지연이 곧 backend 다운이 된다 (9/14 15:19~15:26 사용자 API 7분 30초 불가). 기동만 확인하고 기다리지 않는다
+      ml-serving:
+        condition: service_started
         required: false
     healthcheck:
       test: ["CMD-SHELL", "curl -fs http://localhost:8080/actuator/health >/dev/null"]
@@ -535,6 +569,10 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # 같은 표준 DataFrame을 Redis 최신값과 HDFS Silver에 각각 쓴다.
+      SILVER_OUTPUT_URI: ${SILVER_OUTPUT_URI:-}
+      WEATHER_SILVER_TRIGGER: ${WEATHER_SILVER_TRIGGER:-10 minutes}
+      WEATHER_SILVER_WATERMARK: ${WEATHER_SILVER_WATERMARK:-2 days}
     volumes:
       - ./spark/conf:/opt/spark/conf:ro
       - ../sparkjobs:/opt/ddubi/sparkjobs
@@ -797,6 +835,64 @@ services:
         condition: service_started
         required: false   # hdfs2 단독 기동 시 namenode 정의가 비활성이어도 깨지지 않게
 
+  # 세컨더리 네임노드. 서버2에서 항상 켜 둔다.
+  # 네임노드의 메타데이터(어느 블록이 어느 파일인지 적힌 목차)는 서버1 볼륨 한 곳에만 있었다. 이 컨테이너가 한 시간마다
+  # 서버1 네임노드에서 목차 파일(fsimage)과 변경 기록(edits)을 받아 하나로 합친 새 목차 파일을 만들고, 자기 볼륨에 두면서
+  # 서버1 네임노드에도 돌려준다. 덕분에 서버2에 최대 한 시간 전 목차 사본이 항상 있고, 서버1의 변경 기록도 무한히 자라지 않는다.
+  # 통신은 서버2에서 서버1의 9870·9000 포트로만 나간다. 데이터노드2가 이미 쓰는 길이라 방화벽을 바꿀 필요가 없다.
+  # 서버1 네임노드가 죽어도 이 컨테이너가 자동으로 이어받지는 않는다. 서버가 두 대뿐이어서 다수결로 진짜를 정하는
+  # 자동 이중화는 만들 수 없기 때문이다. 이어받기는 사람이 scripts/failover-namenode.sh 로 한다.
+  # 절차는 docs/runbooks/hdfs-namenode-metadata-loss.md 에 있다.
+  hdfs-secondarynamenode:
+    <<: *hdfs
+    container_name: hdfs-secondarynamenode
+    hostname: hdfs-secondarynamenode
+    profiles: ["hdfs2"]
+    command: ["hdfs", "secondarynamenode"]
+    volumes:
+      - ./hdfs/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hdfs/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - hdfs-namesecondary-data:/hadoop/dfs/namesecondary
+    depends_on:
+      hdfs-namenode:
+        condition: service_started
+        required: false
+
+  # 예비 네임노드. 평소에는 꺼져 있고(전용 프로필 hdfs-standby), 서버1 네임노드의 목차를 잃었을 때만 사람이 켠다.
+  # 처음 켤 때 자기 이름 폴더가 비어 있으면 세컨더리가 만든 사본을 가져와서 시작한다. 이미 목차가 있으면 그대로 시작한다.
+  # 켜기 전에 세컨더리 네임노드를 꼭 멈춰야 한다. 세컨더리가 같은 사본 폴더에 잠금을 잡고 있어서, 켜져 있으면 예비가 그 폴더를
+  # 열지 못하고 바로 종료된다. 이 순서를 지켜 주는 것이 scripts/failover-namenode.sh 다.
+  hdfs-namenode-standby:
+    <<: *hdfs
+    container_name: hdfs-namenode-standby
+    hostname: hdfs-namenode
+    profiles: ["hdfs-standby"]
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /hadoop/dfs/name/current/VERSION ]; then
+          echo "이름 폴더가 비어 있어 세컨더리 사본(/hadoop/dfs/namesecondary)에서 목차를 가져와 시작한다"
+          exec hdfs namenode -importCheckpoint
+        fi
+        exec hdfs namenode
+    ports:
+      - "9870:9870"   # 서버1 네임노드와 같은 포트를 서버2 호스트에 연다. 데이터노드2는 호스트 IP 로 네임노드를 찾기 때문이다
+      - "9000:9000"
+    volumes:
+      - ./hdfs/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hdfs/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - hdfs-namenode-standby-data:/hadoop/dfs/name
+      - hdfs-namesecondary-data:/hadoop/dfs/namesecondary
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -sf 'http://localhost:9870/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo' | grep -q '\"Safemode\" *: *\"\"'"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
   # =========================================================================
   # monitoring : Prometheus / Grafana / kafka-exporter [서버2], node-exporter [양쪽]
   # =========================================================================
@@ -879,6 +975,21 @@ services:
     ports:
       - "7979:7979"
 
+  # 상태 주소를 대신 찔러 보고 성공 여부를 지표(probe_success 1/0)로 바꿔 주는 도구. 서버2 monitoring 프로필.
+  # ml-serving 은 Prometheus 가 읽을 지표 주소가 없고 /health/ready(준비되면 200, 아니면 503)만 있어서 이 도구로 감시한다.
+  # 어떤 주소를 어떻게 찌를지는 monitoring/blackbox/blackbox.yml 에, 어떤 주소를 감시할지는 prometheus.yml 의 ml-serving 잡에 있다.
+  # 나중에 다른 URL 도 같은 방식으로 붙일 수 있다.
+  blackbox-exporter:
+    <<: *common
+    image: prom/blackbox-exporter:${BLACKBOX_EXPORTER_VERSION:-v0.25.0}
+    container_name: blackbox-exporter
+    profiles: ["monitoring"]
+    mem_limit: 64m
+    command:
+      - --config.file=/config/blackbox.yml
+    volumes:
+      - ./monitoring/blackbox:/config:ro
+
   redis-exporter:
     <<: *common
     image: oliver006/redis_exporter:${REDIS_EXPORTER_VERSION:-v1.66.0}
@@ -916,6 +1027,8 @@ volumes:
   hdfs-namenode-data:
   hdfs-datanode1-data:
   hdfs-datanode2-data:
+  hdfs-namesecondary-data:       # 서버2. 세컨더리 네임노드가 매시간 두는 목차 사본이 들어간다
+  hdfs-namenode-standby-data:    # 서버2. 예비 네임노드의 이름 폴더. 이어받기를 할 때만 채워진다
   spark-checkpoints:
   spark-events:
   spark-ivy:

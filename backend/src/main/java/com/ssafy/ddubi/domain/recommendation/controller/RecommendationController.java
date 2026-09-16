@@ -61,11 +61,13 @@ public class RecommendationController {
         return ApiResponse.success(Map.of("state", "STOPPED"));
     }
 
-    @Operation(summary = "추천 근거", description = "저장된 추천의 계산 근거를 조회한다.")
+    @Operation(summary = "추천 근거",
+            description = "저장된 추천의 계산 근거를 조회한다. preview=true면 미승인 모델로 계산한 검증용 추천이다.")
     @GetMapping("/recommendations/{recommendationId}/explanation")
     public ApiResponse<RecommendationExplanationResponse> explanation(
             @LoginUserId Long userId, @PathVariable Long recommendationId) {
-        return ApiResponse.success(RecommendationExplanationResponse.from(
-                recommendationService.explanation(userId, recommendationId)));
+        var explanation = recommendationService.explanation(userId, recommendationId);
+        return ApiResponse.success(
+                RecommendationExplanationResponse.from(explanation.recommendation(), explanation.persistence()));
     }
 }

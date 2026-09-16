@@ -26,7 +26,7 @@ python backend/tools/transit-timing/audit_kakao_times.py `
 ```powershell
 python backend/tools/transit-timing/build_timetable.py `
   --csv 'C:/Users/SSAFY/Desktop/경로/지하철_보강검증_20260910/raw/seoul-timetable-20260616.csv' `
-  --master backend/src/main/resources/transit/metropolitan-subway-master.json.gz `
+  --master backend/transit-master/subway/metropolitan-subway-master.json.gz `
   --service-date 2026-09-11 --day-type DAY `
   --published-at (Get-Date -Format o) `
   --source-url https://www.data.go.kr/data/15098251/fileData.do `
@@ -71,7 +71,7 @@ mvn -q -f backend/pom.xml '-Dtest=CapturedTransitFlowIntegrationTest' `
   '-Dtransit.replay.enabled=true' `
   '-Dtransit.replay.timetable=C:/Users/SSAFY/Desktop/S15P21E202/backend/target/transit-timing/timetable.json' `
   '-Dtransit.replay.master=classpath:transit/metropolitan-subway-master.json.gz' `
-  '-Dtransit.replay.bus-master=C:/Users/SSAFY/Desktop/S15P21E202/backend/transit-master/metropolitan-bus-v6.json.gz' `
+  '-Dtransit.replay.bus-master=C:/Users/SSAFY/Desktop/S15P21E202/backend/transit-master/bus/metropolitan-bus-v6.json.gz' `
   '-Dtransit.replay.responses=C:/Users/SSAFY/Desktop/경로' test
 ```
 

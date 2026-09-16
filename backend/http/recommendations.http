@@ -29,6 +29,12 @@ Content-Type: application/json
 ### ② 추천 계산 — 도착 시각에서 거꾸로 출발 시각을 구한다
 # departAt = arriveBy - durationMin - bufferMin
 # 다시 호출하면 덮어쓰지 않고 새 행이 생긴다(도메인 규칙 7).
+#
+# 응답에서 볼 것:
+#   data.recommendationId       ⑤ 근거 조회에 쓴다. null 이면 저장되지 않은 것이다
+#   data.persistence.saved      false 면 reason 에 사유가 있다(ETA_UNAVAILABLE 등)
+#   data.persistence.preview    현재는 항상 true — 미승인 모델이라 검증용이다
+#   data.persistence.source     API_ONLY / ML_PREVIEW / SUBWAY_PREVIEW / MIXED_PREVIEW
 POST {{host}}/schedules/{{scheduleId}}/recommendations
 Authorization: Bearer {{token}}
 
@@ -59,3 +65,16 @@ Authorization: Bearer 다른_계정_토큰
 ### ⑦ 없는 추천 — 404
 GET {{host}}/recommendations/999999/explanation
 Authorization: Bearer {{token}}
+
+### ⑧ 추천 수락 — 지금은 409 여야 한다
+# 저장은 열었지만 수락은 막아 뒀다. 사용자의 출발 시각을 실제로 바꾸는 일이라,
+# 미승인 모델(production_ready=false)이 계산한 값으로는 허용하지 않는다.
+#   409 INVALID_STATE "검증용 ML 결과는 일정에 적용할 수 없습니다."
+# evaluationId 는 ② 응답의 data.evaluationId 다.
+POST {{host}}/schedules/{{scheduleId}}/recommendations/accept
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "evaluationId": "②_응답의_evaluationId"
+}

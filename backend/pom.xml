@@ -165,6 +165,16 @@
     </dependencies>
 
     <build>
+        <!-- 공통 마스터 원본을 기존 classpath:transit/ 경로에 포함한다.
+             Backend 내부 transit-master/subway를 빌드 작업 공간에 제공해야 한다. -->
+        <resources>
+            <resource><directory>src/main/resources</directory></resource>
+            <resource>
+                <directory>${project.basedir}/transit-master/subway</directory>
+                <targetPath>transit</targetPath>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

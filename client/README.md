@@ -31,12 +31,11 @@ Google과 Naver의 화면 확인용 Mock 성공 흐름은 사용하지 않습니
 ```text
 GOOGLE_WEB_CLIENT_ID=
 NAVER_CLIENT_ID=
-NAVER_CLIENT_SECRET=
-NAVER_CLIENT_NAME=DDUBI
+NAVER_REDIRECT_URI=https://j15e202.p.ssafy.io/oauth/naver
 ```
 
 - Google: Android OAuth 클라이언트에 `com.ssafy.ddubi`와 빌드 SHA-1을 등록합니다. `GOOGLE_WEB_CLIENT_ID`는 백엔드의 `GOOGLE_CLIENT_ID`와 같은 Web OAuth 클라이언트 ID여야 합니다. 앱의 ID 토큰은 `POST /api/v1/auth/oauth/id-token`으로 전달합니다.
-- Naver: 개발자 콘솔의 Android 환경에 `com.ssafy.ddubi`를 등록합니다. 공식 Android SDK가 요구하는 Client ID와 Client Secret은 Android 빌드 설정에 포함되므로 `.env`를 커밋하지 말고 콘솔의 앱 제한 설정도 함께 관리합니다. 앱의 액세스 토큰은 `POST /api/v1/auth/oauth/token`으로 전달합니다.
+- Naver: 앱에는 공개 식별자인 `NAVER_CLIENT_ID`만 주입합니다. 인앱 웹 인증의 Callback URL은 `https://j15e202.p.ssafy.io/oauth/naver`이며, 앱이 받은 인가 코드와 검증한 state를 `POST /api/v1/auth/oauth`로 전달합니다. `NAVER_CLIENT_SECRET`은 백엔드에만 둡니다.
 
 현재 출발·현재·도착 마커는 화면 확인용 강남권 Mock 좌표입니다. 백엔드 경로 API에 좌표와 경로 형상이 추가되면 `lib/presentation/screens.dart`의 `_RouteMapView`에서 교체합니다.
 

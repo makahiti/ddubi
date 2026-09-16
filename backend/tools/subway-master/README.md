@@ -15,6 +15,6 @@ python backend/tools/subway-master/package_master.py <작업폴더> <실시간�
 - `raw/gtxa-main.html`: 운영사의 두 운행 구간 카드. HTML 형식이 달라지면 파서 검토가 필요하다.
 - `raw/` 아래 계약 문서의 원본 파일과 `.source.json`: 출처 URL·SHA-256. 실험 원본과 재생 스크립트는 바탕화면 `경로/지하철_보강검증_20260910`에 보존한다.
 
-출력은 `metropolitan-subway-master.json.gz`, `source-manifest.json`, `station-coordinates.json`, `crosswalk.json`, `master-gaps.json`, 원본 격리/패턴 근거 JSON이다. gzip 시각은 0으로 고정한다. 생성 후 공식 원본 해시와 golden corpus를 다시 검증하고, 검토된 세 배포 파일만 `src/main/resources/transit/`로 반영한다.
+출력은 `metropolitan-subway-master.json.gz`, `source-manifest.json`, `station-coordinates.json`, `crosswalk.json`, `master-gaps.json`, 원본 격리/패턴 근거 JSON이다. gzip 시각은 0으로 고정한다. 생성 후 공식 원본 해시와 golden corpus를 다시 검증하고, 검토된 세 배포 파일만 저장소 루트의 `backend/transit-master/subway/`로 반영하고 공통 manifest를 갱신한다. Maven이 기존 classpath로 포함한다.
 
 역명 축약 대응은 KRIC 운행 자료에만 적용한다. 다른 이름을 전역 유사도 매칭하거나 역 코드 크기로 방향을 추정하지 않는다. 파일 전체 버전 고정과 배포 방법은 [계약](../../../docs/contracts/metropolitan-subway-master.md)을 따른다.

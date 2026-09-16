@@ -114,18 +114,23 @@ public class ScheduleEvaluationStore {
         }
         if (cache == null) throw new IllegalStateException("후보 캐시가 없습니다.");
         var chosenResult = outcome.suggestion().proposed() != null ? outcome.suggestion().proposed() : outcome.selected();
+        var persistence = persistence(outcome, chosenResult, cache);
+        // Persistence를 먼저 붙인다. reasons 컬럼에 들어갈 JSON에도 검증용 표시가 남아야
+        // 나중에 추천 근거만 꺼내 봐도 그 숫자의 출처를 알 수 있다.
+        var stored = outcome.withPersistence(persistence);
         Long recommendationId = null;
-        if (outcome.preview() == null && chosenResult != null && chosenResult.estimatedArrivalAt() != null) {
+        if (persistence.saved()) {
             long seconds = Duration.between(chosenResult.departureAt(), chosenResult.estimatedArrivalAt()).getSeconds();
             Recommendation recommendation = recommendations.saveAndFlush(Recommendation.builder().schedule(s)
                     .route(routes.getReferenceById(cache.routeIds().get(chosenResult.journeyKey())))
                     .departAt(local(chosenResult.departureAt())).eta(local(chosenResult.estimatedArrivalAt()))
                     .durationMin(Math.toIntExact((seconds + 59) / 60)).bufferMin(0).percentileUsed(null)
-                    .confidence(Confidence.LOW).reasons(write(outcome)).segmentStatusSnapshot(write(outcome.evidence()))
+                    // 응답에 실은 등급과 행에 남는 등급이 갈라지지 않도록 같은 값을 쓴다.
+                    .confidence(persistence.confidence()).reasons(write(stored)).segmentStatusSnapshot(write(outcome.evidence()))
                     .dataCheckedAt(local(outcome.checkedAt())).policyVersion("sched-v1").triggerType(outcome.trigger()).build());
             recommendationId = recommendation.getId();
         }
-        var saved = outcome.withRecommendationId(recommendationId);
+        var saved = stored.withRecommendationId(recommendationId);
         // 계산 중 들어온 이벤트는 다음 평가를 앞당긴다. 완료가 event-trigger를 지우지 않는다.
         if (((Number) state.get("event_revision")).longValue() != job.eventRevision()) nextAt = now;
         jdbc.update("UPDATE schedule_evaluation SET input_updated_at=?,candidates_json=?,result_json=?,next_check_at=?,"
@@ -204,6 +209,8 @@ public class ScheduleEvaluationStore {
         if (pending.isEmpty()) throw new BusinessException(ErrorCode.STALE_RECOMMENDATION);
         var row = pending.get(0);
         var result = read((String) row.get("result_json"), ScheduleEvaluationWorkflow.Outcome.class);
+        // 저장(기록)은 허용해도 수락(사용자 출발시각 실제 변경)은 막는다. 모델이 승인되기 전까지
+        // 검증 안 된 숫자로 사용자를 실제로 움직이게 하지 않는다. complete()의 판정과 다른 것이 의도다.
         if (result != null && result.preview() != null)
             throw new BusinessException(ErrorCode.INVALID_STATE, "검증용 ML 결과는 일정에 적용할 수 없습니다.");
         if (result == null || !result.evaluationId().equals(evaluationId) || result.suggestion().proposed() == null
@@ -224,6 +231,42 @@ public class ScheduleEvaluationStore {
         jdbc.update("UPDATE schedule_evaluation SET candidates_json=?,input_updated_at=?,result_json=NULL,next_check_at=?,lease_token=NULL,lease_until=NULL,notification_json=NULL WHERE schedule_id=?",
                 write(new Cache(cache.search(), cache.routeIds(), proposed.journeyKey(), selectedCandidate)),
                 s.getUpdatedAt(), ts(now), scheduleId);
+    }
+
+    /**
+     * 추천 행을 남길지 판정하고, 남기지 않으면 사유를 붙인다.
+     *
+     * <h3>PREVIEW라는 이유로 막지 않는다</h3>
+     * 예측 서비스가 미승인이라 지금은 <b>모든</b> 결과가 PREVIEW다. 그걸 저장 조건으로 두면
+     * 추천 행이 하나도 안 생기고 최신 추천·추천 근거 API가 계속 빈손이다(2026-09-14 합의).
+     * 검증용이라는 사실은 지우지 않고 {@code confidence=LOW}와 Persistence로 행에 함께 남긴다.
+     * <b>수락({@link #accept})과 자동 알림은 여전히 막혀 있다</b> — 저장은 기록일 뿐이지만
+     * 그 둘은 사용자의 출발시각을 바꾸고 폰을 울린다.
+     *
+     * <h3>저장하지 않을 때 왜 사유가 필요한가</h3>
+     * 추천이 비어 있는 화면에서 "아직 계산 중"과 "계산은 했는데 근거가 없다"는 전혀 다른
+     * 상황인데, recommendationId가 null이라는 사실만으로는 둘을 구분할 수 없다.
+     */
+    private ScheduleEvaluationWorkflow.Persistence persistence(ScheduleEvaluationWorkflow.Outcome outcome,
+            RouteTimelineEvaluator.Result chosen, Cache cache) {
+        MlRoutePreview.Comparison preview = outcome.preview();
+        MlRoutePreview.Candidate candidate = chosen == null || preview == null ? null
+                : preview.candidates().stream().filter(c -> c.result().journeyKey().equals(chosen.journeyKey()))
+                        .findFirst().orElse(null);
+        // 저장하지 못하는 세 가지. ROUTE_NOT_STORED는 캐시에 없는 후보를 고른 경우로,
+        // 조용히 NPE로 죽는 대신 사유로 드러낸다.
+        String reason = chosen == null ? "NO_CANDIDATE"
+                : chosen.estimatedArrivalAt() == null ? "ETA_UNAVAILABLE"
+                : cache.routeIds().get(chosen.journeyKey()) == null ? "ROUTE_NOT_STORED" : null;
+        // 미승인 모델로 계산한 값이라 등급을 매기지 않는다. 규약 4장 규칙 8의 HIGH/MID/LOW가
+        // 실제로 갈리는 것은 예측 서비스와 baseline_serving이 붙은 뒤다.
+        return new ScheduleEvaluationWorkflow.Persistence(reason == null, reason, preview != null,
+                preview == null ? null : preview.status(), preview != null && preview.productionReady(),
+                Confidence.LOW,
+                candidate == null ? null : candidate.quality(), candidate != null && candidate.apiSteps() > 0,
+                candidate == null ? 0 : candidate.mlSteps(), candidate == null ? 0 : candidate.apiSteps(),
+                candidate == null ? 0 : candidate.subwaySteps(), candidate == null ? 0 : candidate.busWaitSteps(),
+                chosen == null ? List.of() : chosen.reasons());
     }
 
     Schedule owned(long id, Long userId) {

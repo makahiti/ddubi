@@ -12,7 +12,7 @@ import static org.mockito.Mockito.*;
 import static org.assertj.core.api.Assertions.*;
 
 /** TTL과 freshness를 구분하고 전체 관측 교체/부분 관측 fallback/미배치 시간 보존을 검증한다. */
-class RouteEvidenceAssemblerTest {
+public class RouteEvidenceAssemblerTest {
     final ObjectMapper json = new ObjectMapper();
     final Instant now = Instant.parse("2026-09-10T00:00:00Z");
 

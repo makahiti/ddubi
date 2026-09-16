@@ -292,6 +292,8 @@ CREATE TABLE notification (
     body              VARCHAR(500) NOT NULL,
     suppress_key      VARCHAR(64)  NULL COMMENT '일정·이유·행동 조합 해시 — 재발송 방지 (REQ-NTF-002)',
     status            ENUM('SENT','FAILED','SUPPRESSED') NOT NULL,
+    suppress_reason   ENUM('DUPLICATE','ALARM_OFF','NO_VALID_DEVICE') NULL
+                      COMMENT '보내지 않은 이유. SENT/FAILED 와 도입(V6) 이전 행은 NULL',
     sent_at           DATETIME     NULL,
     read_at           DATETIME     NULL COMMENT 'NULL 개수 = 안읽음 뱃지',
     created_at        DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

@@ -67,6 +67,39 @@ scrape_configs:
       - target_label: __address__
         replacement: 172.26.15.35:7979
 
+  # ml-serving(버스 구간 예측). 지표 주소가 없어 blackbox-exporter 가 /health/ready 를 대신 찔러 본다.
+  # 결과는 probe_success{job="ml-serving"} 1(준비됨) / 0(죽었거나 모델 미준비). 0 이어도 backend 는 카카오 값으로 대체 동작한다 (2026-09-15)
+  - job_name: ml-serving
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    static_configs:
+      - targets: ["http://ml-serving:8000/health/ready"]
+        labels: { server: server2-service }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # 공개 주소를 https 로 찔러 본다. 목적은 두 가지다. nginx 가 인증서까지 포함해 정상 응답하는지, 그리고 blackbox 가 함께 알려 주는
+  # 인증서 만료 시각(probe_ssl_earliest_cert_expiry)으로 "인증서 만료 14일 전" 알림을 내기 위해서다 (2026-09-15).
+  # certbot 자동 갱신이 조용히 실패해도 이 알림이 잡는다. 서버2 안에서 자기 공개 주소로 나가는 요청이라 완전한 바깥 시점은 아니다.
+  - job_name: public-https
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    static_configs:
+      - targets: ["https://j15e202.p.ssafy.io/healthz"]
+        labels: { server: server2-service }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
   - job_name: redis
     static_configs:
       - targets: ["redis-exporter:9121"]

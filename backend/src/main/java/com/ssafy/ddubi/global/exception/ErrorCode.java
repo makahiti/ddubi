@@ -51,6 +51,17 @@ public enum ErrorCode {
     DEVICE_TOKEN_NOT_FOUND(HttpStatus.NOT_FOUND, "등록되지 않은 기기 토큰입니다."),
     REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "리포트를 찾을 수 없습니다."),
 
+    /**
+     * 그 제공자가 이 계정에 연결돼 있지 않다.
+     *
+     * <p>{@link #USER_NOT_FOUND} 와 반드시 구분한다. 같은 404 라도 뜻이 정반대다 —
+     * <b>사용자는 멀쩡한데 연결만 없는 것</b>이다. 같은 코드로 주면 프론트가 "계정이 사라졌다"
+     * 로 읽고 로그아웃시킬 수 있다.
+     *
+     * <p>다른 기기·탭에서 이미 해제한 경우에도 이 코드가 온다. 화면을 새로 고치면 된다.
+     */
+    SOCIAL_LINK_NOT_FOUND(HttpStatus.NOT_FOUND, "연결되지 않은 소셜 계정입니다."),
+
     /* 409 */
     DUPLICATE_RESOURCE(HttpStatus.CONFLICT, "이미 존재하는 리소스입니다."),
 
@@ -73,13 +84,30 @@ public enum ErrorCode {
     ACCOUNT_LINK_UNAVAILABLE(HttpStatus.CONFLICT, "이 이메일은 다른 로그인 수단으로 가입되어 있습니다."),
 
     /**
+     * 같은 제공자의 <b>다른</b> 계정이 이미 연결돼 있다.
+     *
+     * <p>{@link #SOCIAL_ALREADY_LINKED}(그 소셜이 남에게 붙어 있음)와 다르다. 이건
+     * <b>내 계정에</b> 이미 그 제공자가 하나 붙어 있는 경우다 —
+     * {@code UK_UAUTH_USER_PROVIDER (user_id, provider)} 때문에 제공자당 하나만 가능하다.
+     *
+     * <p>조용히 갈아치우지 않는 이유: 원래 그 계정으로 로그인하던 사람이 어느 날 못 들어온다.
+     * 먼저 해제한 뒤 연결하게 한다.
+     */
+    SOCIAL_PROVIDER_ALREADY_BOUND(HttpStatus.CONFLICT,
+            "이미 같은 종류의 다른 소셜 계정이 연결되어 있습니다. 먼저 해제해 주세요."),
+
+    /**
      * 마지막 남은 로그인 수단은 해제할 수 없다.
      *
      * <p>떼는 순간 <b>사용자가 자기 계정에서 잠긴다.</b> 되돌릴 방법도 없다 — 들어갈 수가
      * 없으니 다시 연결할 화면에도 못 간다. 계정을 정리하려는 것이면 탈퇴가 맞는 길이다.
+     *
+     * <p><b>화면에는 수단이 둘로 보이는데 이 오류가 올 수 있다.</b> 다른 기기·탭에서 방금
+     * 하나가 빠진 경우다. 그래서 메시지에 새로고침 안내를 넣는다 — 없으면 사용자는 버그로 본다.
      */
     LAST_LOGIN_METHOD(HttpStatus.CONFLICT,
-            "마지막 로그인 수단은 해제할 수 없습니다. 다른 방법을 먼저 연결해 주세요."),
+            "마지막 로그인 수단은 해제할 수 없습니다. 다른 방법을 먼저 연결해 주세요. "
+                    + "다른 기기에서 이미 해제했다면 화면을 새로 고쳐 주세요."),
     INVALID_STATE(HttpStatus.CONFLICT, "현재 상태에서는 처리할 수 없습니다."),
     STALE_RECOMMENDATION(HttpStatus.CONFLICT, "추천 결과가 최신이 아닙니다. 다시 조회해 주세요."),
 

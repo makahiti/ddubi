@@ -8,8 +8,12 @@ Redis에 TTL과 함께 저장한다. Kafka 원문 보존은 Spark가 아니라 A
 
 | 잡 | 입력 토픽 | 처리 이벤트 | 출력 |
 |---|---|---|---|
-| `streaming/weather_latest.py` | `city.raw` | `weather.observation` | `weather:latest:{nx}:{ny}` |
+| `streaming/weather_latest.py` | `city.raw` | `weather.observation` | Redis `weather:latest:{nx}:{ny}` + HDFS `silver/weather` |
 | `streaming/realtime_latest.py` | `transport.raw,city.raw` | 버스·지하철·도로·도시·S-DoT 9종 | `docs/contracts/redis-keys.yaml`의 소스별 latest 키 |
+
+운영의 새 Weather Silver는 Streaming이 Kafka에서 자동 저장한다. Redis latest와 HDFS Silver는
+`common/weather_normalizer.py`를 공유한다. 컬럼, 결측 처리, 실행 방법은
+[Weather Silver 계약](../docs/contracts/weather-silver.md)을 따른다.
 
 `realtime_latest`는 외부 API 원문을 그대로 Redis에 넣지 않는다. 버스 도착예정 초, 지하철
 도착예정 초, 도로 속도(km/h), 통행시간(초), 장소 인구 범위(명)처럼 계산에 필요한 대표값만

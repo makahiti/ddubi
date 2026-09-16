@@ -15,6 +15,20 @@
 
 keys:
   # --- 분산 담당 소유 -------------------------------------------------
+  busSegmentOnlineFeature:
+    pattern: "ml:feature:bus-segment:{featureVersion}:{masterVersion}:{segmentId}"
+    type: string
+    ttlSeconds: 900
+    owner: spark
+    schema: bus-segment-online-feature.schema.json
+    description: >-
+      실시간 버스 인접 구간 이동시간 예측용 통합 Feature Snapshot. Spark가 기존 bus·traffic·weather·city
+      최신값을 검증된 segmentId 대응표로 결합해 JSON으로 저장한다. 요청 시각에서 계산하는 hourSlot·요일·휴일은
+      값에 저장하지 않고 ML 입력 조립기가 추가한다. TTL 900초는 보관 상한이며 validUntil이 지났으면 TTL이
+      남아 있어도 사용하지 않는다. 과거값 또는 같은 computedAt의 다른 내용으로 최신값을 덮어쓰지 않는다.
+      ML Serving의 Redis 직접 조회는 아직 구현·배포되지 않았으므로 이 항목은 신규 연동 계약이다.
+    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","featureVersion":"bus-segment-feature-v1","asOf":"2026-09-14T08:10:00+09:00","computedAt":"2026-09-14T08:10:03+09:00","validUntil":"2026-09-14T08:15:00+09:00","features":{"busCongestionCode":null,"busOperationStateCode":null,"recentSegmentMedianSeconds":155.0,"recentSegmentSampleCount":31,"roadSpeedKph":24.0,"roadTravelSeconds":150.0,"roadCoverageRatio":0.92,"accidentCount":0,"closureCount":0,"assemblyCount":null,"protestCount":null,"temperatureC":18.0,"humidityPercent":72.0,"precipitationMm":3.0,"snowDepthCm":0.0,"windSpeedMps":2.1,"cityCongestionLevel":"CROWDED","areaPopulationMin":12000,"areaPopulationMax":14000,"nearbyPopulation":null},"missingFeatures":["busCongestionCode","busOperationStateCode","assemblyCount","protestCount","nearbyPopulation"],"provenance":{}}'
+
   segmentStatus:
     pattern: "segment:status:{segmentId}"
     ttlSeconds: 300
@@ -49,7 +63,9 @@ keys:
     owner: spark
     description: >-
       Spark(streaming/weather_latest)가 격자별로 정리한 기상청 초단기실황 최신값.
-      districts 는 이 격자를 공유하는 구 목록. 서버에서 가동 중.
+      districts와 observations는 기존 소비자 호환용으로 유지하고, 새 값은 Weather Silver와 동일한
+      표준 이름의 features, featureVersion, missingFields, validUntil을 함께 제공한다.
+      districts는 이 격자를 공유하는 구 목록. 서버에서 가동 중이며 새 형식은 잡 재배포 후 생성된다.
     valueExample: '{"districts":["종로구","중구"],"nx":60,"ny":127,"baseDate":"20260827","baseTime":"0900","observations":{"T1H":27.3,"REH":64.0},"occurredAt":"2026-08-27T09:00:00.000+09:00","collectedAt":"2026-08-27T09:10:00.000+09:00","eventId":"...","source":"kma.ultra-srt-ncst"}'
 
   # latest 계열의 TTL은 보관 기간이다. 값의 validUntil(발생시각+freshnessSeconds) 이후는 stale이다.

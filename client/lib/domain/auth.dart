@@ -104,6 +104,12 @@ abstract interface class AuthRepository {
     required String provider,
     required String accessToken,
   });
+  Future<void> loginWithOAuthCode({
+    required String provider,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
+  });
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
@@ -112,6 +118,12 @@ abstract interface class AuthRepository {
     required String linkToken,
     required String password,
   });
+  Future<List<String>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  });
+  Future<List<String>> unlinkSocialAccount(String provider);
   Future<void> requestEmailVerification(String email);
   Future<void> confirmEmailVerification({
     required String email,
@@ -143,6 +155,16 @@ class MockAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> loginWithOAuthCode({
+    required String provider,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
+  @override
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
@@ -160,6 +182,16 @@ class MockAuthRepository implements AuthRepository {
       throw const AuthException(AuthErrorCode.invalidCredentials);
     }
   }
+
+  @override
+  Future<List<String>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  }) async => [provider];
+
+  @override
+  Future<List<String>> unlinkSocialAccount(String provider) async => const [];
 
   @override
   Future<void> requestEmailVerification(String email) async {}

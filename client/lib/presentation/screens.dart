@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../providers/app_providers.dart';
+
 import 'package:flutter/services.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:go_router/go_router.dart';
@@ -40,6 +44,16 @@ RouteOption? _primaryRoute(List<RouteOption> routes) {
     (route) => route.kind == RouteKind.recommended,
     orElse: () => routes.first,
   );
+}
+
+class ScheduleDetailArguments {
+  const ScheduleDetailArguments({
+    required this.schedule,
+    this.routes = const [],
+  });
+
+  final Schedule schedule;
+  final List<RouteOption> routes;
 }
 
 class _RouteSearchHistory {
@@ -1171,13 +1185,30 @@ class _GoogleMark extends StatelessWidget {
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
-    required this.repository,
     required this.homeApi,
+    this.recommendationApi,
     this.go,
   });
-  final DdubiRepository repository;
   final HomeApi homeApi;
+  final RecommendationApi? recommendationApi;
   final ValueChanged<int>? go;
+
+  Future<_HomeData> _load() async {
+    final summary = await homeApi.getSummary();
+    RecommendationOverview? recommendation;
+    final schedule = summary.nextSchedule;
+    if (schedule != null && recommendationApi != null) {
+      try {
+        recommendation = await recommendationApi!.getLatestOverview(
+          schedule.id,
+        );
+      } on Object {
+        recommendation = null;
+      }
+    }
+    return _HomeData(summary: summary, recommendation: recommendation);
+  }
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '안녕하세요! 🌱',
@@ -1198,40 +1229,31 @@ class HomeScreen extends StatelessWidget {
         icon: const Icon(Icons.notifications_none_rounded),
       ),
     ],
-    child: FutureBuilder<HomeSummary>(
-      future: homeApi.getSummary(),
-      builder: (context, homeSnapshot) {
-        if (homeSnapshot.hasError) {
+    child: FutureBuilder<_HomeData>(
+      future: _load(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
           return const DataLoadError(message: '홈 정보를 불러오지 못했어요.');
         }
-        if (!homeSnapshot.hasData) {
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        return FutureBuilder<List<RouteOption>>(
-          future: repository.routes(),
-          builder: (context, routeSnapshot) {
-            if (routeSnapshot.hasError) {
-              return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
-            }
-            if (!routeSnapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final isWide =
-                    constraints.maxWidth >=
-                    LayoutConstants.wideScreenBreakpoint;
-                return isWide
-                    ? _WebHomeContent(
-                        routes: routeSnapshot.data!,
-                        summary: homeSnapshot.data!,
-                      )
-                    : _MobileHomeContent(
-                        routes: routeSnapshot.data!,
-                        summary: homeSnapshot.data!,
-                      );
-              },
-            );
+        final data = snapshot.data!;
+        final schedule = data.summary.nextSchedule;
+        final routes =
+            schedule != null && data.recommendation?.hasEstimate == true
+            ? [data.recommendation!.toRouteOption(schedule)]
+            : const <RouteOption>[];
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide =
+                constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
+            return isWide
+                ? _WebHomeContent(routes: routes, summary: data.summary)
+                : _MobileHomeContent(
+                    schedules: data.summary.todaySchedules,
+                    routes: routes,
+                  );
           },
         );
       },
@@ -1239,166 +1261,278 @@ class HomeScreen extends StatelessWidget {
   );
 }
 
-class _MobileHomeContent extends StatelessWidget {
-  const _MobileHomeContent({required this.routes, required this.summary});
+class _HomeData {
+  const _HomeData({required this.summary, this.recommendation});
 
-  final List<RouteOption> routes;
   final HomeSummary summary;
+  final RecommendationOverview? recommendation;
+}
+
+class _MobileHomeContent extends StatelessWidget {
+  const _MobileHomeContent({required this.schedules, required this.routes});
+
+  final List<Schedule> schedules;
+  final List<RouteOption> routes;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: const Color(0xFFF5FAF9),
-    child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      children: [
-        const Text(
-          '오늘도 안전한 이동 되세요',
-          style: TextStyle(fontSize: 14, color: Color(0xFF6D7C88)),
-        ),
-        const SizedBox(height: 16),
-        _HomeScheduleCard(
-          schedule: summary.nextSchedule,
-          previewRoutes: routes,
-        ),
-        const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.fromLTRB(8, 10, 16, 10),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFFE6F8F4), Color(0xFFF0FCF9)],
-            ),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: const Color(0xFFBDE9DF)),
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today =
+        schedules
+            .where(
+              (schedule) =>
+                  schedule.date.year == now.year &&
+                  schedule.date.month == now.month &&
+                  schedule.date.day == now.day,
+            )
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+    return ColoredBox(
+      color: const Color(0xFFF7FBFA),
+      child: ListView(
+        key: const Key('todayScheduleList'),
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 28),
+        children: [
+          const Text(
+            '오늘도 안전한 이동 되세요!',
+            style: TextStyle(fontSize: 14, color: Color(0xFF718497)),
           ),
-          child: Row(
-            children: [
-              Image.asset(
-                'assets/images/ttubee/home-megaphone.png',
-                width: 105,
-                height: 100,
+          const SizedBox(height: 14),
+          Container(
+            height: 130,
+            padding: const EdgeInsets.fromLTRB(22, 16, 8, 0),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFCFF6FA), Color(0xFFE8FAE9)],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '뚜비가 알려드려요!',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: DdubiColors.navy,
-                      ),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '오늘도\n뚜비와 함께\n좋은 하루 되세요!',
+                    style: TextStyle(
+                      fontSize: 22,
+                      height: 1.35,
+                      fontWeight: FontWeight.w900,
+                      color: DdubiColors.navy,
                     ),
-                    const SizedBox(height: 7),
-                    Text(
-                      routes.isEmpty
-                          ? '목적지에 맞는 경로를 찾아보세요.'
-                          : '${_primaryRoute(routes)!.departure}에 출발하면 안전해요!',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: DdubiColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _primaryRoute(routes)?.margin ?? '일정을 등록하면 이동을 챙겨드려요.',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF617783),
-                      ),
-                    ),
-                  ],
+                  ),
+                ),
+                Image.asset(
+                  'assets/images/ttubee/welcome.png',
+                  width: 145,
+                  fit: BoxFit.contain,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.chevron_left_rounded, color: Color(0xFF52709B)),
+              const SizedBox(width: 14),
+              Text(
+                '${now.month}월 ${now.day}일 (${_weekdays[now.weekday - 1]})',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: DdubiColors.navy,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF52709B)),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '오늘의 일정',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: DdubiColors.navy,
+                  ),
+                ),
+              ),
+              Text(
+                '${today.length}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: DdubiColors.green,
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: () => context.push('/schedules/new', extra: now),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('일정 추가'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  visualDensity: VisualDensity.compact,
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                '추천 경로',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: DdubiColors.navy,
+          const SizedBox(height: 10),
+          if (today.isEmpty)
+            const InfoCard(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.all(18),
+                  child: Text('오늘 등록된 일정이 없어요.'),
                 ),
               ),
-            ),
-            TextButton(
-              onPressed: () => context.go('/recommendations'),
-              child: const Text('경로 찾기 ›'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (routes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('표시할 추천 경로가 없어요.'),
-          )
-        else
-          _HomeRouteTile(route: _primaryRoute(routes)!, index: 0),
-        const SizedBox(height: 14),
-        const Text(
-          '오늘의 이동 변수',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: DdubiColors.navy,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          summary.dataState == 'UNKNOWN'
-              ? '실시간 정보가 아직 확인되지 않았어요'
-              : '데이터 상태 · ${summary.dataState}',
-          style: const TextStyle(fontSize: 12, color: Color(0xFF72818A)),
-        ),
-        const SizedBox(height: 12),
-        const Row(
-          children: [
-            Expanded(
-              child: _HomeVariable(
-                icon: Icons.wb_sunny_rounded,
-                label: '날씨',
-                tone: Color(0xFFEDF5FE),
+            )
+          else
+            for (var index = 0; index < today.length; index++) ...[
+              _TodayScheduleCard(
+                schedule: today[index],
+                routes: routes,
+                index: index,
               ),
-            ),
-            SizedBox(width: 8),
-            Expanded(
-              child: _HomeVariable(
-                icon: Icons.groups_rounded,
-                label: '혼잡도',
-                tone: Color(0xFFE9F7F0),
-              ),
-            ),
-            SizedBox(width: 8),
-            Expanded(
-              child: _HomeVariable(
-                icon: Icons.directions_car_rounded,
-                label: '도로 통제',
-                tone: Color(0xFFFFF1EE),
-              ),
-            ),
-            SizedBox(width: 8),
-            Expanded(
-              child: _HomeVariable(
-                icon: Icons.directions_subway_rounded,
-                label: '지하철 지연',
-                tone: Color(0xFFEEF3FB),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+              const SizedBox(height: 10),
+            ],
+        ],
+      ),
+    );
+  }
 }
 
+class _TodayScheduleCard extends StatelessWidget {
+  const _TodayScheduleCard({
+    required this.schedule,
+    required this.routes,
+    required this.index,
+  });
+  final Schedule schedule;
+  final List<RouteOption> routes;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    const tones = [
+      Color(0xFF4D80E8),
+      Color(0xFFFFA626),
+      Color(0xFF8A72E8),
+      Color(0xFFFF639A),
+    ];
+    const icons = [
+      Icons.work_rounded,
+      Icons.restaurant_rounded,
+      Icons.menu_book_rounded,
+      Icons.fitness_center_rounded,
+    ];
+    final tone = tones[index % tones.length];
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: DdubiColors.green.withValues(alpha: .22)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: Key('todaySchedule-${schedule.id}'),
+        onTap: () => context.push(
+          '/schedules/${schedule.id}',
+          extra: ScheduleDetailArguments(schedule: schedule),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icons[index % icons.length], color: tone),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      schedule.time,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF1B43A6),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      schedule.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        color: DdubiColors.navy,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on,
+                          size: 14,
+                          color: Color(0xFF8391A8),
+                        ),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            schedule.place,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF718098),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F8F2),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Text(
+                  '예정',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: DdubiColors.green,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF1D3F8E)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Retained for the desktop dashboard route cards.
+// ignore: unused_element
 class _HomePlayfulIcon extends StatelessWidget {
   const _HomePlayfulIcon({
     required this.icon,
@@ -1457,6 +1591,7 @@ class _HomePlayfulIcon extends StatelessWidget {
   );
 }
 
+// ignore: unused_element
 class _HomeVariable extends StatelessWidget {
   const _HomeVariable({
     required this.icon,
@@ -1500,6 +1635,7 @@ class _HomeVariable extends StatelessWidget {
   );
 }
 
+// ignore: unused_element
 class _HomeRouteTile extends StatelessWidget {
   const _HomeRouteTile({required this.route, required this.index});
   final RouteOption route;
@@ -1709,7 +1845,10 @@ class _WebHomeContent extends StatelessWidget {
         children: [
           Expanded(
             flex: 3,
-            child: _HomeScheduleCard(schedule: summary.nextSchedule),
+            child: _HomeScheduleCard(
+              schedule: summary.nextSchedule,
+              previewRoutes: routes,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -1776,7 +1915,9 @@ class _WebHomeContent extends StatelessWidget {
           _primaryRoute(routes)!,
           compact: true,
           fillWidth: true,
-          onTap: () => context.push('/recommendations/mock-recommendation-1'),
+          onTap: summary.nextSchedule == null
+              ? null
+              : () => context.push('/schedules/${summary.nextSchedule!.id}'),
         ),
       ),
     ],
@@ -2606,12 +2747,12 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   late ScheduleImportance importance;
   TransportPreferenceChoice transport = TransportPreferenceChoice.balanced;
   late bool considerLastTrip;
-  late DateTime selectedDate;
+  late DateTime departureDate;
+  late DateTime arrivalDate;
+  late TimeOfDay departureTime;
+  late TimeOfDay arrivalTime;
   final formKey = GlobalKey<FormState>();
   late final TextEditingController title;
-  late final TextEditingController time;
-  late final TextEditingController departureTime;
-  late DateTime departureDate;
   PlaceLocation? origin;
   PlaceLocation? destination;
 
@@ -2619,13 +2760,23 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   void initState() {
     super.initState();
     final schedule = widget.schedule;
-    title = TextEditingController(text: schedule?.title ?? '잠실야구장');
-    time = TextEditingController(text: schedule?.time ?? '19:30');
-    final departure = schedule?.plannedDepartAt;
-    departureTime = TextEditingController(text: departure == null ? '' :
-        '${departure.hour.toString().padLeft(2, '0')}:${departure.minute.toString().padLeft(2, '0')}');
-    departureDate = departure ?? schedule?.date ?? widget.initialDate ?? DateTime.now();
-    selectedDate = schedule?.date ?? widget.initialDate ?? DateTime.now();
+    title = TextEditingController(text: schedule?.title ?? '');
+    final arriveBy =
+        schedule?.arriveBy ??
+        DateTime(
+          (widget.initialDate ?? DateTime.now()).year,
+          (widget.initialDate ?? DateTime.now()).month,
+          (widget.initialDate ?? DateTime.now()).day,
+          19,
+          30,
+        );
+    final departAt =
+        schedule?.plannedDepartAt ??
+        arriveBy.subtract(const Duration(hours: 1));
+    arrivalDate = arriveBy;
+    arrivalTime = TimeOfDay.fromDateTime(arriveBy);
+    departureDate = departAt;
+    departureTime = TimeOfDay.fromDateTime(departAt);
     origin = schedule?.origin;
     destination = schedule?.destination;
     importance = schedule?.importance ?? ScheduleImportance.high;
@@ -2637,121 +2788,295 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   @override
   void dispose() {
     title.dispose();
-    time.dispose();
-    departureTime.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext c) => AppPage(
-    title: widget.schedule == null ? '일정 등록' : '일정 수정',
-    child: Form(
-      key: formKey,
-      child: ListView(
-        padding: _pad,
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFF2FBF9),
+    appBar: AppBar(
+      backgroundColor: const Color(0xFFF2FBF9),
+      surfaceTintColor: Colors.transparent,
+      centerTitle: true,
+      leading: IconButton(
+        key: const Key('scheduleFormBackButton'),
+        tooltip: '뒤로가기',
+        onPressed: () => _leaveForm(context),
+        icon: const Icon(
+          Icons.arrow_back_ios_new_rounded,
+          color: DdubiColors.navy,
+          size: 22,
+        ),
+      ),
+      title: Text(widget.schedule == null ? '일정 등록' : '일정 수정'),
+    ),
+    body: SafeArea(
+      top: false,
+      child: Form(
+        key: formKey,
+        child: ListView(
+          key: const Key('scheduleFormScrollView'),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+          children: [
+            _hero(),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x12004F4A),
+                    blurRadius: 24,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _field('일정 제목', title, icon: Icons.edit_calendar_rounded),
+                  PlaceSearchField(
+                    key: const Key('originPlaceField'),
+                    label: '출발지',
+                    value: origin,
+                    searchService: widget.placeSearchService,
+                    onSelected: (value) => setState(() => origin = value),
+                  ),
+                  _dateTimeSection(
+                    label: '출발 예정 시간',
+                    icon: Icons.schedule_rounded,
+                    date: departureDate,
+                    time: departureTime,
+                    dateKey: const Key('scheduleDepartureDateButton'),
+                    timeKey: const Key('scheduleDepartureTimeButton'),
+                    onDatePressed: () => _pickDate(context, arrival: false),
+                    onTimePressed: () => _pickTime(context, arrival: false),
+                  ),
+                  const SizedBox(height: 15),
+                  PlaceSearchField(
+                    key: const Key('destinationPlaceField'),
+                    label: '도착지',
+                    value: destination,
+                    searchService: widget.placeSearchService,
+                    onSelected: (value) => setState(() => destination = value),
+                  ),
+                  _dateTimeSection(
+                    label: '도착 희망 시간',
+                    icon: Icons.flag_rounded,
+                    date: arrivalDate,
+                    time: arrivalTime,
+                    dateKey: const Key('scheduleDateButton'),
+                    timeKey: const Key('scheduleArrivalTimeButton'),
+                    onDatePressed: () => _pickDate(context, arrival: true),
+                    onTimePressed: () => _pickTime(context, arrival: true),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            _lastTripCard(),
+            const SizedBox(height: 12),
+            _infoCard(),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 56,
+              child: PrimaryButton(
+                widget.schedule == null ? '저장하기' : '수정 완료',
+                onPressed: _save,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _hero() => Container(
+    height: 210,
+    clipBehavior: Clip.antiAlias,
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xFFE6FBF6), Color(0xFFD6F5F1)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(28),
+    ),
+    child: LayoutBuilder(
+      builder: (context, constraints) => Stack(
         children: [
-          _field('일정 제목', title),
-          PlaceSearchField(
-            key: const Key('destinationPlaceField'),
-            label: '도착지',
-            value: destination,
-            searchService: widget.placeSearchService,
-            onSelected: (value) => setState(() => destination = value),
+          const Positioned(
+            left: -22,
+            bottom: -32,
+            child: _ScheduleHeroBubble(size: 110),
           ),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _fullDate(selectedDate),
-                  style: Theme.of(c).textTheme.bodySmall,
+          const Positioned(
+            right: 78,
+            top: 18,
+            child: _ScheduleHeroBubble(size: 48),
+          ),
+          Positioned(
+            left: 20,
+            top: 24,
+            width: constraints.maxWidth * .59,
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '어디서 출발해서\n어디로 가시나요?',
+                  style: TextStyle(
+                    color: DdubiColors.navy,
+                    fontSize: 24,
+                    height: 1.25,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -.7,
+                  ),
                 ),
-              ),
-              OutlinedButton.icon(
-                key: const Key('scheduleDateButton'),
-                onPressed: () => _pickDate(c),
-                icon: const Icon(Icons.calendar_month_outlined),
-                label: const Text('날짜 변경'),
-              ),
-            ],
+                SizedBox(height: 12),
+                Text(
+                  '뚜비가 가장 좋은 출발 시간을\n찾도록 도와드릴게요!',
+                  style: TextStyle(
+                    color: Color(0xFF587086),
+                    fontSize: 13,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          _field('반드시 도착해야 하는 시간', time, icon: Icons.schedule),
-          _field('출발 예정시간', departureTime, icon: Icons.schedule),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text('출발 날짜: ${_fullDate(departureDate)}'),
-            trailing: const Icon(Icons.calendar_month_outlined),
-            onTap: () async {
-              final value = await showDatePicker(context: c, initialDate: departureDate,
-                  firstDate: DateTime.now().subtract(const Duration(days: 1)),
-                  lastDate: DateTime.now().add(const Duration(days: 365 * 2)));
-              if (value != null && mounted) setState(() => departureDate = value);
-            },
-          ),
-          PlaceSearchField(
-            key: const Key('originPlaceField'),
-            label: '출발지',
-            value: origin,
-            searchService: widget.placeSearchService,
-            onSelected: (value) => setState(() => origin = value),
-          ),
-          const Text('중요도', style: TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          SegmentedButton<ScheduleImportance>(
-            segments: const [
-              ButtonSegment(
-                value: ScheduleImportance.normal,
-                label: Text('일반'),
-              ),
-              ButtonSegment(value: ScheduleImportance.high, label: Text('중요')),
-              ButtonSegment(
-                value: ScheduleImportance.critical,
-                label: Text('절대 지각 불가'),
-              ),
-            ],
-            selected: {importance},
-            onSelectionChanged: (v) => setState(() => importance = v.first),
-          ),
-          const SizedBox(height: 20),
-          const Text('교통수단 선호', style: TextStyle(fontWeight: FontWeight.w700)),
-          TransportPreferenceSelector(
-            value: transport,
-            onChanged: (value) => setState(() => transport = value),
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            key: const Key('considerLastTripSwitch'),
-            contentPadding: EdgeInsets.zero,
-            title: const Text('막차 고려'),
-            subtitle: const Text('늦은 일정의 막차 위험을 함께 확인해요.'),
-            value: considerLastTrip,
-            onChanged: (value) => setState(() => considerLastTrip = value),
-          ),
-          const SizedBox(height: 10),
-          PrimaryButton(
-            widget.schedule == null ? '저장하기' : '수정 완료',
-            onPressed: _save,
+          Positioned(
+            right: -8,
+            bottom: -2,
+            width: constraints.maxWidth * .43,
+            height: 170,
+            child: Image.asset(
+              'assets/images/ttubee/intro-calendar-clock.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
           ),
         ],
       ),
     ),
   );
 
+  Future<void> _leaveForm(BuildContext context) async {
+    FocusScope.of(context).unfocus();
+    if (await Navigator.of(context).maybePop()) return;
+    if (!context.mounted) return;
+    GoRouter.maybeOf(context)?.go('/schedules');
+  }
+
+  Widget _lastTripCard() => Container(
+    decoration: BoxDecoration(
+      color: const Color(0xFFE4F8F4),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0xFFC2EEE5)),
+    ),
+    child: Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: SwitchListTile(
+        key: const Key('considerLastTripSwitch'),
+        contentPadding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+        secondary: const CircleAvatar(
+          radius: 22,
+          backgroundColor: DdubiColors.green,
+          child: Icon(Icons.directions_bus_rounded, color: Colors.white),
+        ),
+        title: const Text(
+          '막차 고려',
+          style: TextStyle(
+            color: DdubiColors.navy,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        subtitle: const Text(
+          '늦은 일정의 막차 위험을 함께 확인해요.',
+          style: TextStyle(color: Color(0xFF60778A), fontSize: 12),
+        ),
+        value: considerLastTrip,
+        onChanged: (value) => setState(() => considerLastTrip = value),
+      ),
+    ),
+  );
+
+  Widget _infoCard() => Container(
+    height: 104,
+    clipBehavior: Clip.antiAlias,
+    padding: const EdgeInsets.fromLTRB(16, 14, 2, 12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFECFAF7),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0xFFCBEFE8)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: const BoxDecoration(
+            color: Color(0xFFFFEAA0),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.lightbulb_rounded,
+            color: Color(0xFFFFB800),
+            size: 24,
+          ),
+        ),
+        const SizedBox(width: 11),
+        const Expanded(
+          child: Text(
+            '도착 희망 시간까지 갈 수 있도록\n교통 상황을 고려해 최적의\n출발 시간을 추천해드려요!',
+            style: TextStyle(
+              color: DdubiColors.navy,
+              fontSize: 12,
+              height: 1.45,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 78,
+          height: 88,
+          child: Image.asset(
+            'assets/images/ttubee/welcome.png',
+            fit: BoxFit.contain,
+            alignment: Alignment.bottomCenter,
+            filterQuality: FilterQuality.high,
+          ),
+        ),
+      ],
+    ),
+  );
+
   Future<void> _save() async {
     if (!(formKey.currentState?.validate() ?? false)) return;
     if (origin == null || destination == null) return;
-    final date = selectedDate;
-    final parts = time.text.trim().split(':');
-    final departureParts = departureTime.text.trim().split(':');
-    final plannedDeparture = DateTime(departureDate.year, departureDate.month, departureDate.day,
-        int.parse(departureParts.first), int.parse(departureParts.last));
-    final arriveBy = DateTime(
-      date.year,
-      date.month,
-      date.day,
-      int.parse(parts.first),
-      int.parse(parts.last),
+    final plannedDeparture = DateTime(
+      departureDate.year,
+      departureDate.month,
+      departureDate.day,
+      departureTime.hour,
+      departureTime.minute,
     );
+    final arriveBy = DateTime(
+      arrivalDate.year,
+      arrivalDate.month,
+      arrivalDate.day,
+      arrivalTime.hour,
+      arrivalTime.minute,
+    );
+    if (!plannedDeparture.isBefore(arriveBy)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('출발시각은 도착시각보다 앞서야 합니다.')));
+      return;
+    }
     final schedule = Schedule(
       id:
           widget.schedule?.id ??
@@ -2767,10 +3092,6 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
       repeatLabel: widget.schedule?.repeatLabel,
       updatedAt: widget.schedule?.updatedAt,
     );
-    if (!plannedDeparture.isBefore(arriveBy)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('출발시각은 도착시각보다 앞서야 합니다.')));
-      return;
-    }
     try {
       if (widget.schedule == null) {
         await widget.repository.addSchedule(schedule);
@@ -2797,14 +3118,37 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     }
   }
 
-  Future<void> _pickDate(BuildContext context) async {
+  Future<void> _pickDate(BuildContext context, {required bool arrival}) async {
+    final initialDate = arrival ? arrivalDate : departureDate;
     final selected = await showDatePicker(
       context: context,
-      initialDate: selectedDate,
+      initialDate: initialDate,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
     );
-    if (selected != null && mounted) setState(() => selectedDate = selected);
+    if (selected == null || !mounted) return;
+    setState(() {
+      if (arrival) {
+        arrivalDate = selected;
+      } else {
+        departureDate = selected;
+      }
+    });
+  }
+
+  Future<void> _pickTime(BuildContext context, {required bool arrival}) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: arrival ? arrivalTime : departureTime,
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      if (arrival) {
+        arrivalTime = selected;
+      } else {
+        departureTime = selected;
+      }
+    });
   }
 
   Widget _field(
@@ -2826,17 +3170,147 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
           validator: (value) {
             final text = (value ?? '').trim();
             if (text.isEmpty) return '필수 입력 항목입니다.';
-            if ((controller == time || controller == departureTime) &&
-                !RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(text)) {
-              return '시간을 HH:mm 형식으로 입력해주세요.';
-            }
             return null;
           },
           decoration: InputDecoration(
-            suffixIcon: icon == null ? null : Icon(icon),
+            filled: true,
+            fillColor: const Color(0xFFFAFCFD),
+            prefixIcon: icon == null
+                ? null
+                : Icon(icon, color: DdubiColors.green),
+            suffixIcon: controller.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: '입력값 지우기',
+                    onPressed: () => setState(controller.clear),
+                    icon: const Icon(Icons.cancel_rounded, size: 20),
+                  ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Color(0xFFD7E4E8)),
+            ),
           ),
         ),
       ],
+    ),
+  );
+
+  Widget _dateTimeSection({
+    required String label,
+    required IconData icon,
+    required DateTime date,
+    required TimeOfDay time,
+    required Key dateKey,
+    required Key timeKey,
+    required VoidCallback onDatePressed,
+    required VoidCallback onTimePressed,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Icon(icon, color: DdubiColors.green, size: 20),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: const TextStyle(
+              color: DdubiColors.navy,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(
+            flex: 6,
+            child: _dateTimeButton(
+              key: dateKey,
+              icon: Icons.calendar_month_rounded,
+              text: _scheduleDateLabel(date),
+              onPressed: onDatePressed,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 4,
+            child: _dateTimeButton(
+              key: timeKey,
+              icon: Icons.access_time_filled_rounded,
+              text: _scheduleTimeLabel(time),
+              onPressed: onTimePressed,
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _dateTimeButton({
+    required Key key,
+    required IconData icon,
+    required String text,
+    required VoidCallback onPressed,
+  }) => InkWell(
+    key: key,
+    borderRadius: BorderRadius.circular(14),
+    onTap: onPressed,
+    child: Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 11),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFCFD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFD7E4E8)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFF365976), size: 20),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: DdubiColors.navy,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+        ],
+      ),
+    ),
+  );
+
+  String _scheduleDateLabel(DateTime date) {
+    const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+    return '${date.year}.${date.month}.${date.day} (${weekdays[date.weekday - 1]})';
+  }
+
+  String _scheduleTimeLabel(TimeOfDay time) {
+    final period = time.hour < 12 ? '오전' : '오후';
+    final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
+    return '$period $hour:${time.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _ScheduleHeroBubble extends StatelessWidget {
+  const _ScheduleHeroBubble({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .38),
+      shape: BoxShape.circle,
     ),
   );
 }
@@ -2845,16 +3319,24 @@ class ScheduleDetailScreen extends StatelessWidget {
   const ScheduleDetailScreen({
     super.key,
     required this.repository,
+    required this.routeRepository,
+    this.recommendationApi,
     required this.scheduleId,
     required this.arrivalApi,
+    this.initialSchedule,
+    this.initialRoutes,
   });
   final ScheduleRepository repository;
+  final DdubiRepository routeRepository;
+  final RecommendationApi? recommendationApi;
   final String scheduleId;
   final ArrivalApi arrivalApi;
+  final Schedule? initialSchedule;
+  final List<RouteOption>? initialRoutes;
 
   @override
   Widget build(BuildContext c) => FutureBuilder<Schedule?>(
-    future: repository.scheduleById(scheduleId),
+    future: _loadSchedule(),
     builder: (context, snapshot) {
       if (snapshot.hasError) {
         return const AppPage(
@@ -2875,122 +3357,384 @@ class ScheduleDetailScreen extends StatelessWidget {
           child: DataLoadError(message: '해당 일정을 찾을 수 없어요.'),
         );
       }
-      return _content(context, schedule);
+      return FutureBuilder<_ScheduleRecommendationData>(
+        future: _loadRecommendation(schedule),
+        builder: (context, recommendationSnapshot) {
+          if (!recommendationSnapshot.hasData &&
+              !recommendationSnapshot.hasError) {
+            return const AppPage(
+              title: '일정 상세',
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          final data = recommendationSnapshot.data;
+          return _content(
+            context,
+            schedule,
+            data?.route,
+            data?.overview,
+            data?.savedRoutes ?? const [],
+            recommendationUnavailable:
+                recommendationSnapshot.hasError ||
+                data?.recommendationUnavailable == true,
+            routesUnavailable: data?.routesUnavailable == true,
+          );
+        },
+      );
     },
   );
 
-  Widget _content(BuildContext c, Schedule schedule) => AppPage(
-    title: '일정 상세',
-    child: ListView(
-      padding: _pad,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: DdubiColors.blue,
-            borderRadius: BorderRadius.circular(14),
+  Future<Schedule?> _loadSchedule() async {
+    if (initialSchedule != null) return initialSchedule;
+    try {
+      return await repository.scheduleById(scheduleId);
+    } on Object {
+      final schedules = await repository.schedules();
+      for (final schedule in schedules) {
+        if (schedule.id == scheduleId) return schedule;
+      }
+      return null;
+    }
+  }
+
+  Future<_ScheduleRecommendationData> _loadRecommendation(
+    Schedule schedule,
+  ) async {
+    if (initialRoutes != null && initialRoutes!.isNotEmpty) {
+      return _ScheduleRecommendationData(route: initialRoutes!.first);
+    }
+    if (recommendationApi == null) {
+      return const _ScheduleRecommendationData();
+    }
+    RecommendationOverview? overview;
+    var recommendationUnavailable = false;
+    try {
+      overview = await recommendationApi!.getLatestOverview(schedule.id);
+    } on Object {
+      recommendationUnavailable = true;
+    }
+    List<SavedRouteSummary> savedRoutes = const [];
+    var routesUnavailable = false;
+    try {
+      savedRoutes = await recommendationApi!.getSavedRoutes(schedule.id);
+    } on Object {
+      routesUnavailable = true;
+    }
+    final selectedSavedRoute = savedRoutes.where((route) => route.selected);
+    return _ScheduleRecommendationData(
+      overview: overview,
+      route: overview?.hasEstimate == true
+          ? overview!.toRouteOption(schedule)
+          : selectedSavedRoute.isNotEmpty
+          ? selectedSavedRoute.first.toRouteOption(schedule)
+          : null,
+      savedRoutes: savedRoutes,
+      recommendationUnavailable: recommendationUnavailable,
+      routesUnavailable: routesUnavailable,
+    );
+  }
+
+  Widget _content(
+    BuildContext c,
+    Schedule schedule,
+    RouteOption? route,
+    RecommendationOverview? overview,
+    List<SavedRouteSummary> savedRoutes, {
+    bool recommendationUnavailable = false,
+    bool routesUnavailable = false,
+  }) {
+    return AppPage(
+      title: '일정 상세',
+      child: ListView(
+        key: const Key('scheduleRouteOverview'),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFD5E6FA)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE9F1FF),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.work_rounded,
+                    color: Color(0xFF3C73DD),
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        schedule.title,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                          color: DdubiColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${_fullDate(schedule.date)}  ${schedule.time}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF415A89),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on_outlined,
+                            size: 16,
+                            color: Color(0xFF516A98),
+                          ),
+                          const SizedBox(width: 3),
+                          Expanded(
+                            child: Text(
+                              schedule.place,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF516A98),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _fullDate(schedule.date),
-                style: const TextStyle(color: Colors.white, fontSize: 12),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.fromLTRB(8, 10, 16, 10),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFE1FAF5), Color(0xFFF1FBE8)],
               ),
-              const SizedBox(height: 8),
-              Text(
-                '${schedule.time} ${schedule.title}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 23,
-                  fontWeight: FontWeight.w800,
+              borderRadius: BorderRadius.circular(19),
+              border: Border.all(color: const Color(0xFFC7EEDC)),
+            ),
+            child: Row(
+              children: [
+                Image.asset(
+                  'assets/images/ttubee/running.png',
+                  width: 104,
+                  height: 92,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Text(
+                          '이 일정에 맞춰',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF35528A),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        route == null
+                            ? '추천 출발 시간을 확인 중이에요.'
+                            : '${route.departure}에 출발하는 것을\n추천해요!',
+                        style: const TextStyle(
+                          fontSize: 19,
+                          height: 1.28,
+                          fontWeight: FontWeight.w900,
+                          color: DdubiColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '실시간 이동 상황을 반영했어요.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF68808B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  '뚜비 최종 추천 경로',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    color: DdubiColors.navy,
+                  ),
                 ),
               ),
-              Text(
-                schedule.place,
-                style: const TextStyle(color: Colors.white70),
+              if (overview?.preview == true)
+                const StatusBadge('검증용', tone: DdubiColors.blue),
+            ],
+          ),
+          if (recommendationUnavailable)
+            const InfoCard(child: Text('최신 추천을 불러오지 못했어요. 잠시 후 다시 확인해주세요.'))
+          else if (route == null)
+            InfoCard(
+              child: Text(
+                overview?.state == 'PENDING'
+                    ? '추천 경로를 계산하고 있어요.'
+                    : '아직 생성된 추천 결과가 없어요. 아래에서 다시 계산해주세요.',
+              ),
+            )
+          else ...[
+            _FinalRouteSummary(route: route),
+            const SizedBox(height: 10),
+            if (recommendationApi != null)
+              _RecommendationEvidenceCard(
+                api: recommendationApi!,
+                overview: overview,
+              ),
+          ],
+          const SizedBox(height: 16),
+          _SavedRouteList(
+            routes: savedRoutes,
+            unavailable: routesUnavailable,
+            onSelected: recommendationApi == null
+                ? null
+                : (savedRoute) => _open(
+                    c,
+                    RouteMapScreen(
+                      repository: routeRepository,
+                      api: recommendationApi,
+                      savedRoute: savedRoute,
+                      selectedRoute: savedRoute.toRouteOption(schedule),
+                      departureLabel:
+                          savedRoute.fromName ?? schedule.departurePlace,
+                      destinationLabel: savedRoute.toName ?? schedule.place,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '오늘의 이동 변수',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w900,
+              color: DdubiColors.navy,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Row(
+            children: [
+              Expanded(
+                child: _RouteVariable(
+                  icon: Icons.wb_sunny_rounded,
+                  label: '날씨',
+                  value: '확인 필요',
+                  color: Color(0xFFFFB323),
+                ),
+              ),
+              SizedBox(width: 7),
+              Expanded(
+                child: _RouteVariable(
+                  icon: Icons.groups_rounded,
+                  label: '혼잡도',
+                  value: '확인 필요',
+                  color: Color(0xFF4D80E8),
+                ),
+              ),
+              SizedBox(width: 7),
+              Expanded(
+                child: _RouteVariable(
+                  icon: Icons.directions_car_rounded,
+                  label: '도로 통제',
+                  value: '확인 필요',
+                  color: Color(0xFF00A873),
+                ),
+              ),
+              SizedBox(width: 7),
+              Expanded(
+                child: _RouteVariable(
+                  icon: Icons.directions_subway_rounded,
+                  label: '지하철 지연',
+                  value: '확인 필요',
+                  color: Color(0xFF00A873),
+                ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 14),
-        if (repository is ScheduleEvaluationRepository)
-          ScheduleEvaluationCard(repository: repository as ScheduleEvaluationRepository, scheduleId: schedule.id)
-        else
-          const InfoCard(child: Text('이 일정은 서버 예측에 연결되지 않았습니다.')),
-        const SizedBox(height: 14),
-        OutlinedButton.icon(
-          key: const Key('editScheduleButton'),
-          onPressed: () async {
-            final changed = await c.push<bool>(
-              '/schedules/${schedule.id}/edit',
-            );
-            if (changed == true && c.mounted) {
-              c.go('/schedules/${schedule.id}');
-            }
-          },
-          icon: const Icon(Icons.edit_outlined),
-          label: const Text('일정 수정'),
-        ),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          key: const Key('completeScheduleButton'),
-          onPressed: () => _recordArrival(c, schedule),
-          icon: const Icon(Icons.check_circle_outline),
-          label: const Text('도착 완료'),
-        ),
-        const SizedBox(height: 8),
-        TextButton.icon(
-          key: const Key('cancelScheduleButton'),
-          onPressed: () => _confirmCancel(c, schedule),
-          icon: const Icon(Icons.delete_outline, color: DdubiColors.red),
-          label: const Text('일정 취소', style: TextStyle(color: DdubiColors.red)),
-        ),
-        const SizedBox(height: 18),
-        const SectionHeader('한눈에 보기'),
-        const SizedBox(height: 8),
-        const Row(
-          children: [
-            Expanded(
-              child: InfoCard(
-                child: Column(
-                  children: [
-                    Icon(Icons.sunny, color: Colors.orange),
-                    Text('날씨'),
-                    Text('맑음 22℃'),
-                  ],
-                ),
-              ),
+          const SizedBox(height: 14),
+          if (repository is ScheduleEvaluationRepository)
+            ScheduleEvaluationCard(
+              repository: repository as ScheduleEvaluationRepository,
+              scheduleId: schedule.id,
+            )
+          else
+            const InfoCard(child: Text('이 일정은 서버 예측에 연결되지 않았습니다.')),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            key: const Key('editScheduleButton'),
+            onPressed: () async {
+              final changed = await c.push<bool>(
+                '/schedules/${schedule.id}/edit',
+              );
+              if (changed == true && c.mounted) {
+                c.go('/schedules/${schedule.id}');
+              }
+            },
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('일정 수정'),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            key: const Key('completeScheduleButton'),
+            onPressed: () => _recordArrival(c, schedule),
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('도착 완료'),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            key: const Key('cancelScheduleButton'),
+            onPressed: () => _confirmCancel(c, schedule),
+            icon: const Icon(Icons.delete_outline, color: DdubiColors.red),
+            label: const Text(
+              '일정 취소',
+              style: TextStyle(color: DdubiColors.red),
             ),
-            SizedBox(width: 8),
-            Expanded(
-              child: InfoCard(
-                child: Column(
-                  children: [
-                    Icon(Icons.groups_outlined),
-                    Text('행사/이벤트'),
-                    Text('대규모 행사 없음'),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(width: 8),
-            Expanded(
-              child: InfoCard(
-                child: Column(
-                  children: [
-                    Icon(Icons.check_circle_outline, color: DdubiColors.green),
-                    Text('교통 상황'),
-                    Text('지금은 정상'),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _confirmCancel(BuildContext context, Schedule schedule) async {
     final confirmed = await showDialog<bool>(
@@ -3053,6 +3797,377 @@ class ScheduleDetailScreen extends StatelessWidget {
           .showSnackBar(const SnackBar(content: Text('도착 기록을 저장하지 못했어요.')));
     }
   }
+}
+
+class _ScheduleRecommendationData {
+  const _ScheduleRecommendationData({
+    this.route,
+    this.overview,
+    this.savedRoutes = const [],
+    this.recommendationUnavailable = false,
+    this.routesUnavailable = false,
+  });
+
+  final RouteOption? route;
+  final RecommendationOverview? overview;
+  final List<SavedRouteSummary> savedRoutes;
+  final bool recommendationUnavailable;
+  final bool routesUnavailable;
+}
+
+class _SavedRouteList extends StatelessWidget {
+  const _SavedRouteList({
+    required this.routes,
+    required this.unavailable,
+    required this.onSelected,
+  });
+
+  final List<SavedRouteSummary> routes;
+  final bool unavailable;
+  final ValueChanged<SavedRouteSummary>? onSelected;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    key: const Key('savedRouteList'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        '저장된 추천 경로',
+        style: TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.w900,
+          color: DdubiColors.navy,
+        ),
+      ),
+      const SizedBox(height: 9),
+      if (unavailable)
+        const InfoCard(child: Text('저장된 경로를 불러오지 못했어요.'))
+      else if (routes.isEmpty)
+        const InfoCard(
+          key: Key('savedRouteEmptyState'),
+          child: Text('아직 평가된 추천 경로가 없어요.'),
+        )
+      else
+        for (final route in routes) ...[
+          _SavedRouteTile(route: route, onTap: onSelected),
+          if (route != routes.last) const SizedBox(height: 8),
+        ],
+    ],
+  );
+}
+
+class _SavedRouteTile extends StatelessWidget {
+  const _SavedRouteTile({required this.route, required this.onTap});
+
+  final SavedRouteSummary route;
+  final ValueChanged<SavedRouteSummary>? onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: route.selected ? const Color(0xFFE7FAF5) : Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    child: InkWell(
+      key: Key('savedRoute-${route.routeId}'),
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap == null ? null : () => onTap!(route),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: route.selected
+                ? const Color(0xFF9DE2D2)
+                : const Color(0xFFDCE6EC),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: route.selected
+                    ? DdubiColors.green
+                    : const Color(0xFFEAF1F8),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _transportIcon(route.modes),
+                color: route.selected ? Colors.white : DdubiColors.navy,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          route.selected ? '선택된 추천 경로' : '${route.rankNo}순위 경로',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: DdubiColors.navy,
+                          ),
+                        ),
+                      ),
+                      if (route.selected)
+                        const StatusBadge('선택됨', tone: DdubiColors.green),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${route.fromName ?? '출발지'} → ${route.toName ?? '도착지'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF52677B)),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '약 ${route.baseDurationMin}분 · ${route.segmentCount}개 구간 · '
+                    '${route.modes.map(_routeModeLabel).join(' · ')}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6E8193),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF7F91A2)),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  static IconData _transportIcon(List<String> modes) {
+    if (modes.contains('SUBWAY')) return Icons.directions_subway_rounded;
+    if (modes.contains('BUS')) return Icons.directions_bus_rounded;
+    return Icons.directions_walk_rounded;
+  }
+}
+
+class _RecommendationEvidenceCard extends StatelessWidget {
+  const _RecommendationEvidenceCard({
+    required this.api,
+    required this.overview,
+  });
+
+  final RecommendationApi api;
+  final RecommendationOverview? overview;
+
+  @override
+  Widget build(BuildContext context) {
+    final recommendationId = overview?.recommendationId;
+    if (recommendationId == null) {
+      return _evidence(
+        context,
+        source: overview?.source,
+        reasonCodes: overview?.reasonCodes ?? const [],
+        preview: overview?.preview,
+      );
+    }
+    return FutureBuilder<RecommendationExplanation>(
+      future: api.getExplanation(recommendationId),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _evidence(
+            context,
+            source: overview?.source,
+            reasonCodes: overview?.reasonCodes ?? const [],
+            preview: overview?.preview,
+            note: '상세 추천 근거를 불러오지 못했어요.',
+          );
+        }
+        final explanation = snapshot.data;
+        return _evidence(
+          context,
+          source: explanation?.source ?? overview?.source,
+          reasonCodes:
+              explanation?.reasonCodes ?? overview?.reasonCodes ?? const [],
+          preview: explanation?.preview ?? overview?.preview,
+          checkedAt: explanation?.dataCheckedAt,
+          loading: !snapshot.hasData,
+        );
+      },
+    );
+  }
+
+  Widget _evidence(
+    BuildContext context, {
+    String? source,
+    required List<String> reasonCodes,
+    bool? preview,
+    DateTime? checkedAt,
+    bool loading = false,
+    String? note,
+  }) => InfoCard(
+    color: const Color(0xFFF4F8FF),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const StatusBadge(
+          '추천 근거',
+          tone: DdubiColors.blue,
+          icon: Icons.lightbulb_outline,
+        ),
+        const SizedBox(height: 10),
+        if (loading)
+          const LinearProgressIndicator()
+        else ...[
+          Text(_sourceDescription(source)),
+          if (preview == true) ...[
+            const SizedBox(height: 6),
+            const Text(
+              '현재 결과는 검증용이며 일정에 자동 적용되지 않아요.',
+              style: TextStyle(color: Color(0xFF64708B)),
+            ),
+          ],
+          if (reasonCodes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (final reason in reasonCodes.take(3))
+              Text('• ${_reasonDescription(reason)}'),
+          ],
+          if (checkedAt != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${checkedAt.hour.toString().padLeft(2, '0')}:${checkedAt.minute.toString().padLeft(2, '0')} 기준',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (note != null) ...[
+            const SizedBox(height: 8),
+            Text(note, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ],
+      ],
+    ),
+  );
+
+  static String _sourceDescription(String? source) => switch (source) {
+    'API_ONLY' => '현재 경로 API의 예상 소요시간을 기준으로 계산했어요.',
+    'ML_PREVIEW' => '버스 구간 예측을 포함해 계산했어요.',
+    'SUBWAY_PREVIEW' => '지하철 시간표를 포함해 계산했어요.',
+    'MIXED_PREVIEW' => '경로 API와 교통 예측 정보를 함께 사용했어요.',
+    _ => '서버에서 저장한 최신 평가 결과를 표시하고 있어요.',
+  };
+
+  static String _reasonDescription(String code) {
+    if (code == 'VALIDATION_ONLY') return '검증 단계의 결과예요.';
+    if (code.contains('ML_NOT_CONFIGURED')) return '일부 구간은 경로 API 시간을 사용했어요.';
+    if (code.contains('BUS_WAIT_MISSING')) return '버스 대기시간 정보가 부족해요.';
+    if (code.contains('SUBWAY_TIMETABLE_NOT_CONFIGURED')) {
+      return '지하철 시간표 정보가 부족해요.';
+    }
+    if (code.startsWith('ROAD_POTENTIAL_IMPACT:')) {
+      return '예상 이동 구간에 도로 영향 가능성이 있어요.';
+    }
+    return code;
+  }
+}
+
+class _FinalRouteSummary extends StatelessWidget {
+  const _FinalRouteSummary({required this.route});
+  final RouteOption route;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 13),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: const Color(0xFFBDE9DF)),
+    ),
+    child: Row(
+      children: [
+        _metric(Icons.schedule_rounded, '예상 이동 시간', route.detail),
+        _divider(),
+        _metric(Icons.payments_outlined, '예상 요금', route.fare),
+        _divider(),
+        _metric(Icons.eco_rounded, '주요 변동 요소', route.margin),
+      ],
+    ),
+  );
+
+  Widget _metric(IconData icon, String label, String value) => Expanded(
+    child: Column(
+      children: [
+        Icon(icon, size: 23, color: DdubiColors.green),
+        const SizedBox(height: 5),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 10, color: Color(0xFF62758A)),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            color: DdubiColors.navy,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _divider() =>
+      Container(width: 1, height: 50, color: const Color(0xFFE4ECEF));
+}
+
+class _RouteVariable extends StatelessWidget {
+  const _RouteVariable({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: .09),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      children: [
+        Icon(icon, size: 23, color: color),
+        const SizedBox(height: 5),
+        Text(
+          label,
+          maxLines: 1,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF617083),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: DdubiColors.navy,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class ScheduleEditScreen extends StatelessWidget {
@@ -3162,7 +4277,7 @@ class RouteResultsScreen extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: RouteCard(route, onTap: () => _openRouteMap(context, route)),
           ),
-          _recommendationReason,
+          _recommendationReason(route),
         ],
       );
 
@@ -3179,7 +4294,7 @@ class RouteResultsScreen extends StatelessWidget {
         children: [
           const Expanded(flex: 3, child: _routeGuide),
           const SizedBox(width: 16),
-          const Expanded(flex: 2, child: _recommendationReason),
+          Expanded(flex: 2, child: _recommendationReason(route)),
         ],
       ),
       const SizedBox(height: 20),
@@ -3217,19 +4332,20 @@ class RouteResultsScreen extends StatelessWidget {
     ),
   );
 
-  static const _recommendationReason = InfoCard(
-    color: Color(0xFFF4F8FF),
+  Widget _recommendationReason(RouteOption route) => InfoCard(
+    color: const Color(0xFFF4F8FF),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        StatusBadge(
+        const StatusBadge(
           '추천 이유',
           tone: DdubiColors.blue,
           icon: Icons.lightbulb_outline,
         ),
-        SizedBox(height: 10),
+        const SizedBox(height: 10),
         Text(
-          '현재 버스 정차 구간이 혼잡해 버스 도착 예측 신뢰도가 낮아요.\n현재 정상 운행 중인 지하철 2호선 경로를 추천드려요.',
+          '${route.transport} 경로 중 예상 이동시간이 적합한 후보예요.\n'
+          '${route.detail} · ${route.margin} · ${route.fare}',
         ),
       ],
     ),
@@ -3434,7 +4550,7 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
       desiredArrivalAt: _desiredArrivalAt,
     );
     setState(() => _RouteSearchHistory.add(condition));
-    context.push('/recommendations/mock-recommendation-1', extra: condition);
+    context.push('/recommendations/search-results', extra: condition);
   }
 }
 
@@ -3503,13 +4619,23 @@ class RouteMapScreen extends StatefulWidget {
   const RouteMapScreen({
     super.key,
     required this.repository,
+    this.api,
+    this.savedRoute,
     this.selectedRoute,
     this.condition,
+    this.departureLabel,
+    this.destinationLabel,
+    this.initialRouteDeviation = false,
   });
 
   final DdubiRepository repository;
+  final RecommendationApi? api;
+  final SavedRouteSummary? savedRoute;
   final RouteOption? selectedRoute;
   final RouteSearchCondition? condition;
+  final String? departureLabel;
+  final String? destinationLabel;
+  final bool initialRouteDeviation;
 
   @override
   State<RouteMapScreen> createState() => _RouteMapScreenState();
@@ -3518,12 +4644,16 @@ class RouteMapScreen extends StatefulWidget {
 class _RouteMapScreenState extends State<RouteMapScreen> {
   late final Future<List<RouteOption>> _routes;
   late RouteKind _selectedKind;
+  late bool _showDeviationBanner;
 
   @override
   void initState() {
     super.initState();
     _selectedKind = widget.selectedRoute?.kind ?? RouteKind.recommended;
-    _routes = widget.selectedRoute != null
+    _showDeviationBanner = widget.initialRouteDeviation;
+    _routes = widget.savedRoute != null
+        ? Future.value(const [])
+        : widget.selectedRoute != null
         ? Future.value([widget.selectedRoute!])
         : widget.repository.routes(condition: widget.condition).then((routes) {
             final primary = _primaryRoute(routes);
@@ -3532,53 +4662,213 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   @override
+  Widget build(BuildContext context) =>
+      widget.api != null && widget.savedRoute != null
+      ? _SavedRouteApiScreen(
+          api: widget.api!,
+          summary: widget.savedRoute!,
+          route:
+              widget.selectedRoute ??
+              widget.savedRoute!.toRouteOption(
+                Schedule(
+                  id: '',
+                  title: '',
+                  origin: const PlaceLocation(name: '', lat: 0, lng: 0),
+                  destination: const PlaceLocation(name: '', lat: 0, lng: 0),
+                  arriveBy: DateTime.now().add(
+                    Duration(minutes: widget.savedRoute!.baseDurationMin),
+                  ),
+                ),
+              ),
+          repository: widget.repository,
+          departureLabel:
+              widget.departureLabel ?? widget.savedRoute!.fromName ?? '출발지',
+          destinationLabel:
+              widget.destinationLabel ?? widget.savedRoute!.toName ?? '도착지',
+        )
+      : AppPage(
+          title: '경로 상세',
+          webTitle: '경로 지도',
+          webSubtitle: '추천 경로와 이동 단계, 현재 위치를 한 화면에서 확인하세요.',
+          child: FutureBuilder<List<RouteOption>>(
+            future: _routes,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const DataLoadError(message: '지도 경로를 불러오지 못했어요.');
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final routes = snapshot.data!;
+              if (routes.isEmpty) {
+                return const Center(child: Text('표시할 추천 경로가 없어요.'));
+              }
+              final selected = routes.firstWhere(
+                (route) => route.kind == _selectedKind,
+                orElse: () => routes.first,
+              );
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 760;
+                  final map = _RouteMapView(
+                    routes: routes,
+                    selectedKind: selected.kind,
+                    departureLabel:
+                        widget.departureLabel ??
+                        widget.condition?.departurePlace ??
+                        '출발지',
+                    destinationLabel:
+                        widget.destinationLabel ??
+                        widget.condition?.destinationPlace ??
+                        '도착지',
+                    onSelected: (kind) => setState(() => _selectedKind = kind),
+                    showRouteSelector: false,
+                  );
+                  final detail = _RouteMapDetail(
+                    route: selected,
+                    repository: widget.repository,
+                    departureLabel:
+                        widget.departureLabel ??
+                        widget.condition?.departurePlace ??
+                        '출발지',
+                    destinationLabel:
+                        widget.destinationLabel ??
+                        widget.condition?.destinationPlace ??
+                        '도착지',
+                  );
+                  if (isWide) {
+                    final layout = Padding(
+                      key: const Key('webRouteMapLayout'),
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Expanded(flex: 3, child: map),
+                          const SizedBox(width: 16),
+                          SizedBox(
+                            width: 360,
+                            child: SingleChildScrollView(child: detail),
+                          ),
+                        ],
+                      ),
+                    );
+                    return Column(
+                      children: [
+                        if (_showDeviationBanner)
+                          _RouteDeviationBanner(
+                            onDismiss: () =>
+                                setState(() => _showDeviationBanner = false),
+                          ),
+                        Expanded(child: layout),
+                      ],
+                    );
+                  }
+                  return Column(
+                    key: const Key('mobileRouteMapLayout'),
+                    children: [
+                      if (_showDeviationBanner)
+                        _RouteDeviationBanner(
+                          onDismiss: () =>
+                              setState(() => _showDeviationBanner = false),
+                        ),
+                      Expanded(flex: 6, child: map),
+                      Flexible(
+                        flex: 4,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                          child: detail,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        );
+}
+
+class _SavedRouteApiScreen extends StatefulWidget {
+  const _SavedRouteApiScreen({
+    required this.api,
+    required this.summary,
+    required this.route,
+    required this.repository,
+    required this.departureLabel,
+    required this.destinationLabel,
+  });
+
+  final RecommendationApi api;
+  final SavedRouteSummary summary;
+  final RouteOption route;
+  final DdubiRepository repository;
+  final String departureLabel;
+  final String destinationLabel;
+
+  @override
+  State<_SavedRouteApiScreen> createState() => _SavedRouteApiScreenState();
+}
+
+class _SavedRouteApiScreenState extends State<_SavedRouteApiScreen> {
+  late Future<_SavedRouteViewData> _data = _load();
+
+  Future<_SavedRouteViewData> _load() async {
+    final results = await Future.wait<Object>([
+      widget.api.getSavedRouteDetail(widget.summary.routeId),
+      widget.api.getSavedRouteMap(widget.summary.routeId),
+    ]);
+    return _SavedRouteViewData(
+      detail: results[0] as SavedRouteDetail,
+      map: results[1] as SavedRouteMap,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) => AppPage(
-    title: '전체 지도',
-    webTitle: '경로 지도',
-    webSubtitle: '추천 경로와 이동 단계, 현재 위치를 한 화면에서 확인하세요.',
-    child: FutureBuilder<List<RouteOption>>(
-      future: _routes,
+    title: '경로 상세',
+    child: FutureBuilder<_SavedRouteViewData>(
+      future: _data,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const DataLoadError(message: '지도 경로를 불러오지 못했어요.');
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const DataLoadError(message: '경로 상세를 불러오지 못했어요.'),
+                TextButton(
+                  onPressed: () => setState(() => _data = _load()),
+                  child: const Text('다시 시도'),
+                ),
+              ],
+            ),
+          );
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final routes = snapshot.data!;
-        if (routes.isEmpty) {
-          return const Center(child: Text('표시할 추천 경로가 없어요.'));
-        }
-        final selected = routes.firstWhere(
-          (route) => route.kind == _selectedKind,
-          orElse: () => routes.first,
-        );
+        final data = snapshot.data!;
         return LayoutBuilder(
           builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 760;
-            final map = _RouteMapView(
-              routes: routes,
-              selectedKind: selected.kind,
-              departureLabel: widget.condition?.departurePlace ?? '역삼역 입구',
-              destinationLabel: widget.condition?.destinationPlace ?? '잠실야구장',
-              onSelected: (kind) => setState(() => _selectedKind = kind),
+            final map = _SavedRouteMapView(
+              routeMap: data.map,
+              departureLabel: widget.departureLabel,
+              destinationLabel: widget.destinationLabel,
             );
-            final detail = _RouteMapDetail(
-              route: selected,
+            final detail = _SavedRouteDetailPanel(
+              summary: widget.summary,
+              detail: data.detail,
+              route: widget.route,
               repository: widget.repository,
-              departureLabel: widget.condition?.departurePlace ?? '역삼역 입구',
-              destinationLabel: widget.condition?.destinationPlace ?? '잠실야구장',
             );
-            if (isWide) {
+            if (constraints.maxWidth >= 760) {
               return Padding(
-                key: const Key('webRouteMapLayout'),
+                key: const Key('webSavedRouteLayout'),
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
                     Expanded(flex: 3, child: map),
                     const SizedBox(width: 16),
                     SizedBox(
-                      width: 360,
+                      width: 370,
                       child: SingleChildScrollView(child: detail),
                     ),
                   ],
@@ -3586,13 +4876,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               );
             }
             return Column(
-              key: const Key('mobileRouteMapLayout'),
+              key: const Key('mobileSavedRouteLayout'),
               children: [
                 Expanded(flex: 5, child: map),
                 Flexible(
-                  flex: 4,
+                  flex: 5,
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
                     child: detail,
                   ),
                 ),
@@ -3605,6 +4895,500 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   );
 }
 
+class _SavedRouteViewData {
+  const _SavedRouteViewData({required this.detail, required this.map});
+
+  final SavedRouteDetail detail;
+  final SavedRouteMap map;
+}
+
+class _SavedRouteDetailPanel extends StatelessWidget {
+  const _SavedRouteDetailPanel({
+    required this.summary,
+    required this.detail,
+    required this.route,
+    required this.repository,
+  });
+
+  final SavedRouteSummary summary;
+  final SavedRouteDetail detail;
+  final RouteOption route;
+  final DdubiRepository repository;
+
+  @override
+  Widget build(BuildContext context) => InfoCard(
+    key: const Key('savedRouteDetail'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(child: _metric('예상 시간', '약 ${detail.baseDurationMin}분')),
+            Expanded(child: _metric('경로 순위', '${detail.rankNo}순위')),
+            Expanded(child: _metric('이동 구간', '${detail.segments.length}개')),
+          ],
+        ),
+        const Divider(height: 28),
+        if (detail.selected)
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: StatusBadge('선택된 경로', tone: DdubiColors.green),
+          ),
+        if (detail.selected) const SizedBox(height: 12),
+        if (detail.segments.isEmpty)
+          const Text('표시할 이동 구간이 없어요.')
+        else
+          for (final segment in detail.segments)
+            _SavedRouteSegmentTile(segment: segment),
+        const SizedBox(height: 12),
+        PrimaryButton(
+          '이동 안내 시작',
+          onPressed: () => _open(
+            context,
+            MovingScreen(repository: repository, route: route),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _metric(String label, String value) => Column(
+    children: [
+      Text(
+        label,
+        style: const TextStyle(fontSize: 11, color: Color(0xFF687B8D)),
+      ),
+      const SizedBox(height: 3),
+      Text(
+        value,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+          color: DdubiColors.navy,
+        ),
+      ),
+    ],
+  );
+}
+
+class _SavedRouteSegmentTile extends StatelessWidget {
+  const _SavedRouteSegmentTile({required this.segment});
+
+  final SavedRouteSegment segment;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: _modeColor(segment.mode).withValues(alpha: .12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            _modeIcon(segment.mode),
+            size: 20,
+            color: _modeColor(segment.mode),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${segment.seq}. ${_routeModeLabel(segment.mode)} '
+                        '${segment.providerRouteKey ?? ''}'
+                    .trim(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: DdubiColors.navy,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '${segment.fromName ?? '출발'} → ${segment.toName ?? '도착'}',
+                style: const TextStyle(color: Color(0xFF52677B)),
+              ),
+              Text(
+                '약 ${segment.baseDurationMin}분',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7A8B9B)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+IconData _modeIcon(String mode) => switch (mode) {
+  'BUS' => Icons.directions_bus_rounded,
+  'SUBWAY' => Icons.directions_subway_rounded,
+  'TAXI' => Icons.local_taxi_rounded,
+  _ => Icons.directions_walk_rounded,
+};
+
+String _routeModeLabel(String mode) => switch (mode) {
+  'WALK' => '도보',
+  'BUS' => '버스',
+  'SUBWAY' => '지하철',
+  'TAXI' => '택시',
+  _ => mode,
+};
+
+Color _modeColor(String mode) => switch (mode) {
+  'BUS' => const Color(0xFF2E70E8),
+  'SUBWAY' => const Color(0xFF00A56F),
+  'TAXI' => const Color(0xFFF3A91B),
+  _ => const Color(0xFF55697D),
+};
+
+class _SavedRouteMapView extends StatefulWidget {
+  const _SavedRouteMapView({
+    required this.routeMap,
+    required this.departureLabel,
+    required this.destinationLabel,
+  });
+
+  final SavedRouteMap routeMap;
+  final String departureLabel;
+  final String destinationLabel;
+
+  @override
+  State<_SavedRouteMapView> createState() => _SavedRouteMapViewState();
+}
+
+class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
+  KakaoMapController? _controller;
+  StreamSubscription<CameraMoveEndEvent>? _cameraMoveSubscription;
+  List<_ProjectedRouteSegment> _projectedSegments = const [];
+
+  LatLng get _center {
+    final bounds = widget.routeMap.bounds;
+    if (bounds != null) {
+      return LatLng(
+        latitude: (bounds.minLat + bounds.maxLat) / 2,
+        longitude: (bounds.minLng + bounds.maxLng) / 2,
+      );
+    }
+    final coordinates = widget.routeMap.coordinates;
+    if (coordinates.isNotEmpty) {
+      return LatLng(
+        latitude: coordinates.first.latitude,
+        longitude: coordinates.first.longitude,
+      );
+    }
+    return const LatLng(latitude: 37.5665, longitude: 126.9780);
+  }
+
+  Future<void> _onMapCreated(KakaoMapController controller) async {
+    _controller = controller;
+    if (!kIsWeb) {
+      _cameraMoveSubscription = controller.onCameraMoveEndStream.listen(
+        (_) => _refreshProjectedSegments(),
+      );
+    }
+    final points = widget.routeMap.coordinates;
+    try {
+      if (!kIsWeb) {
+        await controller.addMarkerLayer(
+          layerId: KakaoMapController.defaultLabelLayerId,
+          zOrder: 1000,
+          clickable: false,
+        );
+      }
+      if (points.isNotEmpty) {
+        await controller.addMarkers(
+          markerOptions: [
+            MarkerOption(
+              id: 'saved-route-departure',
+              latLng: LatLng(
+                latitude: points.first.latitude,
+                longitude: points.first.longitude,
+              ),
+              text: '출발',
+            ),
+            MarkerOption(
+              id: 'saved-route-destination',
+              latLng: LatLng(
+                latitude: points.last.latitude,
+                longitude: points.last.longitude,
+              ),
+              text: '도착',
+            ),
+          ],
+        );
+      }
+      await _showEntireRoute();
+    } catch (error) {
+      debugPrint('Saved route map setup failed: $error');
+    }
+  }
+
+  Future<void> _showEntireRoute() async {
+    final controller = _controller;
+    if (controller == null) return;
+    final bounds = widget.routeMap.bounds;
+    final update = bounds == null
+        ? CameraUpdate.fromLatLng(_center)
+        : CameraUpdate.fromBounds(
+            LatLngBounds(
+              southwest: LatLng(
+                latitude: bounds.minLat,
+                longitude: bounds.minLng,
+              ),
+              northeast: LatLng(
+                latitude: bounds.maxLat,
+                longitude: bounds.maxLng,
+              ),
+            ),
+            padding: 48,
+          );
+    try {
+      await controller.moveCamera(
+        cameraUpdate: update,
+        animation: const CameraAnimation(
+          duration: 450,
+          autoElevation: true,
+          isConsecutive: false,
+        ),
+      );
+      await _refreshProjectedSegments();
+    } catch (error) {
+      debugPrint('Saved route camera move failed: $error');
+    }
+  }
+
+  Future<void> _refreshProjectedSegments() async {
+    final controller = _controller;
+    if (controller == null || kIsWeb) return;
+    final projected = <_ProjectedRouteSegment>[];
+    try {
+      for (final segment in widget.routeMap.segments) {
+        final points = <Offset>[];
+        for (final coordinate in segment.coordinates) {
+          final point = await controller.toScreenPoint(
+            position: LatLng(
+              latitude: coordinate.latitude,
+              longitude: coordinate.longitude,
+            ),
+          );
+          if (point != null) points.add(point);
+        }
+        projected.add(
+          _ProjectedRouteSegment(mode: segment.mode, points: points),
+        );
+      }
+      if (mounted) setState(() => _projectedSegments = projected);
+    } catch (error) {
+      debugPrint('Saved route coordinate projection failed: $error');
+    }
+  }
+
+  @override
+  void dispose() {
+    _cameraMoveSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCoordinates = widget.routeMap.coordinates.isNotEmpty;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: KakaoMapConfig.isReady
+                ? KakaoMap(
+                    initialPosition: _center,
+                    initialLevel: kIsWeb ? 5 : 13,
+                    onMapCreated: _onMapCreated,
+                  )
+                : const ColoredBox(color: Color(0xFFEAF2EC)),
+          ),
+          if (hasCoordinates)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  key: const Key('savedRoutePolyline'),
+                  painter: _SavedRoutePolylinePainter(
+                    widget.routeMap,
+                    projectedSegments: _projectedSegments,
+                  ),
+                ),
+              ),
+            )
+          else
+            const Center(
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Text('이 경로는 표시할 지도 좌표가 없어요.'),
+                ),
+              ),
+            ),
+          if (!KakaoMapConfig.isReady && hasCoordinates) ...[
+            Positioned(
+              left: 12,
+              bottom: 14,
+              child: _MapMarker(
+                label: '출발 · ${widget.departureLabel}',
+                icon: Icons.trip_origin,
+                tone: DdubiColors.green,
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 14,
+              child: _MapMarker(
+                label: '도착 · ${widget.destinationLabel}',
+                icon: Icons.location_on,
+                tone: DdubiColors.red,
+              ),
+            ),
+          ],
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (KakaoMapConfig.isReady && hasCoordinates) ...[
+                  FloatingActionButton.small(
+                    heroTag: 'saved-route-entire',
+                    tooltip: '전체 경로 보기',
+                    onPressed: _showEntireRoute,
+                    backgroundColor: Colors.white,
+                    foregroundColor: DdubiColors.blue,
+                    child: const Icon(Icons.route_rounded),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Container(
+                  key: const Key('savedRouteMapModeBadge'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .94),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    hasCoordinates
+                        ? '서버 경로 좌표 · ${widget.routeMap.coordinates.length}개 점'
+                        : '지도 좌표 없음',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedRoutePolylinePainter extends CustomPainter {
+  const _SavedRoutePolylinePainter(
+    this.routeMap, {
+    this.projectedSegments = const [],
+  });
+
+  final SavedRouteMap routeMap;
+  final List<_ProjectedRouteSegment> projectedSegments;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (projectedSegments.isNotEmpty) {
+      for (final segment in projectedSegments) {
+        _drawSegment(canvas, segment.mode, segment.points);
+      }
+      return;
+    }
+    final bounds = routeMap.bounds;
+    if (bounds == null) return;
+    const padding = 28.0;
+    final width = size.width - padding * 2;
+    final height = size.height - padding * 2;
+    final lngRange = bounds.maxLng - bounds.minLng;
+    final latRange = bounds.maxLat - bounds.minLat;
+
+    Offset point(RouteCoordinate coordinate) => Offset(
+      padding +
+          (lngRange == 0
+              ? width / 2
+              : (coordinate.longitude - bounds.minLng) / lngRange * width),
+      padding +
+          (latRange == 0
+              ? height / 2
+              : (bounds.maxLat - coordinate.latitude) / latRange * height),
+    );
+
+    for (final segment in routeMap.segments) {
+      if (segment.coordinates.length < 2) continue;
+      final points = segment.coordinates.map(point).toList(growable: false);
+      _drawSegment(canvas, segment.mode, points);
+    }
+  }
+
+  void _drawSegment(Canvas canvas, String mode, List<Offset> points) {
+    if (points.length < 2) return;
+    final paint = Paint()
+      ..color = _modeColor(mode)
+      ..strokeWidth = mode == 'WALK' ? 5 : 7
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    if (mode == 'WALK') {
+      for (var index = 0; index < points.length - 1; index++) {
+        final start = points[index];
+        final end = points[index + 1];
+        final distance = (end - start).distance;
+        if (distance == 0) continue;
+        final direction = (end - start) / distance;
+        for (var offset = 0.0; offset < distance; offset += 12) {
+          canvas.drawLine(
+            start + direction * offset,
+            start + direction * (offset + 6).clamp(0, distance),
+            paint,
+          );
+        }
+      }
+    } else {
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      for (final coordinate in points.skip(1)) {
+        path.lineTo(coordinate.dx, coordinate.dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SavedRoutePolylinePainter oldDelegate) =>
+      oldDelegate.routeMap != routeMap ||
+      oldDelegate.projectedSegments != projectedSegments;
+}
+
+class _ProjectedRouteSegment {
+  const _ProjectedRouteSegment({required this.mode, required this.points});
+
+  final String mode;
+  final List<Offset> points;
+}
+
 class _RouteMapView extends StatefulWidget {
   const _RouteMapView({
     required this.routes,
@@ -3612,6 +5396,7 @@ class _RouteMapView extends StatefulWidget {
     required this.departureLabel,
     required this.destinationLabel,
     required this.onSelected,
+    this.showRouteSelector = true,
   });
 
   final List<RouteOption> routes;
@@ -3619,6 +5404,7 @@ class _RouteMapView extends StatefulWidget {
   final String departureLabel;
   final String destinationLabel;
   final ValueChanged<RouteKind> onSelected;
+  final bool showRouteSelector;
 
   @override
   State<_RouteMapView> createState() => _RouteMapViewState();
@@ -3728,35 +5514,36 @@ class _RouteMapViewState extends State<_RouteMapView> {
                     ),
                   ),
           ),
-          Positioned(
-            left: 12,
-            right: 12,
-            top: 12,
-            child: Material(
-              color: Colors.white.withValues(alpha: .94),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: widget.routes
-                      .map(
-                        (route) => ChoiceChip(
-                          label: Text(route.label),
-                          selected: route.kind == widget.selectedKind,
-                          avatar: CircleAvatar(
-                            backgroundColor: _routeTone(route.kind),
-                            radius: 5,
+          if (widget.showRouteSelector)
+            Positioned(
+              left: 12,
+              right: 12,
+              top: 12,
+              child: Material(
+                color: Colors.white.withValues(alpha: .94),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: widget.routes
+                        .map(
+                          (route) => ChoiceChip(
+                            label: Text(route.label),
+                            selected: route.kind == widget.selectedKind,
+                            avatar: CircleAvatar(
+                              backgroundColor: _routeTone(route.kind),
+                              radius: 5,
+                            ),
+                            onSelected: (_) => _handleRouteSelected(route.kind),
                           ),
-                          onSelected: (_) => _handleRouteSelected(route.kind),
-                        ),
-                      )
-                      .toList(),
+                        )
+                        .toList(),
+                  ),
                 ),
               ),
             ),
-          ),
           if (!KakaoMapConfig.isReady) ...[
             Positioned(
               key: const Key('mapCurrentMarker'),
@@ -3909,32 +5696,13 @@ class _RouteMapDetail extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        StatusBadge(
-          route.label,
-          tone: _routeTone(route.kind),
-          icon: Icons.route_outlined,
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          runSpacing: 8,
+        Row(
           children: [
-            Text(
-              '${route.departure} 출발',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            const Icon(Icons.arrow_forward, size: 18),
-            Text(
-              '${route.arrival} 도착',
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            Text(
-              route.margin,
-              style: const TextStyle(
-                color: DdubiColors.green,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+            Expanded(child: _liveMetric('도착까지', route.detail)),
+            Container(width: 1, height: 40, color: const Color(0xFFE0E8EE)),
+            Expanded(child: _liveMetric('남은 거리', '약 6.2km')),
+            Container(width: 1, height: 40, color: const Color(0xFFE0E8EE)),
+            Expanded(child: _liveMetric('도착 예정', route.arrival)),
           ],
         ),
         const Divider(height: 25),
@@ -3963,6 +5731,77 @@ class _RouteMapDetail extends StatelessWidget {
             context,
             MovingScreen(repository: repository, route: route),
           ),
+        ),
+      ],
+    ),
+  );
+
+  static Widget _liveMetric(String label, String value) => Column(
+    children: [
+      Text(
+        label,
+        style: const TextStyle(fontSize: 11, color: Color(0xFF62758A)),
+      ),
+      const SizedBox(height: 3),
+      Text(
+        value,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w900,
+          color: DdubiColors.navy,
+        ),
+      ),
+    ],
+  );
+}
+
+class _RouteDeviationBanner extends StatelessWidget {
+  const _RouteDeviationBanner({required this.onDismiss});
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const Key('routeDeviationBanner'),
+    margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+    padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFFECEE),
+      borderRadius: BorderRadius.circular(15),
+      border: Border.all(color: const Color(0xFFFFB8BD)),
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: const BoxDecoration(
+            color: Color(0xFFFF5964),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.priority_high_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+        const SizedBox(width: 10),
+        const Expanded(
+          child: Text(
+            '추천 경로에서 벗어났어요.\n현재 위치를 확인해 주세요.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF9D2731),
+            ),
+          ),
+        ),
+        IconButton(
+          key: const Key('dismissRouteDeviationBanner'),
+          onPressed: onDismiss,
+          icon: const Icon(Icons.close_rounded, color: Color(0xFF9D2731)),
         ),
       ],
     ),
@@ -4006,9 +5845,6 @@ class _MapPainter extends CustomPainter {
       );
     canvas.drawPath(basePath, road);
 
-    for (final kind in RouteKind.values.where((kind) => kind != selectedKind)) {
-      _drawRoute(canvas, size, kind, selected: false);
-    }
     _drawRoute(canvas, size, selectedKind, selected: true);
   }
 
@@ -4083,24 +5919,43 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: TextButton(
-              onPressed: () => setState(() => _schedules = repository.schedules()),
-              child: const Text('일정을 불러오지 못했습니다. 다시 시도'),
-            ));
+            return Center(
+              child: TextButton(
+                onPressed: () =>
+                    setState(() => _schedules = repository.schedules()),
+                child: const Text('일정을 불러오지 못했습니다. 다시 시도'),
+              ),
+            );
           }
           if (repository is! ScheduleEvaluationRepository) {
-            return const Center(child: Text('실제 교통 상황은 일정 API 연결 후 확인할 수 있습니다.'));
+            return const Center(
+              child: Text('실제 교통 상황은 일정 API 연결 후 확인할 수 있습니다.'),
+            );
           }
+          final evaluationRepository =
+              repository as ScheduleEvaluationRepository;
           final schedules = snapshot.data ?? <Schedule>[];
-          if (schedules.isEmpty) return const Center(child: Text('등록된 일정이 없습니다.'));
-          return ListView(padding: _pad, children: [
-            const Text('각 일정의 최신 평가와 데이터 부족 사유를 확인하세요.'),
-            for (final schedule in schedules) ...[
-              const SizedBox(height: 16),
-              Text(schedule.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              ScheduleEvaluationCard(key: ValueKey(schedule.id), repository: repository as ScheduleEvaluationRepository, scheduleId: schedule.id),
+          if (schedules.isEmpty) {
+            return const Center(child: Text('등록된 일정이 없습니다.'));
+          }
+          return ListView(
+            padding: _pad,
+            children: [
+              const Text('각 일정의 최신 평가와 데이터 부족 사유를 확인하세요.'),
+              for (final schedule in schedules) ...[
+                const SizedBox(height: 16),
+                Text(
+                  schedule.title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                ScheduleEvaluationCard(
+                  key: ValueKey(schedule.id),
+                  repository: evaluationRepository,
+                  scheduleId: schedule.id,
+                ),
+              ],
             ],
-          ]);
+          );
         },
       ),
     );
@@ -4901,10 +6756,14 @@ class AccountManagementScreen extends StatefulWidget {
     super.key,
     required this.userApi,
     required this.authRepository,
+    this.kakaoLoginService,
+    this.googleLoginService,
   });
 
   final UserApi userApi;
   final AuthRepository authRepository;
+  final KakaoLoginService? kakaoLoginService;
+  final GoogleLoginService? googleLoginService;
 
   @override
   State<AccountManagementScreen> createState() =>
@@ -4913,6 +6772,9 @@ class AccountManagementScreen extends StatefulWidget {
 
 class _AccountManagementScreenState extends State<AccountManagementScreen> {
   late Future<UserProfile> _profile = widget.userApi.getMe();
+  Set<String> _linkedProviders = {};
+  bool _socialProvidersResolved = false;
+  bool _socialBusy = false;
 
   @override
   Widget build(BuildContext context) => AppPage(
@@ -4972,25 +6834,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            const InfoCard(
-              color: Color(0xFFF4F8FF),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SectionHeader('소셜 계정 연결'),
-                  SizedBox(height: 8),
-                  Text(
-                    '카카오·네이버·Google 로그인에서 기존 이메일이 확인되면 '
-                    '비밀번호 확인 후 이 계정에 안전하게 연결돼요.',
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    '연결된 제공자 목록과 연결 해제 기능은 백엔드 계정 관리 API 반영 후 표시됩니다.',
-                    style: TextStyle(color: Color(0xFF64708B), fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
+            _socialAccountsCard(user),
             const SizedBox(height: 16),
             InfoCard(
               child: Column(
@@ -5056,6 +6900,159 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       }
     }
   }
+
+  Widget _socialAccountsCard(UserProfile user) {
+    final providers = _socialProvidersResolved
+        ? _linkedProviders
+        : <String>{if (user.provider != null) user.provider!};
+    return InfoCard(
+      color: const Color(0xFFF4F8FF),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('소셜 계정 연결'),
+          const SizedBox(height: 8),
+          if (providers.isNotEmpty)
+            Text(
+              '현재 로그인 수단: ${providers.map(_providerLabel).join(', ')}',
+              style: const TextStyle(
+                color: DdubiColors.navy,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          const SizedBox(height: 10),
+          _socialAccountTile(
+            provider: 'KAKAO',
+            label: '카카오',
+            connected: providers.contains('KAKAO'),
+            enabled: widget.kakaoLoginService != null,
+          ),
+          const Divider(),
+          _socialAccountTile(
+            provider: 'GOOGLE',
+            label: 'Google',
+            connected: providers.contains('GOOGLE'),
+            enabled: widget.googleLoginService != null,
+          ),
+          const Divider(),
+          const ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.account_circle_outlined),
+            title: Text('네이버'),
+            subtitle: Text('마이페이지 연결 API와 인증 방식 협의가 필요해요.'),
+            trailing: Text('준비 중'),
+          ),
+          if (_socialBusy) const LinearProgressIndicator(),
+        ],
+      ),
+    );
+  }
+
+  Widget _socialAccountTile({
+    required String provider,
+    required String label,
+    required bool connected,
+    required bool enabled,
+  }) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(
+      connected ? Icons.verified_rounded : Icons.link_rounded,
+      color: connected ? DdubiColors.green : DdubiColors.navy,
+    ),
+    title: Text(label),
+    subtitle: Text(connected ? '연결됨' : '계정을 연결할 수 있어요.'),
+    trailing: TextButton(
+      onPressed: _socialBusy || !enabled
+          ? null
+          : () =>
+                connected ? _unlinkSocial(provider) : _connectSocial(provider),
+      child: Text(connected ? '연결 해제' : '연결'),
+    ),
+  );
+
+  Future<void> _connectSocial(String provider) async {
+    setState(() => _socialBusy = true);
+    try {
+      final List<String> providers;
+      if (provider == 'KAKAO') {
+        final token = await widget.kakaoLoginService!.login(context);
+        providers = await widget.authRepository.linkSocialAccount(
+          provider: provider,
+          accessToken: token,
+        );
+      } else {
+        final token = await widget.googleLoginService!.login(context);
+        providers = await widget.authRepository.linkSocialAccount(
+          provider: provider,
+          idToken: token,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _linkedProviders = providers.toSet();
+        _socialProvidersResolved = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_providerLabel(provider)} 계정을 연결했어요.')),
+      );
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_providerLabel(provider)} 계정을 연결하지 못했어요.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _socialBusy = false);
+    }
+  }
+
+  Future<void> _unlinkSocial(String provider) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${_providerLabel(provider)} 연결을 해제할까요?'),
+        content: const Text('마지막 로그인 수단은 계정 보호를 위해 해제할 수 없어요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('연결 해제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _socialBusy = true);
+    try {
+      final providers = await widget.authRepository.unlinkSocialAccount(
+        provider,
+      );
+      if (!mounted) return;
+      setState(() {
+        _linkedProviders = providers.toSet();
+        _socialProvidersResolved = true;
+      });
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('연결을 해제하지 못했어요. 로그인 수단을 확인해주세요.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _socialBusy = false);
+    }
+  }
+
+  static String _providerLabel(String provider) => switch (provider) {
+    'LOCAL' => '이메일',
+    'KAKAO' => '카카오',
+    'NAVER' => '네이버',
+    'GOOGLE' => 'Google',
+    _ => provider,
+  };
 
   Future<void> _showEmailRegistration() => _showUnavailableAccountFeature(
     title: '이메일 등록',
@@ -6267,7 +8264,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.cloud_off_outlined, color: Color(0xFFFF6B35), size: 20),
+                  Icon(
+                    Icons.cloud_off_outlined,
+                    color: Color(0xFFFF6B35),
+                    size: 20,
+                  ),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -6284,7 +8285,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 7),
               const Text(
                 '등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.',
-                style: TextStyle(color: Color(0xFF64708B), fontSize: 12, height: 1.4),
+                style: TextStyle(
+                  color: Color(0xFF64708B),
+                  fontSize: 12,
+                  height: 1.4,
+                ),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -6300,7 +8305,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 iconAlignment: IconAlignment.end,
                 icon: const Icon(Icons.chevron_right_rounded, size: 19),
-                label: const Text('상세 확인', style: TextStyle(fontWeight: FontWeight.w800)),
+                label: const Text(
+                  '상세 확인',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
             ],
           ),
@@ -6533,10 +8541,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Align(
           alignment: Alignment.centerRight,
           child: OutlinedButton(
-            onPressed: () => _open(
-              context,
-              DelayAlertScreen(repository: widget.repository),
-            ),
+            onPressed: () =>
+                _open(context, DelayAlertScreen(repository: widget.repository)),
             child: const Text('상세 확인'),
           ),
         ),

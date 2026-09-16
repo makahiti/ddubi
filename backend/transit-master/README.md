@@ -1,5 +1,20 @@
 # 수도권 버스 마스터 적용
 
+```text
+backend/transit-master/
+├─ bus/              # 버스 마스터·구간 ID 대응표·개별 manifest
+├─ subway/           # 지하철 마스터·좌표·출처
+├─ road/             # 도로 대응표 검증 상태
+├─ manifest.json     # 공통 버전·SHA·호환 조합
+├─ manage.py         # 무결성 검사·환경값 출력
+├─ distribution.md   # 공통 배포 안내
+├─ validation/       # 기존 검증 기록
+└─ README.md
+```
+
+배포 원본은 `backend/transit-master/bus/`로 이동했다. 공통 manifest와 배포 설정은
+[공통 마스터 안내](distribution.md)를 따른다.
+
 `metropolitan-bus-v6.json.gz`는 통합 CSV의 1,578개 출처별 노선·106,650개 정류장 순번과 공식 형상을 묶은 서빙 artifact다. 노선별 중복 출처가 있으므로 1,578을 고유 운행 노선 수로 해석하지 않는다. 숫자 ID·선행 0·미정차 경유점·결측값·방향은 원본대로 보존한다.
 
 ## 적용 상태
@@ -52,7 +67,7 @@ DDUBI_METROPOLITAN_BUS_SHA256=<metropolitan-bus-v6.json.manifest.json의 sha256>
 원본 다운로드와 카카오 1~20.json은 바탕화면 `경로` 폴더에 그대로 둔다. 저장소 루트에서 실행:
 
 ```powershell
-python backend/tools/build_metropolitan_master.py --source 'C:/Users/SSAFY/Desktop/경로/카카오화면대조_매핑보강_v6' --responses 'C:/Users/SSAFY/Desktop/경로' --output backend/transit-master/metropolitan-bus-v6.json.gz
+python backend/tools/build_metropolitan_master.py --source 'C:/Users/SSAFY/Desktop/경로/카카오화면대조_매핑보강_v6' --responses 'C:/Users/SSAFY/Desktop/경로' --output backend/transit-master/bus/metropolitan-bus-v6.json.gz
 ```
 
 다른 데이터를 배포할 때는 원본 메타데이터 version도 새 값으로 지정한다. 검토 대응표는 마스터 해시·검토 범위를 다시 확인해야 하며 변환기가 기존 검토를 새 마스터에 자동 승인하지 않는다.
@@ -65,7 +80,7 @@ Java 17과 Maven 래퍼를 사용한다. 아래 명령은 `backend/`에서 실�
 ./mvnw.cmd '-Dtest=MetropolitanBus*Test,ProviderSegmentSignatureFactoryTest,MasterDataTransitMappingResolverTest,SubwaySegmentMatcherTest,SeoulTransitMasterImportServiceTest,CanonicalSegmentIdFactoryTest,MappingCorpusEvaluatorTest,KakaoRouteMapperTest' test
 ./mvnw.cmd -q -DskipTests compile dependency:build-classpath '-Dmdep.outputFile=target/mapping-classpath.txt'
 $mappingClasspath = 'target/classes;' + (Get-Content target/mapping-classpath.txt -Raw).Trim()
-java '-Dfile.encoding=UTF-8' -Xmx1800m -cp $mappingClasspath com.ssafy.ddubi.domain.route.mapping.MetropolitanBusReplay transit-master/metropolitan-bus-v6.json.gz 'C:/Users/SSAFY/Desktop/경로' 'C:/Users/SSAFY/Desktop/경로/카카오화면대조_매핑보강_v6/mapping-results.json' 2026-09-09 target/metropolitan-replay-reviewed.json negative
+java '-Dfile.encoding=UTF-8' -Xmx1800m -cp $mappingClasspath com.ssafy.ddubi.domain.route.mapping.MetropolitanBusReplay transit-master/bus/metropolitan-bus-v6.json.gz 'C:/Users/SSAFY/Desktop/경로' 'C:/Users/SSAFY/Desktop/경로/카카오화면대조_매핑보강_v6/mapping-results.json' 2026-09-09 target/metropolitan-replay-reviewed.json negative
 ```
 
 기준일을 `2026-09-10`으로 바꾸고 다른 output 파일에 실행하면 날짜가 지난 별칭을 제외한 결과를 확인한다. `negative`를 붙이면 역방향·좌표 이동·미등록 노선·전체 이름 변경·0 길이의 총 1,405건을 검사한다. Replay는 별도 Matcher로 재계산하고 카카오 DTO → Mapper → Resolver의 결과와도 전체 대안 목록을 비교한다. v6 결과 JSON은 사후 비교에만 사용하고 매핑기에 주입하지 않는다.

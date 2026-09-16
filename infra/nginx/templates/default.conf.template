@@ -9,6 +9,7 @@
 server {
     listen 80;
     server_name _;
+    server_tokens off;
 
     # backend 컨테이너 주소를 매번 다시 찾는다. 고정 주소(proxy_pass http://backend:8080)는 nginx 기동 때 한 번만
     # IP 를 풀어 backend 재생성으로 IP 가 바뀌면 502 가 났다(2026-09-03·09-07 재현). 변수로 두면 resolver 규칙대로
@@ -41,7 +42,9 @@ server {
 
     location = /healthz {
         access_log off;
-        add_header Content-Type text/plain;
+        # add_header 를 여기 쓰면 nginx 규칙상 서버 수준의 보안 헤더 3개가 이 응답에서 빠진다(2026-09-15 점검에서 발견).
+        # 응답 형식만 정하는 default_type 을 쓰면 상속이 유지된다.
+        default_type text/plain;
         return 200 "ok\n";
     }
 
@@ -78,8 +81,32 @@ server {
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
 
+    # 응답 헤더에 nginx 버전을 적지 않는다. 공격자가 버전별 취약점을 바로 찾는 것을 조금 늦춘다 (2026-09-15).
+    server_tokens off;
+
+    # 응답 압축 (2026-09-15). API 응답은 JSON 이라 gzip 으로 보통 70~80% 줄어든다. 앱이 모바일 망에서 받는 양과 시간이 줄어든다.
+    # 1KB 미만은 압축 이득이 없어 건너뛴다. 압축 수준 5 는 CPU 와 크기의 무난한 중간값이다.
+    # Vary 헤더는 중간 캐시가 압축본과 원본을 섞지 않게 한다. 이미지·zip 같은 이미 압축된 형식은 목록에 넣지 않는다.
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 5;
+    gzip_proxied any;
+    gzip_types application/json application/javascript text/css text/plain text/javascript application/xml image/svg+xml;
+
     # 사용자 API — backend 로 프록시. /api 접두사는 보존된다 (트레일링 슬래시 없음)
     location /api/ {
+        proxy_pass $backend_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API 명세(Swagger UI·OpenAPI JSON) — backend(springdoc)가 만든다. 프론트가 명세를 볼 곳이 필요해 공개(2026-09-14 backend 요청).
+    # 비밀값은 없고 API 주소·형식만 보인다. 운영 전환 뒤에는 backend 가 프로필로 끄거나 이 블록을 지운다.
+    # /swagger-ui.html 은 backend 가 /swagger-ui/index.html 로 302 를 주므로 함께 연다.
+    location ~ ^/(swagger-ui/|swagger-ui\.html$|v3/api-docs) {
         proxy_pass $backend_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -110,7 +137,9 @@ server {
 
     location = /healthz {
         access_log off;
-        add_header Content-Type text/plain;
+        # add_header 를 여기 쓰면 nginx 규칙상 서버 수준의 보안 헤더 3개가 이 응답에서 빠진다(2026-09-15 점검에서 발견).
+        # 응답 형식만 정하는 default_type 을 쓰면 상속이 유지된다.
+        default_type text/plain;
         return 200 "ok\n";
     }
 }

@@ -14,6 +14,11 @@
 #   - 활성화되지 못한 채 48시간 지난 고아 버전은 다음 activate 때 함께 삭제
 #   - 마지막 활성화 시각을 기록해 두고, 기준선이 오래되면 추천 confidence 강등 + DATA_STALE 알림에 쓴다
 
+# 2026-09-15 사용 여부 정리
+#   - 기준선 업로드(uploadBaselineRows)와 활성화(activateBaseline)는 현재 쓰지 않는다. 2026-09-10 에 "평시 소요 시간은 카카오 경로 API 값을 쓰고,
+#     버스 구간만 ml-serving 예측으로 대체한다" 로 결정되어 Spark 구간 기준선 배치가 폐기됐다. 구현·계약·클라이언트(sparkjobs)는 지우지 않고 남긴다.
+#   - 지하철 마스터 내려받기(downloadSubwayMaster)와 구간 변경 트리거(segment-changes)는 사용 중이다.
+#
 # 2026-09-07 인프라 정정: 공인 도메인이 아니라 서버2 사설 IP 로 붙는다.
 # 공인 도메인으로 접속하면 출발 IP 가 공인 IP 가 되어 nginx 의 서버1 IP 제한에 걸린다.
 baseUrl: "http://172.26.6.220/internal"   # 서버2 사설 IP, 80 포트

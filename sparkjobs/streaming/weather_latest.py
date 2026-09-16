@@ -1,9 +1,9 @@
-"""city.raw 의 weather.observation → Redis weather:latest:{nx}:{ny}
+"""city.raw 날씨 → Redis 최신값과 HDFS Weather Silver.
 
-Kafka → Spark → Redis 실시간 경로의 첫 잡. 마이크로배치마다 격자(nx, ny)별로 가장 최신 관측
-(occurredAt 이 가장 늦은 것, 같으면 collectedAt) 하나만 남긴다. Redis 쓰기 직전에도 현재값과
-시각을 원자 비교해 다음 배치에 늦게 도착한 과거 관측이 최신값을 되돌리지 않게 한다.
-키·TTL 은 docs/contracts/redis-keys.yaml (weatherLatest) 를 따른다.
+같은 표준 DataFrame에서 Redis는 격자(nx, ny)별 최신 관측을 10초 Micro Batch로 갱신하고,
+HDFS는 새 표준 행을 기본 10분 단위로 묶어 Parquet Silver에 append한다. Redis 쓰기 직전에는
+현재값과 시각을 원자 비교해 늦은 과거 관측이 최신값을 되돌리지 않게 한다. HDFS 스트림은
+별도 checkpoint와 2일 watermark로 동일 내용 반복을 제거한다. 과거 Archive backfill은 v1 범위 밖이다.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import sys
 
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import ArrayType, DoubleType, IntegerType, MapType, StringType, StructField, StructType
-
 from common.kafka_source import read_events_stream
 from common.redis_sink import (
     COLLECTED_TIME_COL,
@@ -26,6 +24,7 @@ from common.redis_sink import (
     write_latest_with_row_ttl,
 )
 from common.settings import Settings
+from common.weather_normalizer import FEATURE_COLUMNS, FEATURE_VERSION, normalize_weather, to_weather_silver_stream
 
 # 실험(부하 시험)용 인스턴스는 환경변수로 토픽·잡 이름·키 접두사를 바꿔 띄운다.
 # 기본값은 운영 잡(city.raw -> weather:latest) 과 같다.
@@ -35,45 +34,22 @@ EVENT_TYPE = "weather.observation"
 REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "weather:latest")  # 실험: weather:replay (운영 키 보호)
 TTL_SECONDS = 7200  # redis-keys.yaml weatherLatest.ttlSeconds
 TRIGGER = "10 seconds"
-
-# collector/src/sources/weather.py 가 만드는 payload.
-# districts(배열) 가 현재 형식, district(단수) 는 2026-08-28 이전에 쌓인 옛 형식과의 호환용.
-PAYLOAD_SCHEMA = StructType(
-    [
-        StructField("districts", ArrayType(StringType()), True),
-        StructField("district", StringType(), True),
-        StructField("nx", IntegerType(), False),
-        StructField("ny", IntegerType(), False),
-        StructField("baseDate", StringType(), True),
-        StructField("baseTime", StringType(), True),
-        StructField("observations", MapType(StringType(), DoubleType()), True),
-    ]
-)
+SILVER_TRIGGER = os.environ.get("WEATHER_SILVER_TRIGGER", "10 minutes")
+SILVER_WATERMARK = os.environ.get("WEATHER_SILVER_WATERMARK", "2 days")
 
 log = logging.getLogger(JOB_NAME)
 
 
 def transform(events: DataFrame) -> DataFrame:
-    """봉투 → 기상 관측 컬럼. 배치·스트리밍 공용 (테스트는 배치로 검증)."""
-    weather = events.filter(F.col("eventType") == EVENT_TYPE).withColumn(
-        "p", F.from_json(F.col("payload"), PAYLOAD_SCHEMA)
-    )
-    return weather.select(
-        "eventId", "source", "occurredAt", "collectedAt",
-        F.coalesce(F.col("p.districts"), F.array(F.col("p.district"))).alias("districts"),
-        F.col("p.nx").alias("nx"),
-        F.col("p.ny").alias("ny"),
-        F.col("p.baseDate").alias("baseDate"),
-        F.col("p.baseTime").alias("baseTime"),
-        F.col("p.observations").alias("observations"),
-    ).filter(F.col("nx").isNotNull() & F.col("ny").isNotNull())
+    """봉투 → HDFS Silver와 같은 이름·단위의 표준 날씨 컬럼."""
+    return normalize_weather(events)
 
 
 def latest_per_grid(df: DataFrame) -> DataFrame:
     """한 배치 안에서 격자별 최신 1건을 고르고 시각 불명 관측은 서빙에서 제외한다."""
-    window = Window.partitionBy("nx", "ny").orderBy(F.col("occurredAt").desc(), F.col("collectedAt").desc())
+    window = Window.partitionBy("nx", "ny").orderBy(F.col("observedAt").desc(), F.col("collectedAt").desc())
     return (
-        df.filter(F.col("occurredAt").isNotNull() & F.col("collectedAt").isNotNull())
+        df.filter(F.col("observedAt").isNotNull() & F.col("collectedAt").isNotNull())
         .withColumn("rn", F.row_number().over(window))
         .filter(F.col("rn") == 1)
         .drop("rn")
@@ -81,18 +57,21 @@ def latest_per_grid(df: DataFrame) -> DataFrame:
 
 
 def to_redis_rows(df: DataFrame) -> DataFrame:
-    """(redisKey, redisValue) 로 변환. 값은 백엔드가 그대로 쓸 수 있는 JSON."""
+    """표준 컬럼을 최신값 JSON으로 만든다. observations는 기존 소비자 호환용으로 유지한다."""
     return df.select(
         F.concat_ws(":", F.lit(REDIS_KEY_PREFIX), F.col("nx"), F.col("ny")).alias(KEY_COL),
         F.to_json(
             F.struct(
                 "districts", "nx", "ny", "baseDate", "baseTime", "observations",
-                "occurredAt", "collectedAt", "eventId", "source",
+                F.col("observedAt").alias("occurredAt"), "collectedAt", "validUntil",
+                F.lit(FEATURE_VERSION).alias("featureVersion"),
+                F.struct(*(F.col(name) for name in FEATURE_COLUMNS)).alias("features"),
+                "missingFields", "eventId", "source",
             )
         ).alias(VALUE_COL),
         F.lit(TTL_SECONDS).cast("int").alias(TTL_COL),
         # Redis의 배치 간 최신성 비교가 문자열 정렬과 일치하도록 KST·밀리초 형식을 고정한다.
-        F.date_format("occurredAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(EVENT_TIME_COL),
+        F.date_format("observedAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(EVENT_TIME_COL),
         F.date_format("collectedAt", "yyyy-MM-dd'T'HH:mm:ss.SSSXXX").alias(COLLECTED_TIME_COL),
     )
 
@@ -123,16 +102,48 @@ def main() -> int:
             rows.unpersist()
 
     events = read_events_stream(spark, settings, TOPIC)
-    query = (
-        transform(events)
+    normalized = transform(events)
+    redis_query = (
+        normalized
         .writeStream.foreachBatch(process_batch)
         .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
         .trigger(processingTime=TRIGGER)
         .queryName(JOB_NAME)
         .start()
     )
+    queries = [redis_query]
+    silver_output_uri = os.environ.get("SILVER_OUTPUT_URI", "").strip().rstrip("/")
+    if silver_output_uri:
+        silver_job_name = f"{JOB_NAME}_silver"
+        silver_target = f"{silver_output_uri}/weather"
+        silver_query = (
+            to_weather_silver_stream(normalized, SILVER_WATERMARK)
+            .writeStream.format("parquet")
+            .outputMode("append")
+            .partitionBy("silverVersion", "eventDate", "eventHour")
+            .option("checkpointLocation", settings.checkpoint_for(silver_job_name))
+            .trigger(processingTime=SILVER_TRIGGER)
+            .queryName(silver_job_name)
+            .start(silver_target)
+        )
+        queries.append(silver_query)
+        log.info(
+            "silver stream started output=%s trigger=%s checkpoint=%s watermark=%s",
+            silver_target, SILVER_TRIGGER, settings.checkpoint_for(silver_job_name), SILVER_WATERMARK,
+        )
+    else:
+        log.warning("SILVER_OUTPUT_URI is empty; HDFS Weather Silver streaming is disabled")
+
     log.info("started topic=%s checkpoint=%s redis=%s:%s", TOPIC, settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port)
-    query.awaitTermination()
+    try:
+        spark.streams.awaitAnyTermination()
+        failed = next((query for query in queries if query.exception() is not None), None)
+        if failed is not None:
+            raise RuntimeError(f"streaming query failed: {failed.name}: {failed.exception()}")
+    finally:
+        for query in queries:
+            if query.isActive:
+                query.stop()
     return 0
 
 

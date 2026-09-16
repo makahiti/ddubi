@@ -9,6 +9,10 @@
 | [spark-streaming-crash.md](spark-streaming-crash.md) | Spark 스트리밍 잡이 죽었다 | 검증됨 (9/7) |
 | [backend-down-and-nginx-502.md](backend-down-and-nginx-502.md) | backend 가 죽었다 / 배포 뒤 API 가 502 | 검증됨 (9/7) |
 | [hdfs-datanode-down.md](hdfs-datanode-down.md) | HDFS 데이터노드 한 대가 죽었다 | 검증됨 (9/7, 읽기 약점 발견) |
+| [hdfs-namenode-metadata-loss.md](hdfs-namenode-metadata-loss.md) | 서버1 네임노드 메타데이터를 잃었다(서버1 사망·볼륨 손실) → 서버2 예비 네임노드로 이어받기 | 격리 시험 검증 (9/14), 운영 연습 예정 |
+| [server-reboot.md](server-reboot.md) | 커널 업데이트 등으로 서버를 재부팅해야 한다 | 미검증 (9/15 작성) |
+| [tls-cert-renewal.md](tls-cert-renewal.md) | 인증서 만료 알림이 왔다 / 자동 갱신을 확인·손으로 갱신 | 미검증 (9/15 작성, 첫 갱신 11월) |
+| [ml-bundle-swap.md](ml-bundle-swap.md) | ml-serving 모델 묶음을 새 버전으로 바꾼다 | 검증됨 (9/15, 첫 교체) |
 | [kafka-restart.md](kafka-restart.md) | Kafka 가 죽었거나 재시작해야 한다 | 검증됨 (9/7) |
 | [reprocess-from-archive.md](reprocess-from-archive.md) | 데이터를 다시 계산해야 한다 (재처리) | 검증됨 (9/7) |
 | [deploy-rollback.md](deploy-rollback.md) | 잘못된 배포를 되돌려야 한다 | 검증됨 (9/7, revert 롤백 2분 59초) |
@@ -56,4 +60,18 @@ docker logs collector-weather --since 15m 2>&1 | grep "cycle ok"        # sent=1
 # 서버2
 docker ps -a --format "{{.Names}}\t{{.Status}}"
 curl -s -o /dev/null -w "%{http_code}\n" https://j15e202.p.ssafy.io/api/health   # 401 이면 backend 정상 (502·000 이면 비정상)
+
+# 서버1이 서버2를 지켜본 기록 (5분마다, 정상일 때는 줄이 안 남고 실패·복구만 남는다)
+tail -n 5 ~/check-server2.log; cat ~/.check-server2.last          # .last 가 10분 넘게 오래됐으면 감시 크론이 멈춘 것
+```
+
+서버2가 통째로 죽으면 서버2에 있는 Grafana 알림도 함께 죽습니다. 그때는 서버1의 `check-server2.sh` 가 10분 안에 Mattermost 로 "서버2 응답 없음" 을 보내는 것이 유일한 알림입니다(2026-09-15 도입).
+
+## 배포 뒤, 또는 전체를 한 번에 볼 때
+
+`infra/scripts/checks/` 의 스크립트 세 개가 서버1·서버2·바깥에서 볼 것을 한 줄씩 PASS/WARN/FAIL 로 찍습니다. 읽기만 하므로 언제 돌려도 됩니다. 설명은 [infra/scripts/checks/README.md](../../infra/scripts/checks/README.md).
+```
+bash ~/S15P21E202/infra/scripts/checks/server1.sh | column -t -s'|'    # 서버1
+bash ~/S15P21E202/infra/scripts/checks/server2.sh | column -t -s'|'    # 서버2
+bash infra/scripts/checks/external.sh | column -t -s'|'                # 개발 PC
 ```

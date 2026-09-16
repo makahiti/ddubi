@@ -1,0 +1,139 @@
+package com.ssafy.ddubi.domain.recommendation.service;
+
+import com.ssafy.ddubi.domain.notification.entity.NotificationType;
+import com.ssafy.ddubi.domain.notification.service.NotificationCommand;
+import com.ssafy.ddubi.domain.recommendation.evaluation.RouteTimelineEvaluator.Assessment;
+import com.ssafy.ddubi.domain.recommendation.evaluation.RouteTimelineEvaluator.Result;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Optional;
+
+/**
+ * 평가 결과가 사용자에게 알릴 만한 일인지 판정하고, 알릴 내용을 만든다.
+ *
+ * <h3>기본값은 꺼짐이다</h3>
+ * 지금 나가는 숫자는 <b>미승인 모델</b>이 계산한 것이다(2026-09-15 프론트 확인). 개발·테스트
+ * 환경에서만 켜고, 발표 전에는 설정 한 줄로 되돌린다. 코드를 고쳐야 끌 수 있으면 급할 때
+ * 못 끈다.
+ *
+ * <h3>왜 두 가지뿐인가</h3>
+ * 평가기는 <b>같은 출발시각</b>의 최소시간만 계산하고 조기 출발을 역산하지 않는다
+ * ({@code suggestion.proposed() == comparison.fastest()}). 그래서 "N분 일찍 나가세요"
+ * (EARLY_DEPART)는 지금 만들 수 없다 — 없는 근거로 시각을 지어내면 사용자가 그걸 믿고
+ * 일찍 나간다. 출발 역산이 붙으면 그때 추가한다.
+ *
+ * <pre>
+ * 선택 경로가 LATE_ESTIMATE/BLOCKED   → ON_TIME_UNLIKELY
+ * 지금 선택보다 빠른 후보가 있다        → ROUTE_CHANGE
+ * 그 외                              → 알리지 않는다
+ * </pre>
+ *
+ * 지각이 더 급한 소식이라 먼저 본다. 둘 다 해당하면 지각을 알리되 대안이 있다는 것도 본문에 적는다.
+ */
+@Service
+public class EvaluationNotificationPlanner {
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter AT = DateTimeFormatter.ofPattern("HH:mm");
+
+    private final boolean enabled;
+    private final Duration meaningfulGain;
+
+    public EvaluationNotificationPlanner(
+            @Value("${ddubi.recommendation.auto-notify-enabled:false}") boolean enabled,
+            @Value("${ddubi.recommendation.notify-route-gain:5m}") Duration meaningfulGain) {
+        this.enabled = enabled;
+        this.meaningfulGain = meaningfulGain;
+    }
+
+    /** 보낼 알림과 그 식별 키. 키가 그대로면 dispatcher 가 다시 보내지 않는다. */
+    public record Planned(NotificationCommand command, String key) {
+    }
+
+    /**
+     * 알릴 일이 있으면 내용을 만든다.
+     *
+     * <p>{@code recommendationId} 는 비운다. 이 판정은 추천 행을 저장하기 <b>전</b>에 일어난다 —
+     * 알림에는 scheduleId 가 있으므로 화면은 최신 추천 조회로 근거를 찾아갈 수 있다.
+     */
+    public Optional<Planned> plan(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome) {
+        if (!enabled) {
+            return Optional.empty();
+        }
+        Result selected = outcome.selected();
+        Result fastest = outcome.suggestion().proposed();
+
+        if (selected != null && late(selected.assessment())) {
+            return Optional.of(lateness(job, outcome, selected, fastest));
+        }
+        if (betterRouteExists(selected, fastest)) {
+            return Optional.of(routeChange(job, outcome, selected, fastest));
+        }
+        return Optional.empty();
+    }
+
+    private boolean late(Assessment assessment) {
+        return assessment == Assessment.LATE_ESTIMATE || assessment == Assessment.BLOCKED;
+    }
+
+    /**
+     * 지금 선택보다 <b>의미 있게</b> 빠른 다른 후보가 있는가.
+     *
+     * <p>1~2분 차이로 알리지 않는다. 경로를 갈아타는 데도 품이 들고, 매 평가마다 후보 순위가
+     * 조금씩 흔들리면 알림이 쏟아진다.
+     */
+    private boolean betterRouteExists(Result selected, Result fastest) {
+        if (selected == null || fastest == null || fastest.journeyKey().equals(selected.journeyKey())
+                || selected.estimatedArrivalAt() == null || fastest.estimatedArrivalAt() == null) {
+            return false;
+        }
+        return Duration.between(fastest.estimatedArrivalAt(), selected.estimatedArrivalAt())
+                .compareTo(meaningfulGain) >= 0;
+    }
+
+    private Planned lateness(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
+                             Result selected, Result fastest) {
+        boolean hasAlternative = betterRouteExists(selected, fastest);
+        String body = selected.estimatedArrivalAt() == null
+                ? "지금 경로로는 도착 시각을 계산할 수 없습니다. 앱에서 경로를 다시 확인해 주세요."
+                : "예상 도착 " + at(selected.estimatedArrivalAt()) + " · 목표 " + at(job.arriveBy())
+                        + (hasAlternative ? ". 더 빠른 경로가 있습니다." : "");
+        // 키에 시각을 넣지 않는다. 분마다 1초씩 밀리는 값을 키에 넣으면 상황이 그대로인데도
+        // 매 평가가 새 알림이 된다. 경로가 바뀌거나 종류가 바뀔 때만 다시 알린다.
+        return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
+                "제시간 도착이 어려울 수 있어요", body,
+                "ON_TIME_UNLIKELY:" + selected.journeyKey()),
+                "ON_TIME_UNLIKELY:" + selected.journeyKey());
+    }
+
+    private Planned routeChange(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
+                                Result selected, Result fastest) {
+        long gainMinutes = Duration.between(fastest.estimatedArrivalAt(), selected.estimatedArrivalAt()).toMinutes();
+        String key = "ROUTE_CHANGE:" + selected.journeyKey() + ">" + fastest.journeyKey();
+        return new Planned(command(job, outcome, NotificationType.ROUTE_CHANGE,
+                "더 빠른 경로가 있어요", gainMinutes + "분 빠른 경로를 찾았습니다. 예상 도착 "
+                        + at(fastest.estimatedArrivalAt()) + ".", key),
+                key);
+    }
+
+    private NotificationCommand command(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
+                                        NotificationType type, String title, String body, String suppressKey) {
+        return NotificationCommand.builder()
+                .userId(job.userId())
+                .scheduleId(outcome.scheduleId())
+                .type(type)
+                .title(title)
+                .body(body)
+                .suppressKey(suppressKey)
+                .build();
+    }
+
+    private String at(Instant instant) {
+        return instant.atZone(KST).toLocalTime().format(AT);
+    }
+}

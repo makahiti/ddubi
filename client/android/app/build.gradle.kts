@@ -24,16 +24,6 @@ val kakaoNativeAppKey = System.getenv("KAKAO_NATIVE_APP_KEY")
     ?: localEnv.getProperty("KAKAO_NATIVE_APP_KEY")
     ?: "NOT_CONFIGURED"
 
-val naverClientId = System.getenv("NAVER_CLIENT_ID")
-    ?: localEnv.getProperty("NAVER_CLIENT_ID")
-    ?: ""
-val naverClientSecret = System.getenv("NAVER_CLIENT_SECRET")
-    ?: localEnv.getProperty("NAVER_CLIENT_SECRET")
-    ?: ""
-val naverClientName = System.getenv("NAVER_CLIENT_NAME")
-    ?: localEnv.getProperty("NAVER_CLIENT_NAME")
-    ?: "DDUBI"
-
 val ddubiKeystorePath = System.getenv("DDUBI_KEYSTORE_PATH")
 val ddubiKeystorePassword = System.getenv("DDUBI_KEYSTORE_PASSWORD")
 val ddubiKeyAlias = System.getenv("DDUBI_KEY_ALIAS") ?: "ddubi"
@@ -98,9 +88,6 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoNativeAppKey
-        buildConfigField("String", "NAVER_CLIENT_ID", naverClientId.asBuildConfigString())
-        buildConfigField("String", "NAVER_CLIENT_SECRET", naverClientSecret.asBuildConfigString())
-        buildConfigField("String", "NAVER_CLIENT_NAME", naverClientName.asBuildConfigString())
     }
 
     buildTypes {
@@ -114,10 +101,6 @@ android {
             }
         }
     }
-}
-
-dependencies {
-    implementation("com.navercorp.nid:oauth:5.12.0")
 }
 
 kotlin {

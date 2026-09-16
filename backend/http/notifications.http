@@ -2,8 +2,11 @@
 #
 # 사용법: auth.http 로 로그인해 accessToken 을 @token 에 넣는다.
 #
-# ⚠️ 알림 행을 만드는 API 는 없다. 추천 엔진이 NotificationService.create() 로 만든다
-#    (S15P21E202-38). 조회를 시험하려면 아래 SQL 로 직접 넣는다.
+# 알림 행은 추천 엔진이 NotificationService.create() 로 만든다(S15P21E202-38).
+# 손으로 한 건 만들려면 맨 아래 ⑫ 개발용 테스트 발송을 쓴다 — dev 프로파일 전용이다.
+# 억제 규칙이 그대로 적용되므로 실제 동작을 그대로 확인할 수 있다.
+#
+# 상태만 여러 개 깔아 두고 목록 조회를 시험할 거라면 SQL 이 더 빠르다.
 #
 #   docker exec ddubi-dev-mysql mysql -uddubi -pddubi ddubi -e "
 #     INSERT INTO notification (user_id, type, title, body, status, sent_at) VALUES
@@ -105,5 +108,119 @@ Authorization: Bearer {{token}}
 > {%
     client.test("404", function () {
         client.assert(response.status === 404);
+    });
+%}
+
+### ⑫ 개발용 테스트 발송 — 1차. status 가 SENT 여야 한다
+# ddubi.dev-endpoints.enabled=true 일 때만 존재한다. 꺼져 있으면 404 다.
+# 내 PC(dev 프로파일)는 켜져 있고, 배포 서버는 인프라가 환경변수로 켠다.
+#
+# ⚠️ title·body 는 필수다. 빼면 400 이다.
+# ⚠️ scheduleId 는 내 일정이어야 한다. 없으면 404, 남의 것이면 403 (⑯ 참고).
+#    아래 1 은 자리표시자다 — schedules.http 로 만든 내 일정 ID 로 바꿔 쓴다.
+# ⚠️ 1차가 SUPPRESSED 로 오면 suppressReason 을 본다.
+#      NO_VALID_DEVICE — FCM 토큰이 없다. users.http 의 기기 토큰 등록 먼저
+#      ALARM_OFF       — 마이페이지에서 알림을 꺼 뒀다
+#    그 상태로는 ⑬ 의 중복 억제(DUPLICATE)를 검증할 수 없다.
+POST {{host}}/api/v1/dev/notifications/test
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "EARLY_DEPART",
+  "title": "10분 일찍 나가세요",
+  "body": "2호선 강남역 구간 지연으로 출발 시각이 앞당겨졌습니다.",
+  "scheduleId": 1,
+  "suppressKey": "delay-test-schedule-1"
+}
+
+> {%
+    client.test("1차는 발송된다", function () {
+        client.assert(response.status === 200);
+        client.assert(response.body.data.status === "SENT",
+            "SENT 가 아니면 기기 토큰/알림 설정을 먼저 확인하세요: " + response.body.data.status);
+        client.global.set("suppressedTestId", response.body.data.id);
+    });
+%}
+
+### ⑬ 같은 suppressKey 로 다시 — SUPPRESSED 여야 한다 (10분 이내)
+# 억제돼도 행은 만들어진다. ① 목록에 두 건이 보이고 status 만 다르다.
+POST {{host}}/api/v1/dev/notifications/test
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "EARLY_DEPART",
+  "title": "10분 일찍 나가세요",
+  "body": "2호선 강남역 구간 지연으로 출발 시각이 앞당겨졌습니다.",
+  "scheduleId": 1,
+  "suppressKey": "delay-test-schedule-1"
+}
+
+> {%
+    client.test("2차는 중복으로 억제된다", function () {
+        client.assert(response.status === 200);
+        client.assert(response.body.data.status === "SUPPRESSED");
+        client.assert(response.body.data.suppressReason === "DUPLICATE",
+            "DUPLICATE 가 아니면 억제를 검증한 게 아니다: " + response.body.data.suppressReason);
+        client.assert(response.body.data.sentAt === null);
+    });
+%}
+
+### ⑭ 키를 바꾸면 다시 발송된다 — 억제가 키 단위임을 확인
+POST {{host}}/api/v1/dev/notifications/test
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "EARLY_DEPART",
+  "title": "10분 일찍 나가세요",
+  "body": "2호선 강남역 구간 지연으로 출발 시각이 앞당겨졌습니다.",
+  "scheduleId": 1,
+  "suppressKey": "delay-test-schedule-2"
+}
+
+> {%
+    client.test("다른 키는 발송된다", function () {
+        client.assert(response.body.data.status === "SENT");
+    });
+%}
+
+### ⑮ title 누락 — 400
+# 프론트가 처음 보낸 형태(type/scheduleId/suppressKey 만)가 이 경우다.
+POST {{host}}/api/v1/dev/notifications/test
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "EARLY_DEPART",
+  "scheduleId": 1,
+  "suppressKey": "delay-test-schedule-3"
+}
+
+> {%
+    client.test("400", function () {
+        client.assert(response.status === 400);
+    });
+%}
+
+### ⑯ 남의 일정 ID — 403
+# 알림에 붙일 일정은 내 것이어야 한다. 거절된 요청은 알림 행도 억제 키도 남기지 않는다.
+POST {{host}}/api/v1/dev/notifications/test
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "type": "EARLY_DEPART",
+  "title": "남의 일정",
+  "body": "붙으면 안 된다",
+  "scheduleId": 99999,
+  "suppressKey": "ownership-test"
+}
+
+> {%
+    client.test("없거나 남의 일정이면 404/403", function () {
+        client.assert(response.status === 404 || response.status === 403,
+            "실제: " + response.status);
     });
 %}

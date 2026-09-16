@@ -58,4 +58,17 @@
     <name>dfs.webhdfs.enabled</name>
     <value>true</value>
   </property>
+  <!-- 세컨더리 네임노드(서버2)가 매시간 만든 목차 사본을 두는 폴더와, 세컨더리가 여는 웹 포트.
+       네임노드의 목차(어느 블록이 어느 파일인지)는 서버1 볼륨 한 곳에만 있어서, 서버1 디스크를 잃으면 HDFS 전체를 읽을 수 없었다.
+       이 폴더가 서버2에 남는 최대 한 시간 전 사본이 되고, 서버1을 잃었을 때 예비 네임노드가 이 폴더의 사본으로 시작한다.
+       네임노드와 데이터노드는 이 두 설정을 읽지 않는다. 그래서 이 항목을 추가해도 그 컨테이너들을 다시 만들 필요가 없다. -->
+
+  <property>
+    <name>dfs.namenode.checkpoint.dir</name>
+    <value>file:///hadoop/dfs/namesecondary</value>
+  </property>
+  <property>
+    <name>dfs.namenode.secondary.http-address</name>
+    <value>0.0.0.0:9868</value>
+  </property>
 </configuration>

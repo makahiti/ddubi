@@ -168,7 +168,7 @@ public class AuthController {
                     | --- | --- |
                     | 자격증명 없음 | 400 `INVALID_REQUEST` |
                     | 그 소셜이 다른 사용자에게 연결됨 | 409 `SOCIAL_ALREADY_LINKED` |
-                    | 같은 제공자의 **다른** 계정이 이미 연결됨 | 409 `DUPLICATE_RESOURCE` |
+                    | 같은 제공자의 **다른** 계정이 이미 연결됨 | 409 `SOCIAL_PROVIDER_ALREADY_BOUND` |
 
                     이미 내게 연결된 소셜을 다시 보내면 오류가 아니라 200 이다(멱등).
                     """)
@@ -195,9 +195,15 @@ public class AuthController {
 
                     | 상황 | 응답 |
                     | --- | --- |
-                    | 연결돼 있지 않음 | 404 `USER_NOT_FOUND` |
+                    | 연결돼 있지 않음(다른 탭에서 이미 해제 포함) | 404 `SOCIAL_LINK_NOT_FOUND` |
                     | `LOCAL` 을 지정 | 400 `INVALID_REQUEST` |
                     | 마지막 남은 수단 | 409 `LAST_LOGIN_METHOD` |
+
+                    동시 요청은 행 잠금으로 직렬화한다. 서로 다른 소셜을 동시에 해제해도
+                    **하나는 반드시 남는다** — 뒤에 온 요청은 다시 읽고 409 를 받는다.
+
+                    ⚠️ 화면에 수단이 둘로 보이는데 `LAST_LOGIN_METHOD` 가 올 수 있다.
+                    다른 기기에서 방금 하나가 빠진 경우다. 목록을 다시 받아 화면을 갱신한다.
                     """)
     @DeleteMapping("/social-links/{provider}")
     public ApiResponse<SocialLinkResponse> unlinkSocial(

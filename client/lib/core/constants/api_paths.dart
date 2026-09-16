@@ -5,9 +5,11 @@ class ApiPaths {
   static const String emailVerification = '/auth/email/verification';
   static const String emailVerificationConfirm =
       '/auth/email/verification/confirm';
+  static const String oauthLogin = '/auth/oauth';
   static const String oauthTokenLogin = '/auth/oauth/token';
   static const String oauthIdTokenLogin = '/auth/oauth/id-token';
   static const String oauthLink = '/auth/oauth/link';
+  static const String socialLinks = '/auth/social-links';
   static const String signUp = '/auth/local/signup';
   static const String refresh = '/auth/refresh';
   static const String logout = '/auth/logout';
@@ -24,6 +26,7 @@ class ApiPaths {
   static const String placeSearch = '$places/search';
 
   static String schedule(String id) => '$schedules/$id';
+  static String socialLink(String provider) => '$socialLinks/$provider';
   static const String scheduleConflicts = '$schedules/conflicts';
   static String notification(String id) => '$notifications/$id';
   static String notificationRead(String id) => '${notification(id)}/read';

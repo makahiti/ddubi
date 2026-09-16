@@ -164,7 +164,9 @@ class Schedule {
       json['destination'] as Map<String, dynamic>,
     ),
     arriveBy: DateTime.parse(json['arriveBy'] as String),
-    plannedDepartAt: DateTime.tryParse(json['plannedDepartAt'] as String? ?? ''),
+    plannedDepartAt: DateTime.tryParse(
+      json['plannedDepartAt'] as String? ?? '',
+    ),
     importance: ScheduleImportance.fromApi(json['importance'] as String?),
     considerLastTrip: json['considerLastTrip'] as bool? ?? false,
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
@@ -175,7 +177,8 @@ class Schedule {
     'origin': origin.toRequestJson(),
     'destination': destination.toRequestJson(),
     'arriveBy': arriveBy.toIso8601String(),
-    if (plannedDepartAt != null) 'plannedDepartAt': plannedDepartAt!.toIso8601String(),
+    if (plannedDepartAt != null)
+      'plannedDepartAt': plannedDepartAt!.toIso8601String(),
     'importance': importance.apiValue,
     'considerLastTrip': considerLastTrip,
   };
@@ -393,6 +396,7 @@ class UserProfile {
     required this.notifyLeadMin,
     required this.alarmEnabled,
     required this.transportPrefs,
+    this.provider,
   });
 
   final String id;
@@ -401,6 +405,7 @@ class UserProfile {
   final int notifyLeadMin;
   final bool alarmEnabled;
   final List<Map<String, String>> transportPrefs;
+  final String? provider;
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
     id: json['id'].toString(),
@@ -416,6 +421,7 @@ class UserProfile {
           ),
         )
         .toList(growable: false),
+    provider: json['provider']?.toString(),
   );
 }
 

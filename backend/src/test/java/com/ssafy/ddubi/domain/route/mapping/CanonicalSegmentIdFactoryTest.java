@@ -19,7 +19,7 @@ class CanonicalSegmentIdFactoryTest {
 
     /** 배포 대응표 모든 edge의 Java/Python ID 동일성을 검사한다. 선행 0과 출처별 숫자 충돌을 포함한다. */
     @Test void generatedCrosswalkMatchesJavaForEveryEdge() throws Exception {
-        var file=java.nio.file.Path.of("transit-master/metropolitan-bus-v6.crosswalk.json.gz");
+        var file=java.nio.file.Path.of("transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz");
         try(var stream=new java.util.zip.GZIPInputStream(java.nio.file.Files.newInputStream(file))) {
             var root=new com.fasterxml.jackson.databind.ObjectMapper().readTree(stream);
             int count=0;

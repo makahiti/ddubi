@@ -48,7 +48,7 @@ def main():
     publisher = Publisher(broker, "ddubi-hardening-fixture")
     if not publisher.wait_ready(30):
         raise RuntimeError("isolated broker unavailable")
-    artifact = ROOT / "backend/transit-master/metropolitan-bus-v6.crosswalk.json.gz"
+    artifact = ROOT / "backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz"
     sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
     collector = BusCrosswalk(artifact, sha)
     edges = json.loads(gzip.decompress(artifact.read_bytes()))["edges"]

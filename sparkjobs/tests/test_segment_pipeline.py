@@ -277,7 +277,7 @@ def test_policy_and_baseline_conflicts_fail_closed(spark):
 def test_backend_master_crosswalk_keeps_static_ids_and_rejects_wrong_sha():
     path = (
         Path(__file__).resolve().parents[2]
-        / "backend/src/main/resources/transit/metropolitan-subway-master.json.gz"
+        / "backend/transit-master/subway/metropolitan-subway-master.json.gz"
     )
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     cw = SubwayCrosswalk(path, sha)

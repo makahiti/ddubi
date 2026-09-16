@@ -31,6 +31,7 @@ class BusCrosswalk:
             raise ValueError('crosswalk manifest mismatch')
         self.version=data['masterVersion'];self.master_sha=data['masterSha256']
         self.sha=expected_sha;self.by_arrival=defaultdict(set);self.by_pair=defaultdict(set)
+        self.by_order = {}
         seen=set()
         for e in data['edges']:
             ns=e['namespace'];parts=[e['routeId'],e['fromStopId'],e['toStopId']]
@@ -44,8 +45,37 @@ class BusCrosswalk:
             key=(ns,e['routeId'],e['fromOrder'])
             if key in seen:raise ValueError('duplicate crosswalk order')
             seen.add(key)
+            self.by_order[key] = dict(e)
             self.by_arrival[(ns,e['routeId'],e['toStopId'])].add(e['segmentId'])
             self.by_pair[(ns,*parts)].add(e['segmentId'])
+
+    def seoul_position_pair(self, route_id, raw):
+        """서울 위치 응답의 순번과 마지막 정류장 증거가 일치하는 인접 pair를 만든다.
+
+        공식 getBusPosByRtid의 sectOrd는 구간순번이며 stationSeq와 동치로
+        간주하지 않는다. 1. 운행 상태 확인 → 2. 고정 마스터 순번 후보 검색 →
+        3. lastStnId로 출발점 대조 순서로 검증한다. 순번만 있거나 정차 중이면
+        현재 edge를 확정하지 않는다. 원본·시각은 변경하지 않고 실패 사유를 반환한다.
+        순환/회차에서도 해당 occurrence만 사용하며 종점에서 처음으로 감지 않는다.
+        """
+        if str(raw.get('stopFlag', '')) != '0':
+            return {}, 'POSITION_NOT_BETWEEN_STOPS'
+        order = str(raw.get('sectOrd', ''))
+        if not re.fullmatch(r'[1-9][0-9]{0,9}', order):
+            return {}, 'POSITION_SECTION_ORDER_MISSING_OR_INVALID'
+        last = str(raw.get('lastStnId') or '')
+        if not last:
+            return {}, 'POSITION_LAST_STOP_MISSING'
+        edge = self.by_order.get(('SEOUL_BUS', route_id, int(order)))
+        if edge is None:
+            return {}, 'POSITION_SECTION_NOT_IN_MASTER'
+        # 순번의 시작/끝 해석 또는 노선 개편으로 달라진 마스터를 자동 보정하지 않는다.
+        if edge['fromStopId'] != last:
+            return {}, 'POSITION_ORDER_STOP_MISMATCH'
+        if raw.get('nextStId') and str(raw['nextStId']) != edge['toStopId']:
+            return {}, 'POSITION_NEXT_STOP_MISMATCH'
+        return {'providerFromStopId': edge['fromStopId'],
+                'providerToStopId': edge['toStopId']}, 'NONE'
 
     def resolve(self, event_type, payload):
         """명시적 provider namespace와 ID로 유일한 edge만 반환한다. payload·원본은 변경하지 않는다."""

@@ -11,7 +11,7 @@
 - 검증 전용 Docker network에서 Kafka `ddubi-hardening-kafka:9092`(토픽 자동 생성 활성화),
   Redis `ddubi-hardening-redis:6379`, 구간 상태용 Redis `ddubi-flow-redis:6379`에 접근 가능해야 한다.
 - 위 DNS는 코드에 고정되어 있다. 별도 격리 컨테이너를 마련하며 운영 호스트를 이 이름으로 연결하지 않는다.
-- 저장소를 `/work`에 마운트하고 v6 `backend/transit-master/metropolitan-bus-v6.crosswalk.json.gz`를
+- 저장소를 `/work`에 마운트하고 v6 `backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz`를
   준비한다. 제품의 수집 대상/주기·인프라 설정을 수정하지 않는다.
 - 이번 검증은 heap 2 GiB, 컨테이너 4 GiB, local[2]에서 실행했다.
 

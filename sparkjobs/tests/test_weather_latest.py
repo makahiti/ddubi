@@ -104,6 +104,9 @@ def test_to_redis_rows_matches_contract_key_and_json_value(spark):
     value = json.loads(row[VALUE_COL])
     assert value["districts"] == ["종로구", "중구"]
     assert value["observations"]["T1H"] == 27.3
+    assert value["featureVersion"] == "weather-feature-v1"
+    assert value["features"]["temperatureC"] == 27.3
+    assert "windSpeedMps" in value["missingFields"]
     assert value["occurredAt"].startswith("2026-08-27T09:00:00")
     assert value["eventId"] == "e1"
 

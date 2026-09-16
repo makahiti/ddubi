@@ -57,6 +57,11 @@ case "$target" in
     report_bad_containers
     ;;
   server2)
+    # ML 서빙은 보조 축이라 준비가 안 돼도 배포 실패로 치지 않는다(backend 는 카카오 값으로 fallback). 상태만 알린다.
+    # 9/14 장애: 이 검사를 실패 조건으로 두고 backend 가 healthy 를 기다리게 하자 ml-serving 이미지 오류가 곧 backend 7분 다운이 됐다
+    if wait_for "ml-serving healthy" 120 health ml-serving; then :; else
+      echo "WARN: ml-serving 미준비 — 버스 구간 예측은 카카오 값으로 대체 동작. docker logs ml-serving 확인 (모델 묶음·라이브러리)"
+    fi
     # 1) nginx 템플릿 재적용: 설정을 다시 만들고 문법 검사 뒤 reload
     docker exec nginx /docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null
     docker exec nginx nginx -t
