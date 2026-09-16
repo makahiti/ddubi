@@ -3554,7 +3554,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: const Text(
-                          '이 일정에 맞춰',
+                          '입력한 출발시간 기준',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
@@ -3565,8 +3565,8 @@ class ScheduleDetailScreen extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         route == null
-                            ? '추천 출발 시간을 확인 중이에요.'
-                            : '${route.departure}에 출발하는 것을\n추천해요!',
+                            ? '이동 예측을 확인 중이에요.'
+                            : '${route.departure} 출발 시\n${route.arrival} 도착 예상',
                         style: const TextStyle(
                           fontSize: 19,
                           height: 1.28,
@@ -3576,7 +3576,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        '실시간 이동 상황을 반영했어요.',
+                        '계산에 사용된 정보는 아래 추천 근거에서 확인해요.',
                         style: TextStyle(
                           fontSize: 11,
                           color: Color(0xFF68808B),

@@ -14,6 +14,29 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final stamp in ['2026-09-16T05:30:00Z', '2026-09-16T14:30:00+09:00', '2026-09-16T14:30:00']) {
+    test('추천 시각을 기기 시간대로 표시한다: $stamp', () async {
+      final dio = Dio()..interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        handler.resolve(Response<Map<String, dynamic>>(
+          requestOptions: options,
+          statusCode: 200,
+          data: {'success': true, 'data': {
+            'state': 'READY',
+            'result': {'suggestion': {'proposed': {
+              'departureAt': stamp,
+              'estimatedArrivalAt': stamp,
+            }}},
+          }},
+        ));
+      }));
+      final overview = (await RecommendationApi(dio).getLatestOverview('2'))!;
+      final expected = DateTime.parse(stamp).toLocal();
+      expect(overview.departureAt!.isUtc, isFalse);
+      expect(overview.departureAt!.hour, expected.hour);
+      expect(overview.departureAt!.minute, expected.minute);
+      expect(overview.eta!.isUtc, isFalse);
+    });
+  }
   test('리소스 ID를 API 경로에 안전하게 조합한다', () {
     expect(ApiPaths.schedule('schedule-1'), '/schedules/schedule-1');
     expect(ApiPaths.login, '/auth/local/login');

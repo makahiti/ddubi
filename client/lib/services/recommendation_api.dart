@@ -456,7 +456,7 @@ class RecommendationApi {
       value.map((key, item) => MapEntry(key.toString(), item));
 
   static DateTime? _dateTime(Object? value) =>
-      DateTime.tryParse(value?.toString() ?? '');
+      DateTime.tryParse(value?.toString() ?? '')?.toLocal();
 
   static List<String> _strings(Object? value) => value is List
       ? value.map((item) => item.toString()).toList(growable: false)
