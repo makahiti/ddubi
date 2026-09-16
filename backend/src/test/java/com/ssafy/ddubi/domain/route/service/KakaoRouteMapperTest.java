@@ -84,6 +84,26 @@ class KakaoRouteMapperTest {
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.ROUTE_NOT_AVAILABLE));
     }
 
+    @Test
+    void removesDuplicateTransitItinerariesWhileKeepingProviderOrder() throws Exception {
+        KakaoRouteMapper mapper = new KakaoRouteMapper(
+                request -> TransitMappingResult.masterDataNotConfigured()
+        );
+        KakaoPublicTransitResponse fixture = readFixture();
+        KakaoPublicTransitResponse response = new KakaoPublicTransitResponse(
+                fixture.status(),
+                fixture.properties(),
+                List.of(fixture.routes().get(0), fixture.routes().get(0), fixture.routes().get(1))
+        );
+
+        RouteSearchResult result = mapper.map(response, Instant.parse("2026-09-16T05:00:00Z"));
+
+        assertThat(result.candidates()).hasSize(2);
+        assertThat(result.candidates())
+                .extracting(RouteCandidate::providerCandidateIndex)
+                .containsExactly(0, 2);
+    }
+
     private KakaoPublicTransitResponse readFixture() throws Exception {
         try (InputStream input = getClass().getResourceAsStream(
                 "/fixtures/kakao-public-transit-response.json")) {
