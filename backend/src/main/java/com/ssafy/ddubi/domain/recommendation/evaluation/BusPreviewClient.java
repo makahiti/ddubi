@@ -41,19 +41,33 @@ public class BusPreviewClient {
 
     /** 한 edge를 batch API로 호출한다. 진입 시간대가 앞 edge의 예측에 의존하여 순차 평가한다. 자동 재시도는 없다. */
     public Estimate predict(Input input) {
-        if (baseUrl == null || baseUrl.isBlank()) return Estimate.unavailable("ML_NOT_CONFIGURED");
+        return predictBatch(List.of(input)).get(input);
+    }
+
+    /** 입력별 상관키를 검증하며 순서가 바뀐 배치 응답도 정확한 구간에 연결한다. */
+    public Map<Input, Estimate> predictBatch(List<Input> inputs) {
+        inputs = inputs.stream().distinct().toList();
+        if (inputs.isEmpty()) return Map.of();
+        if (inputs.size() > 64) throw new IllegalArgumentException("ML batch limit exceeded");
+        if (baseUrl == null || baseUrl.isBlank()) return unavailable(inputs, "ML_NOT_CONFIGURED");
         String requestId = UUID.randomUUID().toString();
         try {
-            var row = Map.of("segment_key", "edge", "provider_namespace", "SEOUL_BUS",
+            var rowsToSend = new ArrayList<Map<String, Object>>();
+            var keyedInputs = new LinkedHashMap<String, Input>();
+            for (Input input : inputs) {
+                String key = inputs.size() == 1 ? "edge" : "edge-" + keyedInputs.size();
+                keyedInputs.put(key, input);
+                rowsToSend.add(Map.of("segment_key", key, "provider_namespace", "SEOUL_BUS",
                     "provider_route_id", input.routeId(), "provider_from_stop_id", input.fromStopId(),
                     "provider_to_stop_id", input.toStopId(), "from_stop_sequence", input.sequence(),
-                    "service_date", input.date().toString(), "hour_slot", input.hour());
-            String body = json.writeValueAsString(Map.of("request_id", requestId, "segments", List.of(row)));
+                    "service_date", input.date().toString(), "hour_slot", input.hour()));
+            }
+            String body = json.writeValueAsString(Map.of("request_id", requestId, "segments", rowsToSend));
             var request = HttpRequest.newBuilder(URI.create(baseUrl.replaceAll("/+$", "") + "/v1/bus/predictions:batch"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) return Estimate.unavailable("ML_HTTP_UNAVAILABLE");
+            if (response.statusCode() != 200) return unavailable(inputs, "ML_HTTP_UNAVAILABLE");
             var value = json.readTree(response.body());
             var rows = value.path("results");
             // 키/대상/날짜 범위를 확인한다. 배열 첫 값을 무조건 해당 edge에 붙이지 않는다.
@@ -61,9 +75,33 @@ public class BusPreviewClient {
                     || !"hourly_mean_bus_segment_seconds".equals(value.path("target").asText())
                     || !"lightgbm".equals(value.path("model_type").asText())
                     || !value.path("production_ready").isBoolean() || value.path("production_ready").asBoolean()
-                    || !rows.isArray() || rows.size() != 1 || !"edge".equals(rows.get(0).path("segment_key").asText()))
-                return Estimate.unavailable("ML_INVALID_RESPONSE");
-            var result = rows.get(0);
+                    || !rows.isArray() || rows.size() != inputs.size())
+                return unavailable(inputs, "ML_INVALID_RESPONSE");
+            var estimates = new LinkedHashMap<Input, Estimate>();
+            for (var result : rows) {
+                Input input = keyedInputs.get(result.path("segment_key").asText());
+                if (input == null || estimates.containsKey(input)) return unavailable(inputs, "ML_INVALID_RESPONSE");
+                estimates.put(input, readEstimate(value, result, input));
+            }
+            return Map.copyOf(estimates);
+        } catch (HttpTimeoutException timeoutFailure) {
+            return unavailable(inputs, "ML_TIMEOUT");
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt(); return unavailable(inputs, "ML_INTERRUPTED");
+        } catch (Exception failure) {
+            return unavailable(inputs, "ML_UNAVAILABLE");
+        }
+    }
+
+    private Map<Input, Estimate> unavailable(List<Input> inputs, String reason) {
+        var result = new LinkedHashMap<Input, Estimate>();
+        inputs.forEach(input -> result.put(input, Estimate.unavailable(reason)));
+        return Map.copyOf(result);
+    }
+
+    private Estimate readEstimate(com.fasterxml.jackson.databind.JsonNode value,
+                                  com.fasterxml.jackson.databind.JsonNode result, Input input) {
+        try {
             if ("UNAVAILABLE".equals(result.path("status").asText())) {
                 String reason = result.path("reason").asText();
                 return Estimate.unavailable(Set.of("UNSUPPORTED_PROVIDER", "REFERENCE_DATE_UNSUPPORTED", "UNSEEN_PROVIDER_ID").contains(reason)
@@ -89,12 +127,8 @@ public class BusPreviewClient {
             return new Estimate(seconds, "MODEL_NOT_PRODUCTION_READY", version, computed,
                     prediction.path("missing_feature_count").asInt(), prediction.path("history_sample_count").asInt(),
                     prediction.path("data_insufficient").asBoolean());
-        } catch (HttpTimeoutException timeoutFailure) {
-            return Estimate.unavailable("ML_TIMEOUT");
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt(); return Estimate.unavailable("ML_INTERRUPTED");
         } catch (Exception failure) {
-            return Estimate.unavailable("ML_UNAVAILABLE");
+            return Estimate.unavailable("ML_INVALID_RESPONSE");
         }
     }
 }

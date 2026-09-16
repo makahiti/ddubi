@@ -9,10 +9,88 @@ import 'package:ddubi/services/auth_api.dart';
 import 'package:ddubi/services/app_api.dart';
 import 'package:ddubi/services/place_api.dart';
 import 'package:ddubi/services/naver_login_service.dart';
+import 'package:ddubi/services/recommendation_api.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  AuthSession testSession() => const AuthSession(
+    accessToken: 'access-token',
+    refreshToken: 'refresh-token',
+    tokenType: 'Bearer',
+    deviceId: 'device-1',
+    user: AuthUser(
+      id: 7,
+      provider: 'LOCAL',
+      email: 'member@example.com',
+      nickname: '뚜비',
+    ),
+  );
+
+  test('로그인 유지 선택 시 암호화 저장소에서 세션을 복원한다', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await AuthSessionStore().save(testSession());
+
+    final restored = AuthSessionStore();
+    await restored.restore();
+
+    expect(restored.session?.accessToken, 'access-token');
+    expect(restored.session?.refreshToken, 'refresh-token');
+    expect(restored.session?.user.nickname, '뚜비');
+  });
+
+  test('로그인 유지 해제 시 다음 앱 시작에 세션을 복원하지 않는다', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await AuthSessionStore().save(testSession(), persist: false);
+
+    final restored = AuthSessionStore();
+    await restored.restore();
+
+    expect(restored.session, isNull);
+  });
+
+  for (final stamp in [
+    '2026-09-16T05:30:00Z',
+    '2026-09-16T14:30:00+09:00',
+    '2026-09-16T14:30:00',
+  ]) {
+    test('추천 시각을 기기 시간대로 표시한다: $stamp', () async {
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              handler.resolve(
+                Response<Map<String, dynamic>>(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: {
+                    'success': true,
+                    'data': {
+                      'state': 'READY',
+                      'result': {
+                        'suggestion': {
+                          'proposed': {
+                            'departureAt': stamp,
+                            'estimatedArrivalAt': stamp,
+                          },
+                        },
+                      },
+                    },
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      final overview = (await RecommendationApi(dio).getLatestOverview('2'))!;
+      final expected = DateTime.parse(stamp).toLocal();
+      expect(overview.departureAt!.isUtc, isFalse);
+      expect(overview.departureAt!.hour, expected.hour);
+      expect(overview.departureAt!.minute, expected.minute);
+      expect(overview.eta!.isUtc, isFalse);
+    });
+  }
   test('리소스 ID를 API 경로에 안전하게 조합한다', () {
     expect(ApiPaths.schedule('schedule-1'), '/schedules/schedule-1');
     expect(ApiPaths.login, '/auth/local/login');
@@ -436,5 +514,290 @@ void main() {
     ]);
     expect(requests[1].queryParameters['activeOnly'], isTrue);
     expect(requests[2].data, {'actualArrival': null, 'locationConsent': false});
+  });
+
+  test('최신 추천과 추천 근거 응답을 화면 모델로 변환한다', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            final data = options.path.endsWith('/explanation')
+                ? {
+                    'recommendationId': 31,
+                    'departAt': '2026-09-15T08:10:00',
+                    'eta': '2026-09-15T08:42:00',
+                    'durationMin': 32,
+                    'confidence': 'LOW',
+                    'dataCheckedAt': '2026-09-15T08:00:00',
+                    'preview': true,
+                    'source': 'API_ONLY',
+                    'fallbackUsed': true,
+                    'reasonCodes': ['VALIDATION_ONLY'],
+                  }
+                : {
+                    'state': 'READY',
+                    'result': {
+                      'recommendationId': 31,
+                      'plannedDepartAt': '2026-09-15T08:10:00',
+                      'preview': {
+                        'fastest': {
+                          'departureAt': '2026-09-15T08:10:00',
+                          'estimatedArrivalAt': '2026-09-15T08:42:00',
+                        },
+                      },
+                      'persistence': {
+                        'preview': true,
+                        'confidence': 'LOW',
+                        'source': 'API_ONLY',
+                        'fallbackUsed': true,
+                        'reasons': ['VALIDATION_ONLY'],
+                      },
+                    },
+                  };
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'success': true, 'data': data},
+              ),
+            );
+          },
+        ),
+      );
+    final api = RecommendationApi(dio);
+
+    final latest = await api.getLatestOverview('12');
+    final explanation = await api.getExplanation('31');
+
+    expect(latest?.recommendationId, '31');
+    expect(latest?.durationMin, 32);
+    expect(latest?.source, 'API_ONLY');
+    expect(latest?.preview, isTrue);
+    expect(explanation.reasonCodes, ['VALIDATION_ONLY']);
+    expect(explanation.dataCheckedAt, DateTime(2026, 9, 15, 8));
+  });
+
+  test('마이페이지 소셜 연결과 해제 API 계약을 사용한다', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'success': true,
+                  'data': {
+                    'providers': options.method == 'DELETE'
+                        ? ['LOCAL']
+                        : ['LOCAL', 'KAKAO'],
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+    final store = AuthSessionStore();
+    final repository = ApiAuthRepository(
+      api: AuthApi(dio),
+      sessionStore: store,
+      deviceTokenService: DeviceTokenService(dio, store),
+    );
+
+    expect(
+      await repository.linkSocialAccount(
+        provider: 'KAKAO',
+        accessToken: 'kakao-access-token',
+      ),
+      ['LOCAL', 'KAKAO'],
+    );
+    expect(await repository.unlinkSocialAccount('KAKAO'), ['LOCAL']);
+    expect(requests[0].path, '/auth/social-links');
+    expect(requests[0].data, {
+      'provider': 'KAKAO',
+      'accessToken': 'kakao-access-token',
+    });
+    expect(requests[1].path, '/auth/social-links/KAKAO');
+    expect(requests[1].method, 'DELETE');
+  });
+
+  test('홈과 알림 API가 실제 응답을 파싱하고 읽음 요청을 보낸다', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            final data = switch (options.path) {
+              '/home' => {
+                'nextSchedule': null,
+                'todaySchedules': <Object>[],
+                'unreadNotificationCount': 1,
+                'dataState': 'NORMAL',
+              },
+              '/notifications' => {
+                'unreadCount': 1,
+                'content': [
+                  {
+                    'id': 7,
+                    'scheduleId': 12,
+                    'type': 'ROUTE_CHANGE',
+                    'title': '더 빠른 경로가 있어요',
+                    'body': '경로를 확인해주세요.',
+                    'status': 'SENT',
+                    'createdAt': '2026-09-15T08:00:00',
+                    'readAt': null,
+                  },
+                ],
+              },
+              _ => <String, Object?>{},
+            };
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'success': true, 'data': data},
+              ),
+            );
+          },
+        ),
+      );
+    final store = AuthSessionStore()
+      ..save(
+        const AuthSession(
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          tokenType: 'Bearer',
+          deviceId: 'device',
+          user: AuthUser(
+            id: 1,
+            provider: 'LOCAL',
+            email: 'member@ddubi.app',
+            nickname: '뚜비',
+          ),
+        ),
+      );
+    final home = await HomeApi(dio, store).getSummary();
+    final notifications = NotificationApi(dio, store);
+    final inbox = await notifications.getInbox();
+    await notifications.markRead('7');
+    await notifications.markAllRead();
+
+    expect(home.dataState, 'NORMAL');
+    expect(inbox.items.single.scheduleId, '12');
+    expect(requests.map((request) => request.path), [
+      '/home',
+      '/notifications',
+      '/notifications/7/read',
+      '/notifications/read-all',
+    ]);
+  });
+
+  test('일정의 저장 경로 목록과 상세 및 지도 좌표를 순서대로 파싱한다', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            final data = switch (options.path) {
+              '/schedules/12/routes' => [
+                {
+                  'routeId': 31,
+                  'rankNo': 1,
+                  'selected': true,
+                  'baseDurationMin': 25,
+                  'fromName': '집',
+                  'toName': '역삼역',
+                  'segmentCount': 2,
+                  'modes': ['WALK', 'BUS'],
+                },
+              ],
+              '/routes/31' => {
+                'routeId': 31,
+                'scheduleId': 12,
+                'rankNo': 1,
+                'selected': true,
+                'baseDurationMin': 25,
+                'providerPathId': 'path-1',
+                'segments': [
+                  {
+                    'seq': 1,
+                    'mode': 'WALK',
+                    'fromName': '집',
+                    'toName': '강남역',
+                    'baseDurationMin': 5,
+                  },
+                  {
+                    'seq': 2,
+                    'mode': 'BUS',
+                    'providerRouteKey': '146',
+                    'fromName': '강남역',
+                    'toName': '역삼역',
+                    'baseDurationMin': 20,
+                  },
+                ],
+              },
+              '/routes/31/map' => {
+                'routeId': 31,
+                'bounds': {
+                  'minLat': 37.4979,
+                  'minLng': 127.0276,
+                  'maxLat': 37.5006,
+                  'maxLng': 127.0364,
+                },
+                'segments': [
+                  {
+                    'seq': 1,
+                    'mode': 'WALK',
+                    'fromName': '집',
+                    'toName': '강남역',
+                    'coordinates': <Object>[],
+                  },
+                  {
+                    'seq': 2,
+                    'mode': 'BUS',
+                    'fromName': '강남역',
+                    'toName': '역삼역',
+                    'coordinates': [
+                      {'longitude': 127.0276, 'latitude': 37.4979},
+                      {'longitude': 127.0364, 'latitude': 37.5006},
+                    ],
+                  },
+                ],
+              },
+              _ => <String, Object?>{},
+            };
+            handler.resolve(
+              Response<Map<String, dynamic>>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'success': true, 'data': data},
+              ),
+            );
+          },
+        ),
+      );
+    final api = RecommendationApi(dio);
+
+    final routes = await api.getSavedRoutes('12');
+    final detail = await api.getSavedRouteDetail(routes.single.routeId);
+    final map = await api.getSavedRouteMap(routes.single.routeId);
+
+    expect(routes.single.selected, isTrue);
+    expect(routes.single.modes, ['WALK', 'BUS']);
+    expect(detail.segments.last.providerRouteKey, '146');
+    expect(map.segments.first.coordinates, isEmpty);
+    expect(map.coordinates.length, 2);
+    expect(map.bounds?.maxLng, 127.0364);
+    expect(requests.map((request) => request.path), [
+      '/schedules/12/routes',
+      '/routes/31',
+      '/routes/31/map',
+    ]);
   });
 }

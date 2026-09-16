@@ -14,7 +14,11 @@ class _RecordingAuthRepository extends MockAuthRepository {
   final calls = <(String, String)>[];
 
   @override
-  Future<void> login({required String email, required String password}) async {
+  Future<void> login({
+    required String email,
+    required String password,
+    bool persistSession = true,
+  }) async {
     calls.add((email, password));
   }
 }

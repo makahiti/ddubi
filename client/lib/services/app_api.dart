@@ -290,6 +290,6 @@ class UserApi {
         'reason': ?reason,
       },
     );
-    _sessionStore.clear();
+    await _sessionStore.clear();
   }
 }

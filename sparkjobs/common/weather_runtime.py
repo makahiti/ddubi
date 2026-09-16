@@ -16,36 +16,66 @@ def silver_configuration(env):
         return None
     uri = urlsplit(target)
     if uri.scheme not in ("hdfs", "file") or not uri.path or (uri.scheme == "hdfs" and not uri.netloc):
-        raise ValueError("SILVER_OUTPUT_URI must be hdfs://host:port/path or file:///absolute/path")
+        message = "SILVER_OUTPUT_URI must be hdfs://host:port/path or file:///absolute/path"
+        if required == "true":
+            raise ValueError(message)
+        log.error("%s; Weather Silver is disabled while Redis remains enabled", message)
+        return None
     if "?" in target or "#" in target:
-        raise ValueError("SILVER_OUTPUT_URI cannot contain query or fragment")
+        message = "SILVER_OUTPUT_URI cannot contain query or fragment"
+        if required == "true":
+            raise ValueError(message)
+        log.error("%s; Weather Silver is disabled while Redis remains enabled", message)
+        return None
     return target + "/weather"
 
 
-def supervise(streams, starters):
-    """If any startup/query fails, report it and stop all already-started queries."""
-    queries = []
+def _progress(query):
+    progress = query.lastProgress
+    if progress:
+        log.info("query=%s batch=%s inputRows=%s durationMs=%s", query.name,
+                 progress.get("batchId"), progress.get("numInputRows"), progress.get("durationMs"))
+
+
+def supervise(start_redis, start_silver=None):
+    """Redis is required; optional Silver failure is reported without stopping Redis."""
+    redis_query = None
+    silver_query = None
     try:
-        for start in starters:
-            queries.append(start())
+        redis_query = start_redis()
+        if start_silver is not None:
+            try:
+                silver_query = start_silver()
+            except Exception:
+                log.exception("Weather Silver failed to start; Redis remains active")
         while True:
-            if streams.awaitAnyTermination(30):
-                details = [(q.name, q.exception()) for q in queries]
-                failed = next(((name, error) for name, error in details if error is not None), None)
-                if failed:
-                    raise RuntimeError("streaming query failed: %s: %s" % failed)
-                stopped = [q.name for q in queries if not q.isActive]
-                raise RuntimeError("streaming query stopped unexpectedly: %s" % stopped)
-            for query in queries:
-                progress = query.lastProgress
-                if progress:
-                    log.info("query=%s batch=%s inputRows=%s durationMs=%s", query.name,
-                             progress.get("batchId"), progress.get("numInputRows"), progress.get("durationMs"))
+            if redis_query.awaitTermination(30):
+                error = redis_query.exception()
+                if error is not None:
+                    raise RuntimeError("required Redis stream failed: %s" % error)
+                raise RuntimeError("required Redis stream stopped unexpectedly")
+            _progress(redis_query)
+            if silver_query is not None:
+                try:
+                    if not silver_query.isActive:
+                        error = silver_query.exception()
+                        if error is not None:
+                            log.error("Weather Silver stream failed; Redis remains active: %s", error)
+                        else:
+                            log.error("Weather Silver stream stopped unexpectedly; Redis remains active")
+                        silver_query = None
+                    else:
+                        _progress(silver_query)
+                except Exception:
+                    log.exception("Could not inspect Weather Silver stream; Redis remains active")
+                    silver_query = None
     except Exception:
-        log.exception("Weather stream failed during startup or execution")
+        log.exception("Required Weather Redis stream failed during startup or execution")
         raise
     finally:
-        for query in queries:
+        for query in (silver_query, redis_query):
+            if query is None:
+                continue
             try:
                 if query.isActive:
                     query.stop()

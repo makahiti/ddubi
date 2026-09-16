@@ -109,6 +109,22 @@ class AuthApi {
     );
   }
 
+  Future<Response<Map<String, dynamic>>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  }) => _dio.post<Map<String, dynamic>>(
+    ApiPaths.socialLinks,
+    data: {
+      'provider': provider,
+      'accessToken': ?accessToken,
+      'idToken': ?idToken,
+    },
+  );
+
+  Future<Response<Map<String, dynamic>>> unlinkSocialAccount(String provider) =>
+      _dio.delete<Map<String, dynamic>>(ApiPaths.socialLink(provider));
+
   Future<void> logout({
     required String refreshToken,
     required String deviceId,

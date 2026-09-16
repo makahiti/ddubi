@@ -574,10 +574,10 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      # 같은 표준 DataFrame을 Redis 최신값과 HDFS Silver에 각각 쓴다.
-      # 기존 운영 .env에 새 변수가 없어도 Silver를 켠다. 명시적 빈 값은 필수 검증에서 실패한다.
-      SILVER_OUTPUT_URI: ${SILVER_OUTPUT_URI-hdfs://hdfs-namenode:9000/ddubi/silver}
-      WEATHER_REQUIRE_SILVER: ${WEATHER_REQUIRE_SILVER:-true}
+      # 같은 표준 DataFrame을 Redis와 HDFS에 쓰되, Silver는 서버 .env에 경로가 있을 때만 켠다.
+      # HDFS Silver가 실패해도 서비스가 읽는 Redis 스트림은 계속 실행한다.
+      SILVER_OUTPUT_URI: ${SILVER_OUTPUT_URI:-}
+      WEATHER_REQUIRE_SILVER: ${WEATHER_REQUIRE_SILVER:-false}
       WEATHER_SILVER_TRIGGER: ${WEATHER_SILVER_TRIGGER:-10 minutes}
       WEATHER_SILVER_WATERMARK: ${WEATHER_SILVER_WATERMARK:-2 days}
     volumes:

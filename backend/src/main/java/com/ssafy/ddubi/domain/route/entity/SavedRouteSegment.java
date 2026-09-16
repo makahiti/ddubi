@@ -55,8 +55,8 @@ public class SavedRouteSegment extends BaseTimeEntity {
     @Column(name = "mode", nullable = false)
     private TransportMode mode;
 
-    /** 외부 API 노선·역 식별자 — segment_id 매핑 근거. */
-    @Column(name = "provider_route_key", length = 100)
+    /** 외부 API 차량명 목록 전체. canonical ID가 아니며 다중 대안도 자르지 않는다. */
+    @Column(name = "provider_route_key", columnDefinition = "TEXT")
     private String providerRouteKey;
 
     @Column(name = "from_name", nullable = false, length = 100)

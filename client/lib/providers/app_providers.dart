@@ -8,6 +8,7 @@ import '../data/mock_repository.dart';
 import '../domain/auth.dart';
 import '../domain/models.dart';
 import '../services/auth_api.dart';
+import '../services/api_ddubi_repository.dart';
 import '../services/api_schedule_repository.dart';
 import '../services/api_auth_repository.dart';
 import '../services/app_api.dart';
@@ -19,15 +20,20 @@ import '../services/place_api.dart';
 import '../services/recommendation_api.dart';
 import '../services/schedule_api.dart';
 
-final ddubiRepositoryProvider = Provider<DdubiRepository>((ref) {
-  return MockDdubiRepository();
-});
-
 final scheduleRepositoryProvider = Provider<ScheduleRepository>((ref) {
   if (!ApiConstants.useScheduleApi) {
-    return ref.watch(ddubiRepositoryProvider);
+    return MockDdubiRepository();
   }
   return ApiScheduleRepository(ref.watch(scheduleApiProvider));
+});
+
+final ddubiRepositoryProvider = Provider<DdubiRepository>((ref) {
+  if (!ApiConstants.useScheduleApi) return MockDdubiRepository();
+  return ApiDdubiRepository(
+    ref.watch(scheduleRepositoryProvider),
+    ref.watch(repeatScheduleRepositoryProvider),
+    ref.watch(recommendationApiProvider),
+  );
 });
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -90,7 +96,7 @@ final homeApiProvider = Provider<HomeApi>((ref) {
 final repeatScheduleRepositoryProvider = Provider<RepeatScheduleRepository>((
   ref,
 ) {
-  if (!ApiConstants.useScheduleApi) return ref.watch(ddubiRepositoryProvider);
+  if (!ApiConstants.useScheduleApi) return MockDdubiRepository();
   return RepeatScheduleApi(ref.watch(dioProvider));
 });
 

@@ -62,14 +62,14 @@ final dioProvider = Provider<Dio>((ref) {
             throw const FormatException('토큰 갱신 응답 형식이 올바르지 않습니다.');
           }
           final refreshed = session.withRefreshedTokens(data);
-          sessionStore.save(refreshed);
+          await sessionStore.save(refreshed);
 
           final request = error.requestOptions;
           request.extra['retried'] = true;
           request.headers['Authorization'] = 'Bearer ${refreshed.accessToken}';
           handler.resolve(await dio.fetch<dynamic>(request));
         } on Object {
-          sessionStore.clear();
+          await sessionStore.clear();
           handler.next(error);
         }
       },

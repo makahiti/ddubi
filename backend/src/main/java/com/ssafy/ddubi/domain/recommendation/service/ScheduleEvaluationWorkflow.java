@@ -23,12 +23,14 @@ public class ScheduleEvaluationWorkflow {
     private final PublicTransitRouteClient routes;
     private final RouteEvidenceAssembler evidence;
     private final MlRoutePreview previews;
+    private final EvaluationNotificationPlanner notifications;
     private final ScheduleMonitoringPolicy monitoring;
 
     public ScheduleEvaluationWorkflow(ScheduleEvaluationStore store, PublicTransitRouteClient routes,
-            RouteEvidenceAssembler evidence, MlRoutePreview previews,
+            RouteEvidenceAssembler evidence, MlRoutePreview previews, EvaluationNotificationPlanner notifications,
             @Value("${ddubi.recommendation.candidate-ttl-seconds:900}") int candidateTtl) {
         this.store = store; this.routes = routes; this.evidence = evidence; this.previews = previews;
+        this.notifications = notifications;
         // 초기 실험 주기이며 검증된 도착 보장 임계값이 아니다. 여유시간으로 가산하지 않는다.
         monitoring = new ScheduleMonitoringPolicy(Duration.ofHours(1), Duration.ofMinutes(30), Duration.ofMinutes(10),
                 Duration.ofMinutes(10), Duration.ofMinutes(5), Duration.ofMinutes(1), Duration.ofSeconds(candidateTtl));
@@ -46,8 +48,9 @@ public class ScheduleEvaluationWorkflow {
      * 예측 서비스가 미승인({@code production_ready=false})이라 지금은 <b>모든</b> 결과가
      * PREVIEW다. 그걸 이유로 저장을 막으면 추천 행이 하나도 안 생기고, 최신 추천·추천 근거
      * API가 영영 빈손이다(2026-09-14 합의). 대신 검증용이라는 사실을 지우지 않고 이 값으로
-     * 함께 남긴다. <b>일정 변경(accept)과 자동 알림은 계속 막는다</b> — 저장은 되돌릴 수
-     * 있지만 사용자를 실제로 움직이게 하는 그 둘은 성격이 다르다.
+     * 함께 남긴다. <b>일정 변경(accept)은 계속 막는다</b> — 저장은 되돌릴 수 있지만 사용자의
+     * 출발 시각을 실제로 바꾸는 것은 성격이 다르다. 자동 알림은 설정으로 연다(기본 꺼짐,
+     * 2026-09-15 프론트 요청). {@link EvaluationNotificationPlanner} 참고.
      *
      * @param saved     추천 행을 남겼는가
      * @param reason    저장하지 않은 사유. saved=true면 null이다
@@ -72,7 +75,7 @@ public class ScheduleEvaluationWorkflow {
     /**
      * 계산 시각의 입력·후보·증거를 보존한다. 내부 Instant는 절대시각이고 프론트는 KST로 표시한다.
      * selected는 기존 선택 경로, preview.fastest는 같은 출발의 최소시간 검증 후보다.
-     * suggestion.proposed는 응답 호환용 동일 후보이며 PREVIEW는 수락·알림을 허용하지 않는다.
+     * suggestion.proposed는 응답 호환용 동일 후보이며 PREVIEW는 수락을 허용하지 않는다.
      * recommendationId·persistence는 저장 결과이며 store가 채운다.
      */
     public record Outcome(String evaluationId, long scheduleId, Long recommendationId, Instant plannedDepartAt,
@@ -126,11 +129,15 @@ public class ScheduleEvaluationWorkflow {
             for (RouteCandidate c : search.candidates()) info.add(new CandidateInfo(RouteEvidenceAssembler.key(c), evidence.riskReasons(c, snapshot), c.segments().stream().map(s -> new RouteStep(s.mode().name(), s.fromName(), s.toName(), s.vehicles().stream().map(v -> v.name()).toList())).toList()));
             var result = new Outcome(job.token(), scheduleId, null, job.departure(), job.arriveBy(), now,
                     selectedKey, selected, suggestion, info, snapshot, trigger, "ml-prev-v1", job.eventRevision(), comparison, null);
-            // 결과는 스냅샷으로 남기되(store가 Persistence를 채운다) 출발 변경/FCM에는 전파하지 않는다.
-            // notificationJson/notificationKey를 null로 넘기는 것이 그 차단이다.
+            // 출발 변경(accept)은 계속 막는다 — 미승인 모델 값으로 사용자의 일정을 바꾸지 않는다.
+            // 알림은 설정으로 연다(기본 꺼짐). 보낼 것이 없으면 두 값이 null 이고,
+            // 그때 dispatcher 는 아무것도 하지 않는다. EvaluationNotificationPlanner 참고.
+            var planned = notifications.plan(job, result);
             Instant proposed = suggestion.proposed() == null ? null : suggestion.proposed().departureAt();
             return store.complete(job, search, refresh, result, monitoring.nextEvaluation(now, job.departure(), proposed),
-                    null, null, Instant.now());
+                    planned.map(p -> store.write(p.command())).orElse(null),
+                    planned.map(EvaluationNotificationPlanner.Planned::key).orElse(null),
+                    Instant.now());
         } catch (RuntimeException failure) {
             String reason = failure instanceof BusinessException ? "EVALUATION_UNAVAILABLE" : "EVALUATION_FAILED";
             store.fail(job, reason, now);

@@ -149,6 +149,17 @@ ddubi:
       verified-ttl: 30m
   recommendation:
     policy-version: v1.0
+    # 평가 결과로 자동 FCM 발송 (프론트 연동 질의 1번).
+    #
+    # ⚠️ 기본값 false 다. 지금 나가는 숫자는 미승인 모델이 계산한 것이라(production_ready=false)
+    #    켜면 검증 안 된 값으로 사용자 폰이 울린다. 개발·테스트에서만 켜고 발표 전에 되돌린다
+    #    (2026-09-15 프론트 확인).
+    #
+    # 추천 수락(사용자 출발 시각 실제 변경)은 이 설정과 무관하게 계속 막혀 있다.
+    auto-notify-enabled: ${DDUBI_AUTO_NOTIFY_ENABLED:false}
+    # 다른 후보가 이만큼 빨라야 "경로 변경" 을 알린다. 1~2분 차이로 알리면 갈아타는 품이
+    # 이득보다 크고, 후보 순위가 평가마다 흔들리면 알림이 쏟아진다.
+    notify-route-gain: 5m
     # 중요도 → 백분위 (도메인 규칙 7)
     percentile:
       normal: 50

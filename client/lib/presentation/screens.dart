@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,7 +47,10 @@ RouteOption? _primaryRoute(List<RouteOption> routes) {
 }
 
 class ScheduleDetailArguments {
-  const ScheduleDetailArguments({required this.schedule, required this.routes});
+  const ScheduleDetailArguments({
+    required this.schedule,
+    this.routes = const [],
+  });
 
   final Schedule schedule;
   final List<RouteOption> routes;
@@ -1090,6 +1095,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await widget.authRepository.login(
         email: email.text.trim(),
         password: password.text,
+        persistSession: keepSignedIn,
       );
       if (context.mounted) _completeLogin(context);
     } on AuthException catch (error) {
@@ -1153,6 +1159,7 @@ class _LoginScreenState extends State<LoginScreen> {
     c,
     SocialAuthScreen(
       provider: provider,
+      persistSession: keepSignedIn,
       repository: widget.authRepository,
       kakaoLoginService: provider == '카카오' ? widget.kakaoLoginService : null,
       googleLoginService: provider == 'Google'
@@ -1180,13 +1187,30 @@ class _GoogleMark extends StatelessWidget {
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
-    required this.repository,
     required this.homeApi,
+    this.recommendationApi,
     this.go,
   });
-  final DdubiRepository repository;
   final HomeApi homeApi;
+  final RecommendationApi? recommendationApi;
   final ValueChanged<int>? go;
+
+  Future<_HomeData> _load() async {
+    final summary = await homeApi.getSummary();
+    RecommendationOverview? recommendation;
+    final schedule = summary.nextSchedule;
+    if (schedule != null && recommendationApi != null) {
+      try {
+        recommendation = await recommendationApi!.getLatestOverview(
+          schedule.id,
+        );
+      } on Object {
+        recommendation = null;
+      }
+    }
+    return _HomeData(summary: summary, recommendation: recommendation);
+  }
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '안녕하세요! 🌱',
@@ -1207,56 +1231,43 @@ class HomeScreen extends StatelessWidget {
         icon: const Icon(Icons.notifications_none_rounded),
       ),
     ],
-    child: FutureBuilder<HomeSummary>(
-      future: homeApi.getSummary(),
-      builder: (context, homeSnapshot) {
-        if (homeSnapshot.hasError) {
+    child: FutureBuilder<_HomeData>(
+      future: _load(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
           return const DataLoadError(message: '홈 정보를 불러오지 못했어요.');
         }
-        if (!homeSnapshot.hasData) {
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        return FutureBuilder<List<RouteOption>>(
-          future: repository.routes(),
-          builder: (context, routeSnapshot) {
-            if (routeSnapshot.hasError) {
-              return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
-            }
-            if (!routeSnapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return FutureBuilder<List<Schedule>>(
-              future: repository.schedules(),
-              builder: (context, scheduleSnapshot) {
-                if (scheduleSnapshot.hasError) {
-                  return const DataLoadError(message: '오늘 일정을 불러오지 못했어요.');
-                }
-                if (!scheduleSnapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                return LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide =
-                        constraints.maxWidth >=
-                        LayoutConstants.wideScreenBreakpoint;
-                    return isWide
-                        ? _WebHomeContent(
-                            routes: routeSnapshot.data!,
-                            summary: homeSnapshot.data!,
-                          )
-                        : _MobileHomeContent(
-                            schedules: scheduleSnapshot.data!,
-                            routes: routeSnapshot.data!,
-                          );
-                  },
-                );
-              },
-            );
+        final data = snapshot.data!;
+        final schedule = data.summary.nextSchedule;
+        final routes =
+            schedule != null && data.recommendation?.hasEstimate == true
+            ? [data.recommendation!.toRouteOption(schedule)]
+            : const <RouteOption>[];
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide =
+                constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
+            return isWide
+                ? _WebHomeContent(routes: routes, summary: data.summary)
+                : _MobileHomeContent(
+                    schedules: data.summary.todaySchedules,
+                    routes: routes,
+                  );
           },
         );
       },
     ),
   );
+}
+
+class _HomeData {
+  const _HomeData({required this.summary, this.recommendation});
+
+  final HomeSummary summary;
+  final RecommendationOverview? recommendation;
 }
 
 class _MobileHomeContent extends StatelessWidget {
@@ -1430,7 +1441,7 @@ class _TodayScheduleCard extends StatelessWidget {
         key: Key('todaySchedule-${schedule.id}'),
         onTap: () => context.push(
           '/schedules/${schedule.id}',
-          extra: ScheduleDetailArguments(schedule: schedule, routes: routes),
+          extra: ScheduleDetailArguments(schedule: schedule),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
@@ -1906,7 +1917,9 @@ class _WebHomeContent extends StatelessWidget {
           _primaryRoute(routes)!,
           compact: true,
           fillWidth: true,
-          onTap: () => context.push('/recommendations/mock-recommendation-1'),
+          onTap: summary.nextSchedule == null
+              ? null
+              : () => context.push('/schedules/${summary.nextSchedule!.id}'),
         ),
       ),
     ],
@@ -3309,6 +3322,7 @@ class ScheduleDetailScreen extends StatelessWidget {
     super.key,
     required this.repository,
     required this.routeRepository,
+    this.recommendationApi,
     required this.scheduleId,
     required this.arrivalApi,
     this.initialSchedule,
@@ -3316,6 +3330,7 @@ class ScheduleDetailScreen extends StatelessWidget {
   });
   final ScheduleRepository repository;
   final DdubiRepository routeRepository;
+  final RecommendationApi? recommendationApi;
   final String scheduleId;
   final ArrivalApi arrivalApi;
   final Schedule? initialSchedule;
@@ -3344,24 +3359,28 @@ class ScheduleDetailScreen extends StatelessWidget {
           child: DataLoadError(message: '해당 일정을 찾을 수 없어요.'),
         );
       }
-      return FutureBuilder<List<RouteOption>>(
-        future: initialRoutes == null
-            ? routeRepository.routes()
-            : Future.value(initialRoutes),
-        builder: (context, routeSnapshot) {
-          if (routeSnapshot.hasError) {
-            return const AppPage(
-              title: '일정 상세',
-              child: DataLoadError(message: '추천 경로를 불러오지 못했어요.'),
-            );
-          }
-          if (!routeSnapshot.hasData) {
+      return FutureBuilder<_ScheduleRecommendationData>(
+        future: _loadRecommendation(schedule),
+        builder: (context, recommendationSnapshot) {
+          if (!recommendationSnapshot.hasData &&
+              !recommendationSnapshot.hasError) {
             return const AppPage(
               title: '일정 상세',
               child: Center(child: CircularProgressIndicator()),
             );
           }
-          return _content(context, schedule, routeSnapshot.data!);
+          final data = recommendationSnapshot.data;
+          return _content(
+            context,
+            schedule,
+            data?.route,
+            data?.overview,
+            data?.savedRoutes ?? const [],
+            recommendationUnavailable:
+                recommendationSnapshot.hasError ||
+                data?.recommendationUnavailable == true,
+            routesUnavailable: data?.routesUnavailable == true,
+          );
         },
       );
     },
@@ -3380,8 +3399,52 @@ class ScheduleDetailScreen extends StatelessWidget {
     }
   }
 
-  Widget _content(BuildContext c, Schedule schedule, List<RouteOption> routes) {
-    final route = _primaryRoute(routes);
+  Future<_ScheduleRecommendationData> _loadRecommendation(
+    Schedule schedule,
+  ) async {
+    if (initialRoutes != null && initialRoutes!.isNotEmpty) {
+      return _ScheduleRecommendationData(route: initialRoutes!.first);
+    }
+    if (recommendationApi == null) {
+      return const _ScheduleRecommendationData();
+    }
+    RecommendationOverview? overview;
+    var recommendationUnavailable = false;
+    try {
+      overview = await recommendationApi!.getLatestOverview(schedule.id);
+    } on Object {
+      recommendationUnavailable = true;
+    }
+    List<SavedRouteSummary> savedRoutes = const [];
+    var routesUnavailable = false;
+    try {
+      savedRoutes = await recommendationApi!.getSavedRoutes(schedule.id);
+    } on Object {
+      routesUnavailable = true;
+    }
+    final selectedSavedRoute = savedRoutes.where((route) => route.selected);
+    return _ScheduleRecommendationData(
+      overview: overview,
+      route: overview?.hasEstimate == true
+          ? overview!.toRouteOption(schedule)
+          : selectedSavedRoute.isNotEmpty
+          ? selectedSavedRoute.first.toRouteOption(schedule)
+          : null,
+      savedRoutes: savedRoutes,
+      recommendationUnavailable: recommendationUnavailable,
+      routesUnavailable: routesUnavailable,
+    );
+  }
+
+  Widget _content(
+    BuildContext c,
+    Schedule schedule,
+    RouteOption? route,
+    RecommendationOverview? overview,
+    List<SavedRouteSummary> savedRoutes, {
+    bool recommendationUnavailable = false,
+    bool routesUnavailable = false,
+  }) {
     return AppPage(
       title: '일정 상세',
       child: ListView(
@@ -3493,7 +3556,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: const Text(
-                          '이 일정에 맞춰',
+                          '입력한 출발시간 기준',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
@@ -3504,8 +3567,8 @@ class ScheduleDetailScreen extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         route == null
-                            ? '추천 출발 시간을 확인 중이에요.'
-                            : '${route.departure}에 출발하는 것을\n추천해요!',
+                            ? '이동 예측을 확인 중이에요.'
+                            : '${route.departure} 출발 시\n${route.arrival} 도착 예상',
                         style: const TextStyle(
                           fontSize: 19,
                           height: 1.28,
@@ -3515,7 +3578,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        '실시간 이동 상황을 반영했어요.',
+                        '계산에 사용된 정보는 아래 추천 근거에서 확인해요.',
                         style: TextStyle(
                           fontSize: 11,
                           color: Color(0xFF68808B),
@@ -3540,35 +3603,48 @@ class ScheduleDetailScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              if (route != null)
-                TextButton(
-                  key: const Key('routeDetailButton'),
-                  onPressed: () => _open(
-                    c,
-                    RouteMapScreen(
-                      repository: routeRepository,
-                      selectedRoute: route,
-                      departureLabel: schedule.departurePlace,
-                      destinationLabel: schedule.place,
-                    ),
-                  ),
-                  child: const Text('상세보기 〉'),
-                ),
+              if (overview?.preview == true)
+                const StatusBadge('검증용', tone: DdubiColors.blue),
             ],
           ),
-          if (route == null)
-            const InfoCard(child: Text('표시할 추천 경로가 없어요.'))
+          if (recommendationUnavailable)
+            const InfoCard(child: Text('최신 추천을 불러오지 못했어요. 잠시 후 다시 확인해주세요.'))
+          else if (route == null)
+            InfoCard(
+              child: Text(
+                overview?.state == 'PENDING'
+                    ? '추천 경로를 계산하고 있어요.'
+                    : '아직 생성된 추천 결과가 없어요. 아래에서 다시 계산해주세요.',
+              ),
+            )
           else ...[
             _FinalRouteSummary(route: route),
             const SizedBox(height: 10),
-            SizedBox(
-              height: 190,
-              child: _CompactRoutePreview(
-                departure: schedule.departurePlace,
-                destination: schedule.place,
+            if (recommendationApi != null)
+              _RecommendationEvidenceCard(
+                api: recommendationApi!,
+                overview: overview,
               ),
-            ),
           ],
+          const SizedBox(height: 16),
+          _SavedRouteList(
+            routes: savedRoutes,
+            unavailable: routesUnavailable,
+            onSelected: recommendationApi == null
+                ? null
+                : (savedRoute) => _open(
+                    c,
+                    RouteMapScreen(
+                      repository: routeRepository,
+                      api: recommendationApi,
+                      savedRoute: savedRoute,
+                      selectedRoute: savedRoute.toRouteOption(schedule),
+                      departureLabel:
+                          savedRoute.fromName ?? schedule.departurePlace,
+                      destinationLabel: savedRoute.toName ?? schedule.place,
+                    ),
+                  ),
+          ),
           const SizedBox(height: 16),
           const Text(
             '오늘의 이동 변수',
@@ -3585,7 +3661,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                 child: _RouteVariable(
                   icon: Icons.wb_sunny_rounded,
                   label: '날씨',
-                  value: '맑음',
+                  value: '확인 필요',
                   color: Color(0xFFFFB323),
                 ),
               ),
@@ -3594,7 +3670,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                 child: _RouteVariable(
                   icon: Icons.groups_rounded,
                   label: '혼잡도',
-                  value: '보통',
+                  value: '확인 필요',
                   color: Color(0xFF4D80E8),
                 ),
               ),
@@ -3603,7 +3679,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                 child: _RouteVariable(
                   icon: Icons.directions_car_rounded,
                   label: '도로 통제',
-                  value: '없음',
+                  value: '확인 필요',
                   color: Color(0xFF00A873),
                 ),
               ),
@@ -3612,7 +3688,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                 child: _RouteVariable(
                   icon: Icons.directions_subway_rounded,
                   label: '지하철 지연',
-                  value: '없음',
+                  value: '확인 필요',
                   color: Color(0xFF00A873),
                 ),
               ),
@@ -3725,6 +3801,278 @@ class ScheduleDetailScreen extends StatelessWidget {
   }
 }
 
+class _ScheduleRecommendationData {
+  const _ScheduleRecommendationData({
+    this.route,
+    this.overview,
+    this.savedRoutes = const [],
+    this.recommendationUnavailable = false,
+    this.routesUnavailable = false,
+  });
+
+  final RouteOption? route;
+  final RecommendationOverview? overview;
+  final List<SavedRouteSummary> savedRoutes;
+  final bool recommendationUnavailable;
+  final bool routesUnavailable;
+}
+
+class _SavedRouteList extends StatelessWidget {
+  const _SavedRouteList({
+    required this.routes,
+    required this.unavailable,
+    required this.onSelected,
+  });
+
+  final List<SavedRouteSummary> routes;
+  final bool unavailable;
+  final ValueChanged<SavedRouteSummary>? onSelected;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    key: const Key('savedRouteList'),
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        '저장된 추천 경로',
+        style: TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.w900,
+          color: DdubiColors.navy,
+        ),
+      ),
+      const SizedBox(height: 9),
+      if (unavailable)
+        const InfoCard(child: Text('저장된 경로를 불러오지 못했어요.'))
+      else if (routes.isEmpty)
+        const InfoCard(
+          key: Key('savedRouteEmptyState'),
+          child: Text('아직 평가된 추천 경로가 없어요.'),
+        )
+      else
+        for (final route in routes) ...[
+          _SavedRouteTile(route: route, onTap: onSelected),
+          if (route != routes.last) const SizedBox(height: 8),
+        ],
+    ],
+  );
+}
+
+class _SavedRouteTile extends StatelessWidget {
+  const _SavedRouteTile({required this.route, required this.onTap});
+
+  final SavedRouteSummary route;
+  final ValueChanged<SavedRouteSummary>? onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: route.selected ? const Color(0xFFE7FAF5) : Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    child: InkWell(
+      key: Key('savedRoute-${route.routeId}'),
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap == null ? null : () => onTap!(route),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: route.selected
+                ? const Color(0xFF9DE2D2)
+                : const Color(0xFFDCE6EC),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: route.selected
+                    ? DdubiColors.green
+                    : const Color(0xFFEAF1F8),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _transportIcon(route.modes),
+                color: route.selected ? Colors.white : DdubiColors.navy,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          route.selected ? '선택된 추천 경로' : '${route.rankNo}순위 경로',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: DdubiColors.navy,
+                          ),
+                        ),
+                      ),
+                      if (route.selected)
+                        const StatusBadge('선택됨', tone: DdubiColors.green),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${route.fromName ?? '출발지'} → ${route.toName ?? '도착지'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Color(0xFF52677B)),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '약 ${route.baseDurationMin}분 · ${route.segmentCount}개 구간 · '
+                    '${route.modes.map(_routeModeLabel).join(' · ')}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6E8193),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF7F91A2)),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  static IconData _transportIcon(List<String> modes) {
+    if (modes.contains('SUBWAY')) return Icons.directions_subway_rounded;
+    if (modes.contains('BUS')) return Icons.directions_bus_rounded;
+    return Icons.directions_walk_rounded;
+  }
+}
+
+class _RecommendationEvidenceCard extends StatelessWidget {
+  const _RecommendationEvidenceCard({
+    required this.api,
+    required this.overview,
+  });
+
+  final RecommendationApi api;
+  final RecommendationOverview? overview;
+
+  @override
+  Widget build(BuildContext context) {
+    final recommendationId = overview?.recommendationId;
+    if (recommendationId == null) {
+      return _evidence(
+        context,
+        source: overview?.source,
+        reasonCodes: overview?.reasonCodes ?? const [],
+        preview: overview?.preview,
+      );
+    }
+    return FutureBuilder<RecommendationExplanation>(
+      future: api.getExplanation(recommendationId),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _evidence(
+            context,
+            source: overview?.source,
+            reasonCodes: overview?.reasonCodes ?? const [],
+            preview: overview?.preview,
+            note: '상세 추천 근거를 불러오지 못했어요.',
+          );
+        }
+        final explanation = snapshot.data;
+        return _evidence(
+          context,
+          source: explanation?.source ?? overview?.source,
+          reasonCodes:
+              explanation?.reasonCodes ?? overview?.reasonCodes ?? const [],
+          preview: explanation?.preview ?? overview?.preview,
+          checkedAt: explanation?.dataCheckedAt,
+          loading: !snapshot.hasData,
+        );
+      },
+    );
+  }
+
+  Widget _evidence(
+    BuildContext context, {
+    String? source,
+    required List<String> reasonCodes,
+    bool? preview,
+    DateTime? checkedAt,
+    bool loading = false,
+    String? note,
+  }) => InfoCard(
+    color: const Color(0xFFF4F8FF),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const StatusBadge(
+          '추천 근거',
+          tone: DdubiColors.blue,
+          icon: Icons.lightbulb_outline,
+        ),
+        const SizedBox(height: 10),
+        if (loading)
+          const LinearProgressIndicator()
+        else ...[
+          Text(_sourceDescription(source)),
+          if (preview == true) ...[
+            const SizedBox(height: 6),
+            const Text(
+              '현재 결과는 검증용이며 일정에 자동 적용되지 않아요.',
+              style: TextStyle(color: Color(0xFF64708B)),
+            ),
+          ],
+          if (reasonCodes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            for (final reason in reasonCodes.take(3))
+              Text('• ${_reasonDescription(reason)}'),
+          ],
+          if (checkedAt != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${checkedAt.hour.toString().padLeft(2, '0')}:${checkedAt.minute.toString().padLeft(2, '0')} 기준',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (note != null) ...[
+            const SizedBox(height: 8),
+            Text(note, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ],
+      ],
+    ),
+  );
+
+  static String _sourceDescription(String? source) => switch (source) {
+    'API_ONLY' => '현재 경로 API의 예상 소요시간을 기준으로 계산했어요.',
+    'ML_PREVIEW' => '버스 구간 예측을 포함해 계산했어요.',
+    'SUBWAY_PREVIEW' => '지하철 시간표를 포함해 계산했어요.',
+    'MIXED_PREVIEW' => '경로 API와 교통 예측 정보를 함께 사용했어요.',
+    _ => '서버에서 저장한 최신 평가 결과를 표시하고 있어요.',
+  };
+
+  static String _reasonDescription(String code) {
+    if (code == 'VALIDATION_ONLY') return '검증 단계의 결과예요.';
+    if (code.contains('ML_NOT_CONFIGURED')) return '일부 구간은 경로 API 시간을 사용했어요.';
+    if (code.contains('BUS_WAIT_MISSING')) return '버스 대기시간 정보가 부족해요.';
+    if (code.contains('SUBWAY_TIMETABLE_NOT_CONFIGURED')) {
+      return '지하철 시간표 정보가 부족해요.';
+    }
+    if (code.startsWith('ROAD_POTENTIAL_IMPACT:')) {
+      return '예상 이동 구간에 도로 영향 가능성이 있어요.';
+    }
+    return code;
+  }
+}
+
 class _FinalRouteSummary extends StatelessWidget {
   const _FinalRouteSummary({required this.route});
   final RouteOption route;
@@ -3776,48 +4124,6 @@ class _FinalRouteSummary extends StatelessWidget {
 
   Widget _divider() =>
       Container(width: 1, height: 50, color: const Color(0xFFE4ECEF));
-}
-
-class _CompactRoutePreview extends StatelessWidget {
-  const _CompactRoutePreview({
-    required this.departure,
-    required this.destination,
-  });
-  final String departure;
-  final String destination;
-
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(18),
-    child: Stack(
-      children: [
-        const Positioned.fill(child: ColoredBox(color: Color(0xFFE9F3EC))),
-        const Positioned.fill(
-          child: CustomPaint(
-            painter: _MapPainter(selectedKind: RouteKind.recommended),
-          ),
-        ),
-        Positioned(
-          left: 12,
-          bottom: 12,
-          child: _MapMarker(
-            label: '출발 · $departure',
-            icon: Icons.trip_origin,
-            tone: DdubiColors.green,
-          ),
-        ),
-        Positioned(
-          right: 12,
-          top: 12,
-          child: _MapMarker(
-            label: '도착 · $destination',
-            icon: Icons.location_on,
-            tone: DdubiColors.red,
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class _RouteVariable extends StatelessWidget {
@@ -3973,7 +4279,7 @@ class RouteResultsScreen extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: RouteCard(route, onTap: () => _openRouteMap(context, route)),
           ),
-          _recommendationReason,
+          _recommendationReason(route),
         ],
       );
 
@@ -3990,7 +4296,7 @@ class RouteResultsScreen extends StatelessWidget {
         children: [
           const Expanded(flex: 3, child: _routeGuide),
           const SizedBox(width: 16),
-          const Expanded(flex: 2, child: _recommendationReason),
+          Expanded(flex: 2, child: _recommendationReason(route)),
         ],
       ),
       const SizedBox(height: 20),
@@ -4028,19 +4334,20 @@ class RouteResultsScreen extends StatelessWidget {
     ),
   );
 
-  static const _recommendationReason = InfoCard(
-    color: Color(0xFFF4F8FF),
+  Widget _recommendationReason(RouteOption route) => InfoCard(
+    color: const Color(0xFFF4F8FF),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        StatusBadge(
+        const StatusBadge(
           '추천 이유',
           tone: DdubiColors.blue,
           icon: Icons.lightbulb_outline,
         ),
-        SizedBox(height: 10),
+        const SizedBox(height: 10),
         Text(
-          '현재 버스 정차 구간이 혼잡해 버스 도착 예측 신뢰도가 낮아요.\n현재 정상 운행 중인 지하철 2호선 경로를 추천드려요.',
+          '${route.transport} 경로 중 예상 이동시간이 적합한 후보예요.\n'
+          '${route.detail} · ${route.margin} · ${route.fare}',
         ),
       ],
     ),
@@ -4245,7 +4552,7 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
       desiredArrivalAt: _desiredArrivalAt,
     );
     setState(() => _RouteSearchHistory.add(condition));
-    context.push('/recommendations/mock-recommendation-1', extra: condition);
+    context.push('/recommendations/search-results', extra: condition);
   }
 }
 
@@ -4314,6 +4621,8 @@ class RouteMapScreen extends StatefulWidget {
   const RouteMapScreen({
     super.key,
     required this.repository,
+    this.api,
+    this.savedRoute,
     this.selectedRoute,
     this.condition,
     this.departureLabel,
@@ -4322,6 +4631,8 @@ class RouteMapScreen extends StatefulWidget {
   });
 
   final DdubiRepository repository;
+  final RecommendationApi? api;
+  final SavedRouteSummary? savedRoute;
   final RouteOption? selectedRoute;
   final RouteSearchCondition? condition;
   final String? departureLabel;
@@ -4342,7 +4653,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     super.initState();
     _selectedKind = widget.selectedRoute?.kind ?? RouteKind.recommended;
     _showDeviationBanner = widget.initialRouteDeviation;
-    _routes = widget.selectedRoute != null
+    _routes = widget.savedRoute != null
+        ? Future.value(const [])
+        : widget.selectedRoute != null
         ? Future.value([widget.selectedRoute!])
         : widget.repository.routes(condition: widget.condition).then((routes) {
             final primary = _primaryRoute(routes);
@@ -4351,95 +4664,227 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   @override
+  Widget build(BuildContext context) =>
+      widget.api != null && widget.savedRoute != null
+      ? _SavedRouteApiScreen(
+          api: widget.api!,
+          summary: widget.savedRoute!,
+          route:
+              widget.selectedRoute ??
+              widget.savedRoute!.toRouteOption(
+                Schedule(
+                  id: '',
+                  title: '',
+                  origin: const PlaceLocation(name: '', lat: 0, lng: 0),
+                  destination: const PlaceLocation(name: '', lat: 0, lng: 0),
+                  arriveBy: DateTime.now().add(
+                    Duration(minutes: widget.savedRoute!.baseDurationMin),
+                  ),
+                ),
+              ),
+          repository: widget.repository,
+          departureLabel:
+              widget.departureLabel ?? widget.savedRoute!.fromName ?? '출발지',
+          destinationLabel:
+              widget.destinationLabel ?? widget.savedRoute!.toName ?? '도착지',
+        )
+      : AppPage(
+          title: '경로 상세',
+          webTitle: '경로 지도',
+          webSubtitle: '추천 경로와 이동 단계, 현재 위치를 한 화면에서 확인하세요.',
+          child: FutureBuilder<List<RouteOption>>(
+            future: _routes,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const DataLoadError(message: '지도 경로를 불러오지 못했어요.');
+              }
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final routes = snapshot.data!;
+              if (routes.isEmpty) {
+                return const Center(child: Text('표시할 추천 경로가 없어요.'));
+              }
+              final selected = routes.firstWhere(
+                (route) => route.kind == _selectedKind,
+                orElse: () => routes.first,
+              );
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 760;
+                  final map = _RouteMapView(
+                    routes: routes,
+                    selectedKind: selected.kind,
+                    departureLabel:
+                        widget.departureLabel ??
+                        widget.condition?.departurePlace ??
+                        '출발지',
+                    destinationLabel:
+                        widget.destinationLabel ??
+                        widget.condition?.destinationPlace ??
+                        '도착지',
+                    onSelected: (kind) => setState(() => _selectedKind = kind),
+                    showRouteSelector: false,
+                  );
+                  final detail = _RouteMapDetail(
+                    route: selected,
+                    repository: widget.repository,
+                    departureLabel:
+                        widget.departureLabel ??
+                        widget.condition?.departurePlace ??
+                        '출발지',
+                    destinationLabel:
+                        widget.destinationLabel ??
+                        widget.condition?.destinationPlace ??
+                        '도착지',
+                  );
+                  if (isWide) {
+                    final layout = Padding(
+                      key: const Key('webRouteMapLayout'),
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Expanded(flex: 3, child: map),
+                          const SizedBox(width: 16),
+                          SizedBox(
+                            width: 360,
+                            child: SingleChildScrollView(child: detail),
+                          ),
+                        ],
+                      ),
+                    );
+                    return Column(
+                      children: [
+                        if (_showDeviationBanner)
+                          _RouteDeviationBanner(
+                            onDismiss: () =>
+                                setState(() => _showDeviationBanner = false),
+                          ),
+                        Expanded(child: layout),
+                      ],
+                    );
+                  }
+                  return Column(
+                    key: const Key('mobileRouteMapLayout'),
+                    children: [
+                      if (_showDeviationBanner)
+                        _RouteDeviationBanner(
+                          onDismiss: () =>
+                              setState(() => _showDeviationBanner = false),
+                        ),
+                      Expanded(flex: 6, child: map),
+                      Flexible(
+                        flex: 4,
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                          child: detail,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        );
+}
+
+class _SavedRouteApiScreen extends StatefulWidget {
+  const _SavedRouteApiScreen({
+    required this.api,
+    required this.summary,
+    required this.route,
+    required this.repository,
+    required this.departureLabel,
+    required this.destinationLabel,
+  });
+
+  final RecommendationApi api;
+  final SavedRouteSummary summary;
+  final RouteOption route;
+  final DdubiRepository repository;
+  final String departureLabel;
+  final String destinationLabel;
+
+  @override
+  State<_SavedRouteApiScreen> createState() => _SavedRouteApiScreenState();
+}
+
+class _SavedRouteApiScreenState extends State<_SavedRouteApiScreen> {
+  late Future<_SavedRouteViewData> _data = _load();
+
+  Future<_SavedRouteViewData> _load() async {
+    final results = await Future.wait<Object>([
+      widget.api.getSavedRouteDetail(widget.summary.routeId),
+      widget.api.getSavedRouteMap(widget.summary.routeId),
+    ]);
+    return _SavedRouteViewData(
+      detail: results[0] as SavedRouteDetail,
+      map: results[1] as SavedRouteMap,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) => AppPage(
     title: '경로 상세',
-    webTitle: '경로 지도',
-    webSubtitle: '추천 경로와 이동 단계, 현재 위치를 한 화면에서 확인하세요.',
-    child: FutureBuilder<List<RouteOption>>(
-      future: _routes,
+    child: FutureBuilder<_SavedRouteViewData>(
+      future: _data,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const DataLoadError(message: '지도 경로를 불러오지 못했어요.');
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const DataLoadError(message: '경로 상세를 불러오지 못했어요.'),
+                TextButton(
+                  onPressed: () => setState(() => _data = _load()),
+                  child: const Text('다시 시도'),
+                ),
+              ],
+            ),
+          );
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final routes = snapshot.data!;
-        if (routes.isEmpty) {
-          return const Center(child: Text('표시할 추천 경로가 없어요.'));
-        }
-        final selected = routes.firstWhere(
-          (route) => route.kind == _selectedKind,
-          orElse: () => routes.first,
-        );
+        final data = snapshot.data!;
         return LayoutBuilder(
           builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 760;
-            final map = _RouteMapView(
-              routes: routes,
-              selectedKind: selected.kind,
-              departureLabel:
-                  widget.departureLabel ??
-                  widget.condition?.departurePlace ??
-                  '출발지',
-              destinationLabel:
-                  widget.destinationLabel ??
-                  widget.condition?.destinationPlace ??
-                  '도착지',
-              onSelected: (kind) => setState(() => _selectedKind = kind),
-              showRouteSelector: false,
+            final map = _SavedRouteMapView(
+              routeMap: data.map,
+              departureLabel: widget.departureLabel,
+              destinationLabel: widget.destinationLabel,
             );
-            final detail = _RouteMapDetail(
-              route: selected,
+            final detail = _SavedRouteDetailPanel(
+              summary: widget.summary,
+              detail: data.detail,
+              route: widget.route,
               repository: widget.repository,
-              departureLabel:
-                  widget.departureLabel ??
-                  widget.condition?.departurePlace ??
-                  '출발지',
-              destinationLabel:
-                  widget.destinationLabel ??
-                  widget.condition?.destinationPlace ??
-                  '도착지',
             );
-            if (isWide) {
-              final layout = Padding(
-                key: const Key('webRouteMapLayout'),
+            if (constraints.maxWidth >= 760) {
+              return Padding(
+                key: const Key('webSavedRouteLayout'),
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
                     Expanded(flex: 3, child: map),
                     const SizedBox(width: 16),
                     SizedBox(
-                      width: 360,
+                      width: 370,
                       child: SingleChildScrollView(child: detail),
                     ),
                   ],
                 ),
               );
-              return Column(
-                children: [
-                  if (_showDeviationBanner)
-                    _RouteDeviationBanner(
-                      onDismiss: () =>
-                          setState(() => _showDeviationBanner = false),
-                    ),
-                  Expanded(child: layout),
-                ],
-              );
             }
             return Column(
-              key: const Key('mobileRouteMapLayout'),
+              key: const Key('mobileSavedRouteLayout'),
               children: [
-                if (_showDeviationBanner)
-                  _RouteDeviationBanner(
-                    onDismiss: () =>
-                        setState(() => _showDeviationBanner = false),
-                  ),
-                Expanded(flex: 6, child: map),
+                Expanded(flex: 5, child: map),
                 Flexible(
-                  flex: 4,
+                  flex: 5,
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 18),
                     child: detail,
                   ),
                 ),
@@ -4450,6 +4895,494 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       },
     ),
   );
+}
+
+class _SavedRouteViewData {
+  const _SavedRouteViewData({required this.detail, required this.map});
+
+  final SavedRouteDetail detail;
+  final SavedRouteMap map;
+}
+
+class _SavedRouteDetailPanel extends StatelessWidget {
+  const _SavedRouteDetailPanel({
+    required this.summary,
+    required this.detail,
+    required this.route,
+    required this.repository,
+  });
+
+  final SavedRouteSummary summary;
+  final SavedRouteDetail detail;
+  final RouteOption route;
+  final DdubiRepository repository;
+
+  @override
+  Widget build(BuildContext context) => InfoCard(
+    key: const Key('savedRouteDetail'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(child: _metric('예상 시간', '약 ${detail.baseDurationMin}분')),
+            Expanded(child: _metric('경로 순위', '${detail.rankNo}순위')),
+            Expanded(child: _metric('이동 구간', '${detail.segments.length}개')),
+          ],
+        ),
+        const Divider(height: 28),
+        if (detail.selected)
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: StatusBadge('선택된 경로', tone: DdubiColors.green),
+          ),
+        if (detail.selected) const SizedBox(height: 12),
+        if (detail.segments.isEmpty)
+          const Text('표시할 이동 구간이 없어요.')
+        else
+          for (final segment in detail.segments)
+            _SavedRouteSegmentTile(segment: segment),
+        const SizedBox(height: 12),
+        PrimaryButton(
+          '이동 안내 시작',
+          onPressed: () => _open(
+            context,
+            MovingScreen(repository: repository, route: route),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _metric(String label, String value) => Column(
+    children: [
+      Text(
+        label,
+        style: const TextStyle(fontSize: 11, color: Color(0xFF687B8D)),
+      ),
+      const SizedBox(height: 3),
+      Text(
+        value,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+          color: DdubiColors.navy,
+        ),
+      ),
+    ],
+  );
+}
+
+class _SavedRouteSegmentTile extends StatelessWidget {
+  const _SavedRouteSegmentTile({required this.segment});
+
+  final SavedRouteSegment segment;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: _modeColor(segment.mode).withValues(alpha: .12),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            _modeIcon(segment.mode),
+            size: 20,
+            color: _modeColor(segment.mode),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${segment.seq}. ${_routeModeLabel(segment.mode)} '
+                        '${segment.providerRouteKey ?? ''}'
+                    .trim(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: DdubiColors.navy,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '${segment.fromName ?? '출발'} → ${segment.toName ?? '도착'}',
+                style: const TextStyle(color: Color(0xFF52677B)),
+              ),
+              Text(
+                '약 ${segment.baseDurationMin}분',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7A8B9B)),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+IconData _modeIcon(String mode) => switch (mode) {
+  'BUS' => Icons.directions_bus_rounded,
+  'SUBWAY' => Icons.directions_subway_rounded,
+  'TAXI' => Icons.local_taxi_rounded,
+  _ => Icons.directions_walk_rounded,
+};
+
+String _routeModeLabel(String mode) => switch (mode) {
+  'WALK' => '도보',
+  'BUS' => '버스',
+  'SUBWAY' => '지하철',
+  'TAXI' => '택시',
+  _ => mode,
+};
+
+Color _modeColor(String mode) => switch (mode) {
+  'BUS' => const Color(0xFF2E70E8),
+  'SUBWAY' => const Color(0xFF00A56F),
+  'TAXI' => const Color(0xFFF3A91B),
+  _ => const Color(0xFF55697D),
+};
+
+class _SavedRouteMapView extends StatefulWidget {
+  const _SavedRouteMapView({
+    required this.routeMap,
+    required this.departureLabel,
+    required this.destinationLabel,
+  });
+
+  final SavedRouteMap routeMap;
+  final String departureLabel;
+  final String destinationLabel;
+
+  @override
+  State<_SavedRouteMapView> createState() => _SavedRouteMapViewState();
+}
+
+class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
+  KakaoMapController? _controller;
+  StreamSubscription<CameraMoveEndEvent>? _cameraMoveSubscription;
+  List<_ProjectedRouteSegment> _projectedSegments = const [];
+  var _projectionGeneration = 0;
+
+  LatLng get _center {
+    final bounds = widget.routeMap.bounds;
+    if (bounds != null) {
+      return LatLng(
+        latitude: (bounds.minLat + bounds.maxLat) / 2,
+        longitude: (bounds.minLng + bounds.maxLng) / 2,
+      );
+    }
+    final coordinates = widget.routeMap.coordinates;
+    if (coordinates.isNotEmpty) {
+      return LatLng(
+        latitude: coordinates.first.latitude,
+        longitude: coordinates.first.longitude,
+      );
+    }
+    return const LatLng(latitude: 37.5665, longitude: 126.9780);
+  }
+
+  Future<void> _onMapCreated(KakaoMapController controller) async {
+    _controller = controller;
+    if (!kIsWeb) {
+      _cameraMoveSubscription = controller.onCameraMoveEndStream.listen(
+        (_) => _refreshProjectedSegments(),
+      );
+    }
+    final points = widget.routeMap.coordinates;
+    try {
+      if (!kIsWeb) {
+        await controller.addMarkerLayer(
+          layerId: KakaoMapController.defaultLabelLayerId,
+          zOrder: 1000,
+          clickable: false,
+        );
+      }
+      if (points.isNotEmpty) {
+        await controller.addMarkers(
+          markerOptions: [
+            MarkerOption(
+              id: 'saved-route-departure',
+              latLng: LatLng(
+                latitude: points.first.latitude,
+                longitude: points.first.longitude,
+              ),
+              text: '출발',
+            ),
+            MarkerOption(
+              id: 'saved-route-destination',
+              latLng: LatLng(
+                latitude: points.last.latitude,
+                longitude: points.last.longitude,
+              ),
+              text: '도착',
+            ),
+          ],
+        );
+      }
+      await _showEntireRoute();
+    } catch (error) {
+      debugPrint('Saved route map setup failed: $error');
+    }
+  }
+
+  Future<void> _showEntireRoute() async {
+    final controller = _controller;
+    if (controller == null) return;
+    final bounds = widget.routeMap.bounds;
+    final update = bounds == null
+        ? CameraUpdate.fromLatLng(_center)
+        : CameraUpdate.fromBounds(
+            LatLngBounds(
+              southwest: LatLng(
+                latitude: bounds.minLat,
+                longitude: bounds.minLng,
+              ),
+              northeast: LatLng(
+                latitude: bounds.maxLat,
+                longitude: bounds.maxLng,
+              ),
+            ),
+            padding: 48,
+          );
+    try {
+      await controller.moveCamera(
+        cameraUpdate: update,
+        animation: const CameraAnimation(
+          duration: 450,
+          autoElevation: true,
+          isConsecutive: false,
+        ),
+      );
+      await _refreshProjectedSegments();
+    } catch (error) {
+      debugPrint('Saved route camera move failed: $error');
+    }
+  }
+
+  Future<void> _refreshProjectedSegments() async {
+    final controller = _controller;
+    if (controller == null || kIsWeb) return;
+    final generation = ++_projectionGeneration;
+    final pixelRatio = View.of(context).devicePixelRatio;
+    final projected = <_ProjectedRouteSegment>[];
+    try {
+      for (final segment in widget.routeMap.segments) {
+        final rawPoints = await Future.wait(
+          segment.coordinates.map(
+            (coordinate) => controller.toScreenPoint(
+              position: LatLng(
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+              ),
+            ),
+          ),
+        );
+        final points = rawPoints
+            .whereType<Offset>()
+            .map((point) => point / pixelRatio)
+            .toList(growable: false);
+        projected.add(
+          _ProjectedRouteSegment(mode: segment.mode, points: points),
+        );
+      }
+      if (mounted && generation == _projectionGeneration) {
+        setState(() => _projectedSegments = projected);
+      }
+    } catch (error) {
+      debugPrint('Saved route coordinate projection failed: $error');
+    }
+  }
+
+  void _hideProjectedRoute(PointerDownEvent _) {
+    _projectionGeneration++;
+    if (_projectedSegments.isNotEmpty) {
+      setState(() => _projectedSegments = const []);
+    }
+  }
+
+  @override
+  void dispose() {
+    _cameraMoveSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCoordinates = widget.routeMap.coordinates.isNotEmpty;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Listener(
+              onPointerDown: _hideProjectedRoute,
+              child: KakaoMapConfig.isReady
+                  ? KakaoMap(
+                      initialPosition: _center,
+                      initialLevel: kIsWeb ? 5 : 13,
+                      onMapCreated: _onMapCreated,
+                    )
+                  : const ColoredBox(color: Color(0xFFEAF2EC)),
+            ),
+          ),
+          if (hasCoordinates)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  key: const Key('savedRoutePolyline'),
+                  painter: _SavedRoutePolylinePainter(
+                    widget.routeMap,
+                    projectedSegments: _projectedSegments,
+                  ),
+                ),
+              ),
+            )
+          else
+            const Center(
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Text('이 경로는 표시할 지도 좌표가 없어요.'),
+                ),
+              ),
+            ),
+          if (!KakaoMapConfig.isReady && hasCoordinates) ...[
+            Positioned(
+              left: 12,
+              bottom: 14,
+              child: _MapMarker(
+                label: '출발 · ${widget.departureLabel}',
+                icon: Icons.trip_origin,
+                tone: DdubiColors.green,
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 14,
+              child: _MapMarker(
+                label: '도착 · ${widget.destinationLabel}',
+                icon: Icons.location_on,
+                tone: DdubiColors.red,
+              ),
+            ),
+          ],
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (KakaoMapConfig.isReady && hasCoordinates) ...[
+                  FloatingActionButton.small(
+                    heroTag: 'saved-route-entire',
+                    tooltip: '전체 경로 보기',
+                    onPressed: _showEntireRoute,
+                    backgroundColor: Colors.white,
+                    foregroundColor: DdubiColors.blue,
+                    child: const Icon(Icons.route_rounded),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Container(
+                  key: const Key('savedRouteMapModeBadge'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .94),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    hasCoordinates
+                        ? '서버 경로 좌표 · ${widget.routeMap.coordinates.length}개 점'
+                        : '지도 좌표 없음',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedRoutePolylinePainter extends CustomPainter {
+  const _SavedRoutePolylinePainter(
+    this.routeMap, {
+    this.projectedSegments = const [],
+  });
+
+  final SavedRouteMap routeMap;
+  final List<_ProjectedRouteSegment> projectedSegments;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.clipRect(Offset.zero & size);
+    for (final segment in projectedSegments) {
+      final points = segment.points;
+      _drawSegment(canvas, segment.mode, points);
+    }
+  }
+
+  void _drawSegment(Canvas canvas, String mode, List<Offset> points) {
+    if (points.length < 2) return;
+    final paint = Paint()
+      ..color = _modeColor(mode)
+      ..strokeWidth = mode == 'WALK' ? 5 : 7
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    if (mode == 'WALK') {
+      for (var index = 0; index < points.length - 1; index++) {
+        final start = points[index];
+        final end = points[index + 1];
+        final distance = (end - start).distance;
+        if (distance == 0) continue;
+        final direction = (end - start) / distance;
+        for (var offset = 0.0; offset < distance; offset += 12) {
+          canvas.drawLine(
+            start + direction * offset,
+            start + direction * (offset + 6).clamp(0, distance),
+            paint,
+          );
+        }
+      }
+    } else {
+      final path = Path()..moveTo(points.first.dx, points.first.dy);
+      for (final coordinate in points.skip(1)) {
+        path.lineTo(coordinate.dx, coordinate.dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SavedRoutePolylinePainter oldDelegate) =>
+      oldDelegate.routeMap != routeMap ||
+      oldDelegate.projectedSegments != projectedSegments;
+}
+
+class _ProjectedRouteSegment {
+  const _ProjectedRouteSegment({required this.mode, required this.points});
+
+  final String mode;
+  final List<Offset> points;
 }
 
 class _RouteMapView extends StatefulWidget {
@@ -4995,6 +5928,8 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
               child: Text('실제 교통 상황은 일정 API 연결 후 확인할 수 있습니다.'),
             );
           }
+          final evaluationRepository =
+              repository as ScheduleEvaluationRepository;
           final schedules = snapshot.data ?? <Schedule>[];
           if (schedules.isEmpty) {
             return const Center(child: Text('등록된 일정이 없습니다.'));
@@ -5011,7 +5946,7 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
                 ),
                 ScheduleEvaluationCard(
                   key: ValueKey(schedule.id),
-                  repository: repository as ScheduleEvaluationRepository,
+                  repository: evaluationRepository,
                   scheduleId: schedule.id,
                 ),
               ],
@@ -5817,10 +6752,14 @@ class AccountManagementScreen extends StatefulWidget {
     super.key,
     required this.userApi,
     required this.authRepository,
+    this.kakaoLoginService,
+    this.googleLoginService,
   });
 
   final UserApi userApi;
   final AuthRepository authRepository;
+  final KakaoLoginService? kakaoLoginService;
+  final GoogleLoginService? googleLoginService;
 
   @override
   State<AccountManagementScreen> createState() =>
@@ -5829,6 +6768,9 @@ class AccountManagementScreen extends StatefulWidget {
 
 class _AccountManagementScreenState extends State<AccountManagementScreen> {
   late Future<UserProfile> _profile = widget.userApi.getMe();
+  Set<String> _linkedProviders = {};
+  bool _socialProvidersResolved = false;
+  bool _socialBusy = false;
 
   @override
   Widget build(BuildContext context) => AppPage(
@@ -5888,25 +6830,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            const InfoCard(
-              color: Color(0xFFF4F8FF),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SectionHeader('소셜 계정 연결'),
-                  SizedBox(height: 8),
-                  Text(
-                    '카카오·네이버·Google 로그인에서 기존 이메일이 확인되면 '
-                    '비밀번호 확인 후 이 계정에 안전하게 연결돼요.',
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    '연결된 제공자 목록과 연결 해제 기능은 백엔드 계정 관리 API 반영 후 표시됩니다.',
-                    style: TextStyle(color: Color(0xFF64708B), fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
+            _socialAccountsCard(user),
             const SizedBox(height: 16),
             InfoCard(
               child: Column(
@@ -5972,6 +6896,159 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
       }
     }
   }
+
+  Widget _socialAccountsCard(UserProfile user) {
+    final providers = _socialProvidersResolved
+        ? _linkedProviders
+        : <String>{if (user.provider != null) user.provider!};
+    return InfoCard(
+      color: const Color(0xFFF4F8FF),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('소셜 계정 연결'),
+          const SizedBox(height: 8),
+          if (providers.isNotEmpty)
+            Text(
+              '현재 로그인 수단: ${providers.map(_providerLabel).join(', ')}',
+              style: const TextStyle(
+                color: DdubiColors.navy,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          const SizedBox(height: 10),
+          _socialAccountTile(
+            provider: 'KAKAO',
+            label: '카카오',
+            connected: providers.contains('KAKAO'),
+            enabled: widget.kakaoLoginService != null,
+          ),
+          const Divider(),
+          _socialAccountTile(
+            provider: 'GOOGLE',
+            label: 'Google',
+            connected: providers.contains('GOOGLE'),
+            enabled: widget.googleLoginService != null,
+          ),
+          const Divider(),
+          const ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.account_circle_outlined),
+            title: Text('네이버'),
+            subtitle: Text('마이페이지 연결 API와 인증 방식 협의가 필요해요.'),
+            trailing: Text('준비 중'),
+          ),
+          if (_socialBusy) const LinearProgressIndicator(),
+        ],
+      ),
+    );
+  }
+
+  Widget _socialAccountTile({
+    required String provider,
+    required String label,
+    required bool connected,
+    required bool enabled,
+  }) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(
+      connected ? Icons.verified_rounded : Icons.link_rounded,
+      color: connected ? DdubiColors.green : DdubiColors.navy,
+    ),
+    title: Text(label),
+    subtitle: Text(connected ? '연결됨' : '계정을 연결할 수 있어요.'),
+    trailing: TextButton(
+      onPressed: _socialBusy || !enabled
+          ? null
+          : () =>
+                connected ? _unlinkSocial(provider) : _connectSocial(provider),
+      child: Text(connected ? '연결 해제' : '연결'),
+    ),
+  );
+
+  Future<void> _connectSocial(String provider) async {
+    setState(() => _socialBusy = true);
+    try {
+      final List<String> providers;
+      if (provider == 'KAKAO') {
+        final token = await widget.kakaoLoginService!.login(context);
+        providers = await widget.authRepository.linkSocialAccount(
+          provider: provider,
+          accessToken: token,
+        );
+      } else {
+        final token = await widget.googleLoginService!.login(context);
+        providers = await widget.authRepository.linkSocialAccount(
+          provider: provider,
+          idToken: token,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        _linkedProviders = providers.toSet();
+        _socialProvidersResolved = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_providerLabel(provider)} 계정을 연결했어요.')),
+      );
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_providerLabel(provider)} 계정을 연결하지 못했어요.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _socialBusy = false);
+    }
+  }
+
+  Future<void> _unlinkSocial(String provider) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${_providerLabel(provider)} 연결을 해제할까요?'),
+        content: const Text('마지막 로그인 수단은 계정 보호를 위해 해제할 수 없어요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('연결 해제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _socialBusy = true);
+    try {
+      final providers = await widget.authRepository.unlinkSocialAccount(
+        provider,
+      );
+      if (!mounted) return;
+      setState(() {
+        _linkedProviders = providers.toSet();
+        _socialProvidersResolved = true;
+      });
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('연결을 해제하지 못했어요. 로그인 수단을 확인해주세요.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _socialBusy = false);
+    }
+  }
+
+  static String _providerLabel(String provider) => switch (provider) {
+    'LOCAL' => '이메일',
+    'KAKAO' => '카카오',
+    'NAVER' => '네이버',
+    'GOOGLE' => 'Google',
+    _ => provider,
+  };
 
   Future<void> _showEmailRegistration() => _showUnavailableAccountFeature(
     title: '이메일 등록',

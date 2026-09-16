@@ -36,6 +36,11 @@ class BusWaitingServiceTest {
         when(redis.opsForValue()).thenReturn(values);
         when(values.get(anyString())).thenAnswer(c -> json.writeValueAsString(row));
         when(ml.predict(any())).thenReturn(new BusPreviewClient.Estimate(30.0,"MODEL_NOT_PRODUCTION_READY","test",now,0,8,false));
+        when(ml.predictBatch(anyList())).thenAnswer(call -> {
+            var result = new LinkedHashMap<BusPreviewClient.Input, BusPreviewClient.Estimate>();
+            for (BusPreviewClient.Input input : call.<List<BusPreviewClient.Input>>getArgument(0)) result.put(input, ml.predict(input));
+            return result;
+        });
     }
     BusWaitingService waiting(boolean enabled) { return new BusWaitingService(redis,json,enabled); }
     BusWaitingService.Estimate estimate(long after) {
@@ -116,6 +121,7 @@ class BusWaitingServiceTest {
         assertThat(result.waitPredictions().get(0).applied()).isFalse();
         assertThat(result.waitPredictions().get(0).reasons()).contains("BUS_WAIT_MOVEMENT_UNAVAILABLE");
         assertThat(result.predictions()).allMatch(p -> !p.applied());
+        assertThat(result.predictions()).anyMatch(p -> "ML_TIMEOUT".equals(p.estimate().reason()));
     }
 
     @Test void unknownTimeDecompositionPreservesResidualExactlyOnce() {

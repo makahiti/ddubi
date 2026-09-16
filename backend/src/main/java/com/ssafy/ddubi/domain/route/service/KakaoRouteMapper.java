@@ -16,8 +16,12 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 카카오 전용 응답을 카카오와 무관한 우리 내부 경로 모델로 번역한다.
@@ -41,14 +45,72 @@ public class KakaoRouteMapper {
         // 성공 상태와 후보 존재 여부를 먼저 확인한다.
         validateResponse(response);
 
-        // 카카오 배열의 순서를 잃지 않도록 index를 후보 번호로 같이 저장한다.
+        // 카카오 배열 순서는 유지하되, 같은 노선·정류장열을 다시 준 후보는 최초 한 건만 남긴다.
         List<RouteCandidate> candidates = new ArrayList<>();
+        Set<CandidateSignature> seen = new LinkedHashSet<>();
         for (int index = 0; index < response.routes().size(); index++) {
-            candidates.add(mapCandidate(index, response.routes().get(index)));
+            RouteCandidate candidate = mapCandidate(index, response.routes().get(index));
+            if (seen.add(signature(candidate))) {
+                candidates.add(candidate);
+            }
         }
 
         String landingUrl = response.properties() == null ? null : response.properties().landingURL();
         return new RouteSearchResult("KAKAO", fetchedAt, landingUrl, candidates);
+    }
+
+    /**
+     * 화면에서 같은 경로로 보이는 후보의 식별자다. 소요시간·요금·도보 모양은 교통 경로 자체가
+     * 아니므로 제외하고, 대중교통 수단·노선·정류장 순서만 비교한다.
+     */
+    private CandidateSignature signature(RouteCandidate candidate) {
+        List<SegmentSignature> transit = candidate.segments().stream()
+                .filter(segment -> segment.mode() != TransportMode.WALK)
+                .map(segment -> new SegmentSignature(
+                        segment.mode(),
+                        segment.vehicles().stream()
+                                .map(VehicleInfo::name)
+                                .filter(Objects::nonNull)
+                                .map(this::normalize)
+                                .filter(value -> !value.isEmpty())
+                                .distinct()
+                                .sorted(Comparator.naturalOrder())
+                                .toList(),
+                        segment.stopNames().stream()
+                                .map(this::normalize)
+                                .filter(value -> !value.isEmpty())
+                                .toList()
+                ))
+                .toList();
+
+        // 대중교통 구간이 없는 예외 응답도 모두 같은 빈 서명으로 합쳐지지 않게 원본 구간을 쓴다.
+        if (transit.isEmpty()) {
+            transit = candidate.segments().stream()
+                    .map(segment -> new SegmentSignature(
+                            segment.mode(),
+                            List.of(),
+                            List.of(normalize(segment.fromName()), normalize(segment.toName()))
+                    ))
+                    .toList();
+        }
+        return new CandidateSignature(transit);
+    }
+
+    private String normalize(String value) {
+        return Objects.toString(value, "").trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+    }
+
+    private record CandidateSignature(List<SegmentSignature> segments) {
+        private CandidateSignature {
+            segments = List.copyOf(segments);
+        }
+    }
+
+    private record SegmentSignature(TransportMode mode, List<String> routes, List<String> stops) {
+        private SegmentSignature {
+            routes = List.copyOf(routes);
+            stops = List.copyOf(stops);
+        }
     }
 
     private void validateResponse(KakaoPublicTransitResponse response) {

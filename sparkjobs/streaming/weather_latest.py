@@ -120,7 +120,7 @@ def main() -> int:
                  settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port)
         return query
 
-    starters = [start_redis]
+    start_silver_query = None
     if silver_target:
         silver_job_name = f"{JOB_NAME}_silver"
 
@@ -138,14 +138,14 @@ def main() -> int:
             log.info("silver stream started output=%s trigger=%s checkpoint=%s watermark=%s",
                      silver_target, SILVER_TRIGGER, settings.checkpoint_for(silver_job_name), SILVER_WATERMARK)
             return query
-        starters.append(start_silver)
+        start_silver_query = start_silver
     else:
         log.warning("SILVER_OUTPUT_URI is empty; HDFS Weather Silver streaming is disabled")
 
     log.info("starting topic=%s checkpoint=%s redis=%s:%s silver=%s startingOffsets=%s (only for new checkpoints; archive is not consumed)",
              TOPIC, settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port, silver_target, settings.starting_offsets)
     try:
-        supervise(spark.streams, starters)
+        supervise(start_redis, start_silver_query)
     finally:
         spark.stop()
     return 0

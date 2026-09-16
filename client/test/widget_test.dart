@@ -292,7 +292,7 @@ void main() {
     expect(find.text('강남역 인근'), findsOneWidget);
   });
 
-  testWidgets('Web Home은 대시보드와 추천 경로 하나를 표시한다', (tester) async {
+  testWidgets('Web Home은 실제 API 실패 시 가짜 추천 경로를 표시하지 않는다', (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -313,7 +313,7 @@ void main() {
     expect(find.text('이동 대시보드'), findsOneWidget);
     expect(find.text('서비스 정상'), findsOneWidget);
     expect(find.text('도착 예정'), findsNWidgets(2));
-    expect(find.byType(RouteCard), findsOneWidget);
+    expect(find.byType(RouteCard), findsNothing);
   });
 
   testWidgets('일정 화면은 너비에 따라 모바일과 Web 구성을 나눈다', (tester) async {
@@ -539,6 +539,8 @@ void main() {
       300,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.drag(find.byType(Scrollable).last, const Offset(0, -80));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('editScheduleButton')));
     await tester.pumpAndSettle();
 
@@ -559,6 +561,41 @@ void main() {
     expect(updated?.title, '수정된 팀 회의');
     expect(updated?.updatedAt, isNotNull);
     expect(updated?.plannedDepartAt?.hour, 8);
+  });
+
+  testWidgets('일정 상세의 저장 경로에서 실제 구간과 지도 좌표를 연다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = MockDdubiRepository();
+    final schedule = (await repository.schedules()).first;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ScheduleDetailScreen(
+          repository: repository,
+          routeRepository: repository,
+          recommendationApi: _SavedRouteRecommendationApi(),
+          scheduleId: schedule.id,
+          arrivalApi: ArrivalApi(Dio()),
+          initialSchedule: schedule,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final savedRoute = find.byKey(const Key('savedRoute-31'));
+    await tester.scrollUntilVisible(savedRoute, 250);
+    await tester.tap(savedRoute);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mobileSavedRouteLayout')), findsOneWidget);
+    expect(find.byKey(const Key('savedRouteDetail')), findsOneWidget);
+    expect(find.byKey(const Key('savedRoutePolyline')), findsOneWidget);
+    expect(find.textContaining('버스 146'), findsOneWidget);
+    expect(find.text('서버 경로 좌표 · 2개 점'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('낮은 데스크톱 Web 로그인 화면은 하단 영역만 스크롤한다', (tester) async {
@@ -1077,4 +1114,85 @@ class _FakeRecommendationApi extends RecommendationApi {
   Future<List<RouteOption>> searchRoutes(
     RouteSearchCondition condition,
   ) async => MockDdubiRepository.routeData;
+}
+
+class _SavedRouteRecommendationApi extends RecommendationApi {
+  _SavedRouteRecommendationApi() : super(Dio());
+
+  @override
+  Future<RecommendationOverview?> getLatestOverview(String scheduleId) async =>
+      null;
+
+  @override
+  Future<List<SavedRouteSummary>> getSavedRoutes(String scheduleId) async => [
+    const SavedRouteSummary(
+      routeId: '31',
+      rankNo: 1,
+      selected: true,
+      baseDurationMin: 25,
+      fromName: '집',
+      toName: '역삼역',
+      segmentCount: 2,
+      modes: ['WALK', 'BUS'],
+    ),
+  ];
+
+  @override
+  Future<SavedRouteDetail> getSavedRouteDetail(String routeId) async =>
+      const SavedRouteDetail(
+        routeId: '31',
+        scheduleId: '12',
+        rankNo: 1,
+        selected: true,
+        baseDurationMin: 25,
+        providerPathId: 'path-1',
+        segments: [
+          SavedRouteSegment(
+            seq: 1,
+            mode: 'WALK',
+            fromName: '집',
+            toName: '강남역',
+            baseDurationMin: 5,
+          ),
+          SavedRouteSegment(
+            seq: 2,
+            mode: 'BUS',
+            providerRouteKey: '146',
+            fromName: '강남역',
+            toName: '역삼역',
+            baseDurationMin: 20,
+          ),
+        ],
+      );
+
+  @override
+  Future<SavedRouteMap> getSavedRouteMap(String routeId) async =>
+      const SavedRouteMap(
+        routeId: '31',
+        bounds: RouteMapBounds(
+          minLat: 37.4979,
+          minLng: 127.0276,
+          maxLat: 37.5006,
+          maxLng: 127.0364,
+        ),
+        segments: [
+          RouteMapSegment(
+            seq: 1,
+            mode: 'WALK',
+            fromName: '집',
+            toName: '강남역',
+            coordinates: [],
+          ),
+          RouteMapSegment(
+            seq: 2,
+            mode: 'BUS',
+            fromName: '강남역',
+            toName: '역삼역',
+            coordinates: [
+              RouteCoordinate(latitude: 37.4979, longitude: 127.0276),
+              RouteCoordinate(latitude: 37.5006, longitude: 127.0364),
+            ],
+          ),
+        ],
+      );
 }

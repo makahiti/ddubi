@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/constants/layout_constants.dart';
+import '../core/network/dio_provider.dart';
 import '../core/theme.dart';
 import '../domain/models.dart';
 import '../presentation/screens.dart';
@@ -24,9 +25,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final recommendationApi = ref.watch(recommendationApiProvider);
   final arrivalApi = ref.watch(arrivalApiProvider);
   final reportApi = ref.watch(reportApiProvider);
+  final sessionStore = ref.watch(authSessionStoreProvider);
 
   return GoRouter(
-    initialLocation: '/intro',
+    initialLocation: sessionStore.session == null ? '/intro' : '/home',
     routes: [
       GoRoute(path: '/', redirect: (context, state) => '/intro'),
       GoRoute(path: '/intro', builder: (context, state) => const IntroScreen()),
@@ -45,8 +47,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/home',
-            builder: (context, state) =>
-                HomeScreen(repository: repository, homeApi: homeApi),
+            builder: (context, state) => HomeScreen(
+              homeApi: homeApi,
+              recommendationApi: recommendationApi,
+            ),
           ),
           GoRoute(
             path: '/schedules',
@@ -101,6 +105,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   return ScheduleDetailScreen(
                     repository: scheduleRepository,
                     routeRepository: repository,
+                    recommendationApi: recommendationApi,
                     scheduleId: state.pathParameters['id']!,
                     arrivalApi: arrivalApi,
                     initialSchedule: arguments?.schedule,
@@ -167,6 +172,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => AccountManagementScreen(
                   userApi: userApi,
                   authRepository: authRepository,
+                  kakaoLoginService: kakaoLoginService,
+                  googleLoginService: googleLoginService,
                 ),
               ),
             ],

@@ -2,7 +2,7 @@
 
 ## 확인한 사실과 아직 확인하지 못한 사실
 
-2026-09-16. 사용자 관측: `/ddubi/archive/city.raw`에 수집 원본만 있고 날씨 Spark 잡이 실행되지 않는다고 전달받았다.
+2026-09-16. 사용자 관측: 날씨 Spark 잡은 실행 중이지만 `/ddubi/archive/city.raw`에 수집 원본만 있고 HDFS Weather Silver가 생성되지 않았다.
 운영 로그·서버 .env·컨테이너 상태·접속 정보는 이 로컬 작업에서 확보하지 못했다.
 따라서 **실제 서버 장애의 직접 원인을 확정하거나 서버 복구를 완료한 상태는 아니다.**
 
@@ -13,7 +13,8 @@
 2. 수정 전 날씨 코드는 이 경우 경고만 남기고 Redis 스트림만 실행했다. **Silver 미생성을 설명하지만 잡 자체가 사라지는 이유는 아니다.**
 3. 날씨 스트림은 Kafka city.raw를 읽는다. HDFS archive를 자동으로 읽지 않는다.
    새 checkpoint는 기본 startingOffsets=latest라 기존 Kafka 과거 데이터도 자동으로 모두 처리하지 않는다.
-4. Redis와 Silver는 같은 프로세스 안의 두 쿼리다. Redis 연결 실패 등의 쿼리 오류는 날씨 잡 전체를 종료시킬 수 있다.
+4. Redis와 Silver는 같은 프로세스 안의 독립 쿼리다. Redis 실패는 데이터 누락을 막기 위해 잡을 실패시키지만,
+   Silver 설정·기동·실행 실패는 기록한 뒤 Redis를 계속 실행한다.
 5. 잡은 spark 프로필에 있어 core/collect/archive만 기동하면 실행되지 않는다.
    사람의 stop/kill, executor 자원 부족, HDFS safe mode/권한/네트워크, Redis/Kafka 문제도 서버 확인이 필요하다.
 
@@ -38,10 +39,9 @@ Archiver와 Spark는 별도의 Kafka 소비자다. 원본 저장이 Spark를 대
 
 ## 수정 내용
 
-- 운영 Compose의 미설정 URI는 `hdfs://hdfs-namenode:9000/ddubi/silver`로 기본 설정한다.
-- 운영 기본 `WEATHER_REQUIRE_SILVER=true`: 명시적으로 URI를 비우면 즉시 실패하며 이유를 로그에 남긴다.
-- 실험 replay는 기본적으로 Silver를 켜지 않는 기존 동작을 유지한다. 로컬 Redis 전용 실행은 `WEATHER_REQUIRE_SILVER=false`와 빈 URI를 사용한다.
-- 두 쿼리 중 하나의 기동이 실패하면 이미 시작한 쿼리도 정리한다. 실행 중 오류와 예기치 않은 종료도 실패로 처리한다.
+- 운영 Compose의 미설정 URI는 빈 값이고 `WEATHER_REQUIRE_SILVER=false`가 기본이다. 서버 `.env`에 URI가 있을 때만 Silver를 켠다.
+- Silver URI 형식·기동·실행 오류는 기록하고 Redis 스트림은 계속 실행한다.
+- Redis 스트림의 기동·실행 오류는 잡 전체를 실패시켜 컨테이너 재시작과 checkpoint 재처리를 유도한다.
 - 30초 대기 구간마다 각 쿼리의 마지막 batchId·입력 건수·처리시간을 기록한다.
   동일 batchId가 반복되는 로그는 새 처리의 증거가 아니다. 쿼리별 batchId와 commit 파일이 전진하는지 비교한다.
 - 과거 아카이브 backfill을 별도 버전 디렉터리로 추가했다. Redis 최신값이나 Kafka 운영 토픽에는 재발행하지 않는다.
@@ -58,7 +58,7 @@ bash infra/scripts/checks/weather.sh
 | 결과 | 판단 |
 |---|---|
 | weather 컨테이너 없음 / Exited | spark 프로필 미기동, 중지 또는 배포 실패 확인 |
-| URI 없음/빈 값, 기존 코드 | 미반영 .env/Compose 때문에 Silver 비활성 가능 |
+| URI 없음/빈 값 | 설정에 따라 Silver가 정상적으로 비활성화된 상태. Redis 진행 여부는 별도로 확인 |
 | Restarting / oom=true | 메모리 또는 쿼리 실패. 로그와 master 자원 확인 |
 | not accepted any resources | worker 코어/메모리 배정 불가 |
 | Safe mode ON | 데이터노드 등록·복제 상태 확인. 무조건 forceExit하지 않음 |
@@ -76,7 +76,7 @@ bash infra/scripts/checks/weather.sh
 
 ```text
 SILVER_OUTPUT_URI=hdfs://hdfs-namenode:9000/ddubi/silver
-WEATHER_REQUIRE_SILVER=true
+WEATHER_REQUIRE_SILVER=false
 WEATHER_SILVER_TRIGGER=10 minutes
 WEATHER_SILVER_WATERMARK=2 days
 ```
@@ -103,6 +103,7 @@ docker exec hdfs-namenode hdfs dfs -ls /ddubi/checkpoints/weather_latest_silver/
 
 `silver stream started`와 쿼리 commit 전진, partition 내부 Parquet 생성을 함께 확인한다.
 디렉터리만 있거나 Redis batch만 전진하는 상태는 Silver 복구 완료가 아니다.
+Silver 오류 중에도 Redis batch가 전진하면 서비스용 최신 날씨는 유지되는 상태다.
 
 ## 이미 아카이브에만 있는 날씨 복구
 
@@ -132,7 +133,7 @@ source·격자·관측시각·내용 해시 기준으로 중복 제거한다. Sp
 
 ## 검증 범위
 
-로컬에서 설정·쿼리 기동/실패 정리·진행 로그 관련 테스트를 실행했다. Python 문법과 diff도 확인했다.
+로컬에서 설정, Silver 실패 격리, Redis 필수 실패, 진행 로그 관련 테스트를 실행했다. Python 문법과 diff도 확인했다.
 Spark 기반 backfill 정규화 테스트는 추가했지만, 현재 로컬에 pyspark 실행 환경이 없어 실행하지 못했다.
 SSH 접속 방법을 전달받기 전에는 서버 재생성, HDFS 출력·실제 Kafka→Silver 검증을 수행하지 못한다.
 따라서 이 문서는 **코드 수준 수정 및 운영 복구 절차**이며, 운영 복구 완료 보고가 아니다.

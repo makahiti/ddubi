@@ -65,7 +65,7 @@ public class MlRoutePreview {
     }
 
     /**
-     * 외부 호출은 DB lease 안의 계산 구간에서만 수행한다. 한 평가에 64회/20초 한도와 입력별 캐시를 둔다.
+     * 외부 호출은 DB lease 안의 계산 구간에서만 수행한다. 한 평가에 64개 입력/20초 한도와 입력별 캐시를 둔다.
      * 다음 edge는 앞 edge의 예측 초를 반영한 KST 날짜/시간대로 조회한다. 시간대가 불명확하면 fallback한다.
      */
     public Comparison compare(List<RouteCandidate> routes, RouteEvidenceAssembler.Snapshot snapshot,
@@ -102,7 +102,8 @@ public class MlRoutePreview {
                         long total = 0;
                         boolean complete = true;
                         var attempts = new ArrayList<Prediction>();
-                        for (MappedTransitSegment edge : edges) {
+                        for (int edgeIndex = 0; edgeIndex < edges.size(); edgeIndex++) {
+                            MappedTransitSegment edge = edges.get(edgeIndex);
                             var start = edgeCursor.atZone(KST);
                             var latest = edgeCursor.plusSeconds(leg.entryUncertaintySeconds()).atZone(KST);
                             if (!start.toLocalDate().equals(latest.toLocalDate()) || start.getHour() != latest.getHour()) {
@@ -115,7 +116,18 @@ public class MlRoutePreview {
                                 if (cache.size() >= 64 || System.nanoTime() >= deadline) {
                                     exhausted = true; estimate = BusPreviewClient.Estimate.unavailable("ML_BUDGET_EXHAUSTED");
                                 } else {
-                                    estimate = client.predict(input); cache.put(input, estimate);
+                                    // 남은 구간을 현재 시간대로 선조회한다. 실제 진입시각이 다음 시간대로
+                                    // 넘어가면 아래 입력 키가 달라져 재조회하며 이전 시간대 값을 적용하지 않는다.
+                                    var pending = new LinkedHashSet<BusPreviewClient.Input>();
+                                    for (int j = edgeIndex; j < edges.size() && cache.size() + pending.size() < 64; j++) {
+                                        var next = edges.get(j);
+                                        var requested = new BusPreviewClient.Input(next.routeId(), next.fromNodeId(), next.toNodeId(),
+                                                next.fromOrder(), start.toLocalDate(), start.getHour());
+                                        if (!cache.containsKey(requested)) pending.add(requested);
+                                    }
+                                    if (pending.size() == 1) cache.put(input, client.predict(input));
+                                    else cache.putAll(client.predictBatch(List.copyOf(pending)));
+                                    estimate = cache.getOrDefault(input, BusPreviewClient.Estimate.unavailable("ML_INVALID_RESPONSE"));
                                 }
                             }
                             attempts.add(new Prediction(original.key(), leg.key(), edge.segmentId(), edgeCursor, input, estimate, false));
