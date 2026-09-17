@@ -184,3 +184,4 @@ MR !146 (`d9a2bac` 기준)의 GitLab 병합 검사는 draft 외 충돌이 없었
 - 고정 개발 의존성으로 ML 테스트 45 passed, 1 skipped. 실제 모델 자료가 필요한 테스트는 활성화하지 않았다.
 - 공개 응답 fixture 13개와 실제 Java DTO 상세 fixture 4개가 JSON Schema 검증을 통과했다. 잘못된 도보 enum·문자열 evidence의 거부도 확인했다.
 - DT !148은 작업 중 dt/dev에 병합되었다. 최신 대상 브랜치를 반영하여 기존 MR !146에서 검증한다.
+- 최신 dt/dev를 반영한 `bf7671a`의 GitLab [파이프라인 #201063](https://lab.ssafy.com/s15-bigdata-dist-sub1/S15P21E202/-/pipelines/201063)이 통과했다. [backend-test #557613](https://lab.ssafy.com/s15-bigdata-dist-sub1/S15P21E202/-/jobs/557613)는 MySQL/Redis 통합 테스트를 포함해 총 488개, 실패 0, 오류 0, 실데이터 조건부 skip 3개로 BUILD SUCCESS다. collector/archiver/sparkjobs와 구조·계약·compose 검사도 통과했다.
