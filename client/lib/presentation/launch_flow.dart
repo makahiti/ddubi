@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/diagnostics/app_log.dart';
+
 typedef AppStartup = Future<void> Function(ValueChanged<double> reportProgress);
 
 enum _LaunchStage { splash, app }
@@ -46,8 +48,8 @@ class _AppLaunchFlowState extends State<AppLaunchFlow> {
     try {
       await widget.initialize((_) {});
     } on Object catch (error, stackTrace) {
-      debugPrint('App startup initialization failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLog.debug('App startup initialization failed: $error');
+      AppLog.stack(stackTrace);
     }
   }
 

@@ -75,7 +75,7 @@ public class WalkingEnrichmentService {
     }
     public Prepared prepare(List<RouteCandidate> routes,Coordinate origin,Coordinate destination,Instant asOf,String selectedKey,Session session) {
         var prioritized=routes.stream().sorted(Comparator
-                .comparing((RouteCandidate r)->!Objects.equals("candidate-"+r.providerCandidateIndex(),selectedKey))
+                .comparing((RouteCandidate r)->!Objects.equals(com.ssafy.ddubi.domain.recommendation.evaluation.RouteEvidenceAssembler.key(r),selectedKey))
                 .thenComparingLong(RouteCandidate::totalDurationSeconds)).toList();
         return prepare(prioritized,origin,destination,asOf,points,session);
     }
@@ -136,11 +136,12 @@ public class WalkingEnrichmentService {
                 }
                 delta+=seconds-step.durationSeconds();
                 steps.add(new RouteSegment(step.sequence(),step.mode(),step.segmentId(),step.providerRouteKey(),step.guidance(),step.fromName(),step.toName(),step.distanceMeters(),seconds,step.stopNames(),step.vehicles(),step.geometry(),step.mapping()));
-                metadata.add(new Leg("candidate-"+route.providerCandidateIndex(),step.sequence(),role.name(),seconds,source,endpoint));
+                // 동일 카카오 후보에서 전개한 버스 대안도 서로 다른 증거 key를 유지한다.
+                metadata.add(new Leg(com.ssafy.ddubi.domain.recommendation.evaluation.RouteEvidenceAssembler.key(route),step.sequence(),role.name(),seconds,source,endpoint));
             }
             output.add(new RouteCandidate(route.providerCandidateIndex(),route.type(),route.totalDistanceMeters(),route.totalDurationSeconds()+delta,
                     route.transfers(),route.fare(),route.unassignedDistanceMeters(),route.unassignedDurationSeconds(),steps));
-            candidateReasons.put("candidate-"+route.providerCandidateIndex(),List.copyOf(routeReasons));
+            candidateReasons.put(com.ssafy.ddubi.domain.recommendation.evaluation.RouteEvidenceAssembler.key(route),List.copyOf(routeReasons));
         }
         return new Prepared(List.copyOf(output),new Evidence(List.copyOf(metadata),List.copyOf(reasons),session.calls,validUntil,candidateReasons));
     }

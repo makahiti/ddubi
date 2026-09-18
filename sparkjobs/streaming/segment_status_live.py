@@ -15,6 +15,7 @@ from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA
 from common.settings import Settings
 from streaming.segment_status import (
     BASELINE_SCHEMA,
+    BLOCKAGE_SCHEMA,
     evaluate,
     select_history,
     publish_prepared,
@@ -50,6 +51,10 @@ def tick(spark, batch, batch_id, args, settings, registry, baseline):
         facts = facts.filter(
             (F.col("occurredAt") > lower) | F.col("occurredAt").isNull()
         )
+        # 검증된 canonical 구간 통제 입력만 받는다. 매 tick 새 snapshot을 읽어 종료/만료를
+        # 반영하고 evaluate가 masterVersion·confirmed·유효시간을 다시 검사한다.
+        # 설정한 파일의 I/O 실패는 batch를 실패시켜 통제를 없는 것으로 덮어쓰지 않는다.
+        blockages = read_blockages(spark, getattr(args, "blockages", None))
         current, rejected = evaluate(
             facts,
             registry,
@@ -60,6 +65,7 @@ def tick(spark, batch, batch_id, args, settings, registry, baseline):
             args.min_samples,
             args.max_age_seconds,
             args.policy_version,
+            blockages,
         )
         previous_path = args.output.rstrip("/") + "/" + str(batch_id - 1) + "/latest"
         previous = (
@@ -82,6 +88,17 @@ def tick(spark, batch, batch_id, args, settings, registry, baseline):
         publish_prepared(spark, output, settings)
 
 
+def read_blockages(spark, path):
+    """batch 모드와 같은 명시적 스키마의 JSON snapshot을 읽는다. 미설정만 None이다.
+
+    입력 작성자는 검증된 도로/운행중단 대응을 소유한다. 원시 사고를 confirmed로
+    승격하지 않으며, 파일이 없거나 깨졌으면 기존 성공 batch를 유지한 채 재시도한다.
+    """
+    if not path:
+        return None
+    return spark.read.schema(BLOCKAGE_SCHEMA).option("mode", "FAILFAST").json(path)
+
+
 def main():
     parser = argparse.ArgumentParser()
     for name in ("input", "registry", "baseline", "output", "policy-version"):
@@ -89,6 +106,7 @@ def main():
     for name in ("slow-seconds", "delayed-seconds", "min-samples", "max-age-seconds"):
         parser.add_argument("--" + name, type=int, required=True)
     parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--blockages", help="검증된 canonical 통제 JSON snapshot; 원시 사건 입력 금지")
     args = parser.parse_args()
     if (
         not 0 < args.slow_seconds < args.delayed_seconds

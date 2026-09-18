@@ -142,6 +142,20 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("다른 사용자의 일정은 취소할 수 없다 — 403, 상태도 바뀌지 않는다")
+    void strangerCannotCancel() {
+        ScheduleResponse created = createDefault();
+
+        assertThatThrownBy(() -> scheduleService.cancel(strangerId, created.id()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).errorCode())
+                .isEqualTo(ErrorCode.FORBIDDEN_RESOURCE);
+
+        var entity = scheduleRepository.findById(created.id()).orElseThrow();
+        assertThat(entity.getStatus()).isEqualTo(ScheduleStatus.UPCOMING);
+    }
+
+    @Test
     @DisplayName("취소된 일정은 수정할 수 없다 — 409")
     void canceledIsNotEditable() {
         ScheduleResponse created = createDefault();

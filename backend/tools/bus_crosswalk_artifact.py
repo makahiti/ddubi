@@ -53,5 +53,5 @@ def write_crosswalk(master, master_sha, path):
     path=Path(path);path.write_bytes(raw)
     manifest={k:v for k,v in payload.items() if k!='edges'}
     manifest['sha256']=hashlib.sha256(raw).hexdigest()
-    path.with_suffix('.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    path.with_suffix('.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8',newline='\n')
     return manifest

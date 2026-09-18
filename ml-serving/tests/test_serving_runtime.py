@@ -158,8 +158,9 @@ def test_http_queue_limit_and_health_while_model_runs():
         release = Event()
 
         class Model:
+            bundle={'missing_files':[]}
             def metadata(self):
-                return {}
+                return {'supported_from':'2000-01-01','supported_until':'2100-01-01'}
 
             def predict(self, request):
                 release.wait(3)
@@ -198,3 +199,20 @@ def test_http_queue_limit_and_health_while_model_runs():
 def test_invalid_runtime_settings_fail_at_startup(env):
     with pytest.raises(ValueError):
         RuntimeSettings.from_env(env)
+
+
+def test_request_logging_is_enabled_at_info_level():
+    """모듈 로거가 기본 WARNING 이면 단계별 시간 기록이 어디에도 출력되지 않는다.
+
+    2026-09-18 배포에서 실제로 한 줄도 남지 않아, 기동 시 INFO 로 올리고 핸들러를 보장한다.
+    """
+    import importlib
+    import logging
+
+    module = importlib.import_module('app')
+    module._enable_request_logging()
+
+    logger = logging.getLogger(module.__name__)
+    assert logger.level <= logging.INFO
+    assert logger.isEnabledFor(logging.INFO)
+    assert logger.handlers or logging.getLogger().handlers

@@ -2,6 +2,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/ddubi/recommendation.rules.yml
+
 # Prometheus 는 서버2(서비스)에서 돈다.
 # 서버1 대상은 사설 IP 로 원격 스크랩 (서버1: 172.26.15.35 / 서버2: 172.26.6.220)
 scrape_configs:

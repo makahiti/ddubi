@@ -9,6 +9,8 @@ import com.ssafy.ddubi.domain.recommendation.evaluation.BusPreviewClient;
 import com.ssafy.ddubi.domain.recommendation.evaluation.RouteEvidenceAssemblerTest;
 import com.ssafy.ddubi.domain.route.client.PublicTransitRouteClient;
 import com.ssafy.ddubi.domain.route.model.RouteSearchResult;
+import com.ssafy.ddubi.domain.route.service.SegmentResolveRequest;
+import com.ssafy.ddubi.domain.route.service.MasterDataTransitMappingResolver;
 import com.ssafy.ddubi.domain.schedule.dto.request.LocationRequest;
 import com.ssafy.ddubi.domain.schedule.dto.request.ScheduleCreateRequest;
 import com.ssafy.ddubi.domain.schedule.service.ScheduleService;
@@ -64,6 +66,9 @@ class EvaluationNotificationIntegrationTest extends IntegrationTestSupport {
     @Autowired EvaluationOutboxStore outbox;
     @MockitoBean PublicTransitRouteClient routeClient;
     @MockitoBean BusPreviewClient mlClient;
+    // 알림 테스트는 가상 노선 A/B를 사용한다. 실제 재매핑 흐름은 실행하되 마스터 조회 경계는
+    // 최초 카카오 fixture와 같은 판정을 반환하여 '상황 불변'을 명시적으로 보장한다.
+    @MockitoBean MasterDataTransitMappingResolver mappingResolver;
 
     long owner;
     long scheduleId;
@@ -86,9 +91,15 @@ class EvaluationNotificationIntegrationTest extends IntegrationTestSupport {
                 LocalDateTime.ofInstant(now.plusSeconds(arriveInSeconds), KST), null, null,
                 LocalDateTime.ofInstant(now.plusSeconds(300), KST))).id();
         // 25분짜리와 10분짜리. 첫 후보가 선택되고 둘째가 15분 빠르다.
-        when(routeClient.search(any())).thenReturn(new RouteSearchResult("KAKAO", now, null,
-                List.of(RouteEvidenceAssemblerTest.candidate(0, 1500, 30),
-                        RouteEvidenceAssemblerTest.candidate(1, 600, 30))));
+        var candidates = List.of(RouteEvidenceAssemblerTest.candidate(0, 1500, 30),
+                RouteEvidenceAssemblerTest.candidate(1, 600, 30));
+        when(routeClient.search(any())).thenReturn(new RouteSearchResult("KAKAO", now, null, candidates));
+        when(mappingResolver.resolve(any())).thenAnswer(call -> {
+            SegmentResolveRequest request = call.getArgument(0);
+            return candidates.stream().flatMap(candidate -> candidate.segments().stream())
+                    .filter(step -> step.mode() == request.mode() && step.providerRouteKey().equals(request.providerRouteKey()))
+                    .findFirst().orElseThrow().mapping();
+        });
     }
 
     private String outboxJson() {
@@ -146,6 +157,7 @@ class EvaluationNotificationIntegrationTest extends IntegrationTestSupport {
         var previous=outbox.claim(id,Instant.now());
         var latest=workflow.evaluate(scheduleId,owner,TriggerType.REFRESH,now.plusSeconds(1));
         assertThat(latest.evaluationId()).isNotEqualTo(first.evaluationId());
+        assertThat(latest.selectedKey()).isEqualTo(first.selectedKey());
         assertThat(outbox.current(previous,Instant.now())).isFalse();
         assertThat(jdbc.queryForObject("SELECT evaluation_id FROM evaluation_notification_outbox",String.class)).isEqualTo(latest.evaluationId());
         when(pushSender.send(any())).thenAnswer(call->{
@@ -206,11 +218,13 @@ class EvaluationNotificationIntegrationTest extends IntegrationTestSupport {
     @DisplayName("같은 상황이 이어지면 다시 보내지 않는다")
     void doesNotRepeatWhileNothingChanges() {
         schedule(600);
-        workflow.evaluate(scheduleId, owner, TriggerType.INITIAL, now);
+        var first = workflow.evaluate(scheduleId, owner, TriggerType.INITIAL, now);
         dispatch();
         String firstKey = outboxKey();
 
-        workflow.evaluate(scheduleId, owner, TriggerType.REFRESH, now.plusSeconds(60));
+        var latest = workflow.evaluate(scheduleId, owner, TriggerType.REFRESH, now.plusSeconds(60));
+        assertThat(latest.selectedKey()).isEqualTo(first.selectedKey());
+        assertThat(latest.selected().assessment()).isEqualTo(first.selected().assessment());
         dispatch();
         dispatch();
 
@@ -277,6 +291,7 @@ class EvaluationNotificationIntegrationTest extends IntegrationTestSupport {
         String dedup=outboxKey();
         // 계획 출발이 지나 현재시각 기준으로 재평가하면 ETA도 2분 늦어지지만 알림 의미/키는 같다.
         var latest=workflow.evaluate(scheduleId,owner,TriggerType.REFRESH,now.plusSeconds(420));
+        assertThat(latest.selectedKey()).isEqualTo("candidate-0");
         assertThat(outboxKey()).isEqualTo(dedup);
         var command=store.read(outboxJson(),com.ssafy.ddubi.domain.notification.service.NotificationCommand.class);
         assertThat(command.body()).isNotEqualTo(oldBody);

@@ -19,16 +19,28 @@ import '../services/naver_login_service.dart';
 import '../services/place_api.dart';
 import '../services/recommendation_api.dart';
 import '../services/schedule_api.dart';
+import '../core/config/app_environment.dart';
+
+/// Mock 저장소를 쓸지. 운영 빌드에서는 어떤 플래그로도 가짜 데이터로 되돌아가지 않는다.
+///
+/// `USE_SCHEDULE_API=false` 가 운영 빌드에 섞이면 조용히 Mock 으로 출시되는 대신 여기서 바로 멈춘다.
+bool get _useMockData {
+  if (ApiConstants.useScheduleApi) return false;
+  if (!AppEnvironment.allowMockData) {
+    throw StateError('운영 빌드에서는 USE_SCHEDULE_API=false 로 Mock 데이터를 쓸 수 없습니다.');
+  }
+  return true;
+}
 
 final scheduleRepositoryProvider = Provider<ScheduleRepository>((ref) {
-  if (!ApiConstants.useScheduleApi) {
+  if (_useMockData) {
     return MockDdubiRepository();
   }
   return ApiScheduleRepository(ref.watch(scheduleApiProvider));
 });
 
 final ddubiRepositoryProvider = Provider<DdubiRepository>((ref) {
-  if (!ApiConstants.useScheduleApi) return MockDdubiRepository();
+  if (_useMockData) return MockDdubiRepository();
   return ApiDdubiRepository(
     ref.watch(scheduleRepositoryProvider),
     ref.watch(repeatScheduleRepositoryProvider),
@@ -75,7 +87,7 @@ final scheduleApiProvider = Provider<ScheduleApi>((ref) {
 });
 
 final placeApiProvider = Provider<PlaceSearchService>((ref) {
-  if (!ApiConstants.useScheduleApi) {
+  if (_useMockData) {
     return const MockPlaceSearchService();
   }
   return PlaceApi(ref.watch(dioProvider));
@@ -96,7 +108,7 @@ final homeApiProvider = Provider<HomeApi>((ref) {
 final repeatScheduleRepositoryProvider = Provider<RepeatScheduleRepository>((
   ref,
 ) {
-  if (!ApiConstants.useScheduleApi) return MockDdubiRepository();
+  if (_useMockData) return MockDdubiRepository();
   return RepeatScheduleApi(ref.watch(dioProvider));
 });
 

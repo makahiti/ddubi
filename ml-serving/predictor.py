@@ -6,6 +6,7 @@ UNAVAILABLE, 파일 오류는 배치 실패다. 원래 bundle의 미승인 상�
 수치 확인용 예측을 운영 추천에 사용 가능한 값으로 승격하지 않는다.
 """
 from datetime import datetime
+import time
 import hashlib
 import importlib.util
 import importlib.metadata
@@ -92,21 +93,25 @@ HTTP 대기열을 통과한 계산 한 개만 실행한다. 직접 호출도 락
                 'supported_from': self.bundle['supported_from'],
                 'supported_until': self.bundle['supported_until']}
 
-    def predict(self, request: BatchRequest):
+    def predict(self, request: BatchRequest, timings=None):
         """배치 순서와 상관키를 보존하며 평균 구간 초와 실제 결측·이력 표본 수를 반환한다.
 
 같은 입력은 같은 수치를 반환한다. 계산시각만 달라진다. 예측에 사용한 과거 통계의
 표본 수는 같은 시간대의 77~126일 전 관측 개수이며 모델 학습 행 수가 아니다.
 학습 vocab 존재만으로 전체 구간 topology가 검증됐다고 주장하지 않는다.
 """
+        # 단계별 시간만 기록한다. 예측값·모델 묶음은 바꾸지 않는다(2026-09-18 관측 추가).
+        if timings is not None:
+            timings['started_at'] = time.perf_counter()
+            timings['segments'] = len(request.segments)
         if not self.lock.acquire(blocking=False):
             raise BundleError('MODEL_BUSY')
         try:
-            return self._predict_locked(request)
+            return self._predict_locked(request, timings)
         finally:
             self.lock.release()
 
-    def _predict_locked(self, request):
+    def _predict_locked(self, request, timings=None):
         # 1. 입력 출처·날짜·vocab을 검사한다. 미지원 행이 유효한 다른 행을 지우지 않는다.
         results = []
         supported = []
@@ -129,12 +134,18 @@ HTTP 대기열을 통과한 계산 한 개만 실행한다. 직접 호출도 락
             # 2. 서버 원본과 같은 전처리·순서·dtype로 행렬을 만든 뒤 한 번에 예측한다.
             frame = pd.DataFrame(supported)
             frame['service_date'] = pd.to_datetime(frame.service_date)
+            feature_start = time.perf_counter()
             features = self.features.attach_features(frame, self.reference)
             matrix = self.features.matrix(features, self.spec)
+            if timings is not None:
+                timings['feature_seconds'] = time.perf_counter() - feature_start
             if list(matrix.columns) != list(self.model.feature_name_):
                 raise BundleError('MODEL_FEATURE_ORDER_MISMATCH')
+            inference_start = time.perf_counter()
             with threadpool_limits(limits=2):
                 values = np.maximum(0, self.model.predict(matrix))
+            if timings is not None:
+                timings['inference_seconds'] = time.perf_counter() - inference_start
             if len(values) != len(supported) or not np.isfinite(values).all():
                 raise BundleError('MODEL_OUTPUT_INVALID')
             # 3. 결측 대체를 성공적인 관측으로 표시하지 않는다. 운영 승인은 항상 별도다.

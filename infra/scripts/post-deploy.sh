@@ -86,4 +86,9 @@ case "$target" in
     report_bad_containers
     ;;
 esac
-echo "post-deploy $target: 통과"
+echo "post-deploy $target: 서비스 생존 검사 통과 (추천 기능 검증 아님)"
+if [ "$target" = server2 ]; then
+  if python3 "$(dirname "$0")/recommendation-readiness.py"; then :; else
+    echo "WARN: 추천 운영 승인 미완료 — 실제 평가·Kafka/Redis·기기·알림 검증 필요"
+  fi
+fi

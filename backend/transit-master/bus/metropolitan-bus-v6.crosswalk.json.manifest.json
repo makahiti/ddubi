@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "idPolicy": "canonical-adjacent-v2",
-  "masterVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
-  "masterSha256": "e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64",
-  "edgeCount": 105070,
-  "sequenceGaps": 2,
-  "sha256": "e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd"
+  "masterVersion": "METRO-BUS-20260917-SEOUL-0902",
+  "masterSha256": "6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2",
+  "edgeCount": 105588,
+  "sequenceGaps": 11,
+  "sha256": "8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246"
 }

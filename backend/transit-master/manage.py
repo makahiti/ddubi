@@ -61,7 +61,7 @@ def main():
     parser.add_argument('--mount-root', help='소비자에서 보이는 공통 폴더 절대경로')
     args = parser.parse_args()
     if args.command == 'build':
-        (ROOT / 'manifest.json').write_text(json.dumps(inventory(), ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+        (ROOT / 'manifest.json').write_text(json.dumps(inventory(), ensure_ascii=False, indent=2)+'\n', encoding='utf-8', newline='\n')
         return
     manifest = check()
     if args.command == 'check':

@@ -122,5 +122,22 @@ public class RouteEvidenceAssembler {
                 .filter(s -> !s.endsWith(":normal")).toList();
     }
 
-    public static String key(RouteCandidate candidate) { return "candidate-" + candidate.providerCandidateIndex(); }
+    /**
+     * canonical ID는 순환 노선의 같은 정류장 쌍에서 반복될 수 있으므로 공식 정류장 순번과
+     * 방향까지 포함한 occurrence 식별자를 사용한다. 실시간 ID나 관측값은 경로 정체성이 아니다.
+     * 캐시 재선택과 도보 증거 연결이 동일한 기준을 사용하도록 이 함수에서만 조합한다.
+     */
+    public static List<List<Object>> pathIdentity(RouteSegment segment) {
+        return edges(segment).stream().map(e -> Arrays.<Object>asList(e.segmentId(), e.routeId(),
+                e.fromOrder(), e.toOrder(), e.direction())).toList();
+    }
+
+    /** 원본 후보 순번을 유지하고 선택된 버스 occurrence 열로 대안 key를 분리한다. 같은 입력은 같은 key다. */
+    public static String key(RouteCandidate candidate) {
+        String base="candidate-"+candidate.providerCandidateIndex();
+        if(candidate.segments().stream().noneMatch(s -> s.mapping()!=null
+                && BusAlternativeExpansion.SELECTED.equals(s.mapping().failureReason()))) return base;
+        var ids=candidate.segments().stream().map(s -> s.sequence()+":"+pathIdentity(s)).toList().toString();
+        return base+"-bus-"+UUID.nameUUIDFromBytes(ids.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
 }

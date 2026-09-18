@@ -10,6 +10,7 @@ import java.util.*;
  * DB/서버/키 없이 명시한 artifact와 검토일만 사용한다. v6 결과는 비교에만 쓰며 매핑기에
  * 전달하지 않는다. 원본 JSON은 읽기 전용, 결과는 사용자가 지정한 경로에 저장한다. */
 public final class MetropolitanBusReplay {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MetropolitanBusReplay.class);
     private MetropolitanBusReplay() { }
     /** 인수: artifact.gz responses-directory v6-results.json as-of-date output.json */
     public static void main(String[] args) throws Exception {
@@ -74,7 +75,7 @@ public final class MetropolitanBusReplay {
                     rows.add(Map.of("caseId",Integer.toString(i),"candidateIndex",ri,"stepIndex",si,"alternatives",result));
                 }
             }
-            System.out.println(i+".json 완료: "+alternatives+" 대안");
+            log.info(i+".json 완료: "+alternatives+" 대안");
         }
         Map<String,Object> report=new LinkedHashMap<>();
         report.put("masterVersion",master.version());report.put("policy",MetropolitanBusMatcher.POLICY);
@@ -89,7 +90,7 @@ public final class MetropolitanBusReplay {
         report.put("inputsUnchanged",true);
         Path output=Path.of(args[4]);Files.createDirectories(output.toAbsolutePath().getParent());
         json.writerWithDefaultPrettyPrinter().writeValue(output.toFile(),report);
-        System.out.println("SUMMARY "+counts+"; v6Preserved="+previousPreserved+"; changed="+changes.size());
+        log.info("SUMMARY "+counts+"; v6Preserved="+previousPreserved+"; changed="+changes.size());
         if(!unexpected.isEmpty())throw new IllegalStateException("손상 입력을 VERIFIED로 반환함: "+unexpected.size());
     }
     /** 운영 오탐을 유발하는 다섯 손상 입력. 원본 리스트는 불변 복사본으로 유지한다. */

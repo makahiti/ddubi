@@ -363,10 +363,16 @@ void main() {
     router.go('/schedules');
     await tester.pumpAndSettle();
     bool? navigationResult;
-    final navigation = router.push<bool>('/schedules/new').then((result) {
-      navigationResult = result;
-      return result;
-    });
+    // 도착 기본값 19:30보다 현재 시각이 늦어도 출발 < 도착인 저장 시나리오를 유지한다.
+    final navigation = router
+        .push<bool>(
+          '/schedules/new',
+          extra: DateTime.now().add(const Duration(days: 2)),
+        )
+        .then((result) {
+          navigationResult = result;
+          return result;
+        });
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextFormField);
@@ -381,6 +387,10 @@ void main() {
     );
     expect(find.byKey(const Key('scheduleDateButton')), findsOneWidget);
     expect(find.byKey(const Key('scheduleArrivalTimeButton')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('scheduleDepartureTimeButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
     expect(find.text('중요도'), findsNothing);
     expect(find.text('교통수단 선호'), findsNothing);
     await tester.ensureVisible(find.byKey(const Key('destinationPlaceField')));
@@ -702,6 +712,15 @@ void main() {
     await tester.tap(find.byKey(const Key('placeSearchButton')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('placeSearchResult0')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('routeDepartureTimeField')),
+    );
+    await tester.tap(find.byKey(const Key('routeDepartureTimeField')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('경로 평가하기'));
     await tester.pumpAndSettle();

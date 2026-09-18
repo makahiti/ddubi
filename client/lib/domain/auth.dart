@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
 enum AuthErrorCode {
   invalidCredentials,
   emailAlreadyExists,
@@ -88,14 +92,78 @@ class AuthSession {
   }
 }
 
-class AuthSessionStore {
+abstract interface class SessionStorage {
+  Future<String?> read();
+  Future<void> write(String? value);
+}
+
+class AuthSessionStore extends ChangeNotifier {
+  AuthSessionStore({SessionStorage? storage})
+    : _storage = storage; // ignore: prefer_initializing_formals
+  final SessionStorage? _storage;
+  Future<void> _writes = Future<void>.value();
+  bool keepSignedIn = true;
+  bool hasLaunched = false;
+  int _revision = 0;
+  int get revision => _revision;
   AuthSession? _session;
 
   AuthSession? get session => _session;
   String? get accessToken => _session?.accessToken;
 
-  void save(AuthSession session) => _session = session;
-  void clear() => _session = null;
+  Future<void> restore() async {
+    final revision = _revision;
+    final raw = await _storage?.read();
+    if (revision != _revision || raw == null) return;
+    try {
+      _session = AuthSession.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      if (_session!.accessToken.isEmpty ||
+          _session!.refreshToken.isEmpty ||
+          _session!.deviceId.isEmpty) {
+        throw const FormatException();
+      }
+      _revision++;
+      notifyListeners();
+    } on Object {
+      await clear();
+    }
+  }
+
+  Future<void> _persist(String? value) {
+    final next = _writes.then((_) => _storage?.write(value));
+    // Preserve operation ordering even if an earlier platform write failed.
+    _writes = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> save(AuthSession session) {
+    _session = session;
+    _revision++;
+    notifyListeners();
+    return _persist(
+      keepSignedIn
+          ? jsonEncode({
+              'accessToken': session.accessToken,
+              'refreshToken': session.refreshToken,
+              'tokenType': session.tokenType,
+              'deviceId': session.deviceId,
+              'user': {
+                'id': session.user.id,
+                'provider': session.user.provider,
+                'email': session.user.email,
+                'nickname': session.user.nickname,
+              },
+            })
+          : null,
+    );
+  }
+
+  Future<void> clear() {
+    _session = null;
+    _revision++;
+    notifyListeners();
+    return _persist(null);
+  }
 }
 
 abstract interface class AuthRepository {

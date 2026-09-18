@@ -1,0 +1,38 @@
+# 운영 프로파일. 프로파일을 지정하지 않으면 이 프로파일로 뜬다(application.yml 의 기본값).
+#
+# 원칙
+# - 비밀값은 환경변수로만 받는다. 이 파일에는 어떤 기본값도 두지 않는다.
+# - 개발용 API 는 끈다. 켜야 하면 서버 .env 에서 DDUBI_DEV_ENDPOINTS_ENABLED=true 로 명시한다.
+# - Actuator 는 상태 확인(health)·정보(info)·지표(prometheus)만 공개한다.
+# - 로그는 INFO. SQL 바인딩 값(이메일·좌표 등)을 남기는 TRACE 는 운영에서 쓰지 않는다.
+
+ddubi:
+  jwt:
+    # 비어 있으면 JwtTokenProvider 가 기동을 거부한다. 개발용 기본 키는 어떤 프로파일에도 없다.
+    secret: ${JWT_SECRET:}
+
+  dev-endpoints:
+    enabled: ${DDUBI_DEV_ENDPOINTS_ENABLED:false}
+
+logging:
+  level:
+    root: INFO
+    com.ssafy.ddubi: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  # 운영에서는 문서 UI 와 OpenAPI JSON 을 내리지 않는다. 필요하면 dev 프로파일로 로컬에서 본다.
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

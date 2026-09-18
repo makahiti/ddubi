@@ -5,6 +5,10 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ssafy.ddubi.domain.recommendation.entity.Confidence;
+import com.ssafy.ddubi.domain.recommendation.entity.Recommendation;
+import com.ssafy.ddubi.domain.recommendation.entity.TriggerType;
+import com.ssafy.ddubi.domain.recommendation.repository.RecommendationRepository;
 import com.ssafy.ddubi.domain.route.entity.RouteProvider;
 import com.ssafy.ddubi.domain.route.entity.RouteRequest;
 import com.ssafy.ddubi.domain.route.entity.SavedRoute;
@@ -66,6 +70,7 @@ class RouteQueryApiTest extends IntegrationTestSupport {
     @Autowired ScheduleRepository schedules;
     @Autowired RouteRequestRepository routeRequests;
     @Autowired SavedRouteRepository savedRoutes;
+    @Autowired RecommendationRepository recommendations;
     @Autowired JwtTokenProvider tokens;
 
     private long owner;
@@ -106,6 +111,93 @@ class RouteQueryApiTest extends IntegrationTestSupport {
                 new LocationRequest("강남", new BigDecimal("37.4979"), new BigDecimal("127.0276")),
                 new LocationRequest("역삼", new BigDecimal("37.5006"), new BigDecimal("127.0364")),
                 LocalDateTime.now(KST).plusHours(3), null, null, null)).id();
+    }
+
+    /** 새 검색분 후보 하나를 저장한다. 순위는 인자로 받아 옛 검색분과 겹치는 상황을 만든다. */
+    private SavedRoute saveCandidate(RouteRequest request, String pathId, int rank, boolean selected) {
+        Schedule schedule = schedules.findById(scheduleId).orElseThrow();
+        SavedRoute route = SavedRoute.builder().schedule(schedule).routeRequest(request)
+                .providerPathId(pathId).baseDurationMin(20 + rank).selected(selected).rankNo(rank).build();
+        route.addSegment(SavedRouteSegment.builder().seq(1).mode(TransportMode.SUBWAY)
+                .providerRouteKey("2호선").fromName("강남역").toName("역삼역").baseDurationMin(20 + rank)
+                .geometry(null).build());
+        return savedRoutes.save(route);
+    }
+
+    private RouteRequest newRequest() {
+        return routeRequests.save(RouteRequest.builder().schedule(schedules.findById(scheduleId).orElseThrow())
+                .provider(RouteProvider.KAKAO).rawResponse(null).requestedAt(LocalDateTime.now(KST)).build());
+    }
+
+    @Test
+    @DisplayName("다시 계산하면 목록은 마지막 검색분만 준다")
+    void listsOnlyTheLatestSearch() throws Exception {
+        // 두 번째 검색: 선택은 새 후보로 옮겨간다(실제 평가 흐름과 같다).
+        SavedRoute previous = savedRoutes.findById(selectedRouteId).orElseThrow();
+        previous.unselect();
+        savedRoutes.save(previous);
+        RouteRequest second = newRequest();
+        long newSelected = saveCandidate(second, "path-3", 1, true).getId();
+        long newAlternative = saveCandidate(second, "path-4", 2, false).getId();
+
+        http.perform(get("/api/v1/schedules/{id}/routes", scheduleId).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                // 옛 검색분 2건이 섞이면 순위가 1,2,1,2 로 반복된다. 마지막 검색분만 나와야 한다.
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[*].routeId")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder((int) newSelected, (int) newAlternative)))
+                .andExpect(jsonPath("$.data[0].routeId").value(newSelected))
+                .andExpect(jsonPath("$.data[0].selected").value(true));
+    }
+
+    @Test
+    @DisplayName("사용자가 고른 경로는 옛 검색분이어도 목록에 남는다")
+    void keepsTheSelectedRouteEvenFromAnOlderSearch() throws Exception {
+        RouteRequest second = newRequest();
+        saveCandidate(second, "path-3", 1, false);
+
+        http.perform(get("/api/v1/schedules/{id}/routes", scheduleId).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[?(@.routeId == %d)].selected".formatted(selectedRouteId))
+                        .value(org.hamcrest.Matchers.contains(true)));
+    }
+
+    @Test
+    @DisplayName("정리 대상에서 선택된 경로와 지난 추천이 가리키는 경로는 빠진다")
+    void staleCandidatesExcludeSelectedAndRecommendedRoutes() {
+        Schedule schedule = schedules.findById(scheduleId).orElseThrow();
+        SavedRoute recommended = savedRoutes.findAll().stream()
+                .filter(route -> "path-2".equals(route.getProviderPathId())).findFirst().orElseThrow();
+        recommendations.save(Recommendation.builder().schedule(schedule).route(recommended)
+                .departAt(LocalDateTime.now(KST)).eta(LocalDateTime.now(KST).plusMinutes(30))
+                .durationMin(30).bufferMin(5).percentileUsed((byte) 50).confidence(Confidence.LOW)
+                .reasons("[]").segmentStatusSnapshot("[]").dataCheckedAt(LocalDateTime.now(KST))
+                .policyVersion("v1").triggerType(TriggerType.REFRESH).build());
+
+        RouteRequest second = newRequest();
+        saveCandidate(second, "path-3", 1, false);
+
+        // 유예 시간을 무시하도록 기준 시각을 미래로 둔다. 여기서 보려는 것은 선택·추천 참조 예외다.
+        var stale = savedRoutes.findStaleCandidates(scheduleId, second.getId(), LocalDateTime.now(KST).plusMinutes(1));
+
+        // 옛 검색분 2건 중 하나는 선택됨, 하나는 지난 추천이 가리킨다. 지울 것이 없다.
+        assertThat(stale).isEmpty();
+    }
+
+    @Test
+    @DisplayName("방금 전 검색분의 후보는 유예 시간 동안 정리 대상에서 빠진다")
+    void recentlyReplacedCandidatesSurviveTheGracePeriod() {
+        RouteRequest second = newRequest();
+        saveCandidate(second, "path-3", 1, false);
+        LocalDateTime now = LocalDateTime.now(KST);
+
+        // 옛 검색분의 path-2 는 선택도 아니고 추천 참조도 없지만, 방금 저장된 것이라 아직 지우지 않는다.
+        assertThat(savedRoutes.findStaleCandidates(scheduleId, second.getId(),
+                now.minus(SavedRouteRepository.STALE_CANDIDATE_GRACE))).isEmpty();
+        // 유예 시간이 지났다고 보면 그때 정리 대상이 된다.
+        assertThat(savedRoutes.findStaleCandidates(scheduleId, second.getId(), now.plusMinutes(1)))
+                .extracting(SavedRoute::getProviderPathId).containsExactly("path-2");
     }
 
     @Test

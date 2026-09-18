@@ -1,0 +1,31 @@
+# 파이썬 서비스 공통 포매터·린터 설정 (ml-serving, collector, archiver, sparkjobs, tests).
+#
+# 2026-09-18 점검에서 따옴표·타입힌트·줄 길이가 파일 단위로 갈라져 있었다. 규칙 문서 대신
+# 도구 설정을 한 곳에 고정하고 CI 가 검사한다. 전체 자동 정리는 별도 커밋으로 한다.
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+  "artifacts",
+  "data",
+  "data_staging",
+  "**/.venv",
+  "**/venv",
+  "**/__pycache__",
+]
+
+[tool.ruff.lint]
+# E: pycodestyle 오류, W: 경고, F: pyflakes(미사용 import·변수), I: import 정렬, B: 흔한 버그, UP: 최신 문법.
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = [
+  "E501", # 줄 길이는 포매터가 맞춘다.
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["B011"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = false

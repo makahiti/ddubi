@@ -5,6 +5,8 @@ import com.ssafy.ddubi.domain.recommendation.entity.TriggerType;
 import com.ssafy.ddubi.domain.recommendation.service.*;
 import com.ssafy.ddubi.domain.route.client.PublicTransitRouteClient;
 import com.ssafy.ddubi.domain.route.model.RouteSearchResult;
+import com.ssafy.ddubi.domain.route.service.SegmentResolveRequest;
+import com.ssafy.ddubi.domain.route.service.MasterDataTransitMappingResolver;
 import com.ssafy.ddubi.domain.schedule.dto.request.*;
 import com.ssafy.ddubi.domain.schedule.service.ScheduleService;
 import com.ssafy.ddubi.domain.schedule.repository.ScheduleRepository;
@@ -32,6 +34,8 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
     @Autowired JdbcTemplate jdbc;
     @MockitoBean PublicTransitRouteClient routeClient;
     @MockitoBean BusPreviewClient mlClient;
+    /** 실제 캐시 재매핑은 거치되, 가상 노선의 마스터 판정은 최초 fixture와 같게 고정한다. */
+    @MockitoBean MasterDataTransitMappingResolver mappingResolver;
     long owner;
     long scheduleId;
     Instant now;
@@ -45,8 +49,14 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         scheduleId = scheduleService.create(owner,new ScheduleCreateRequest("테스트",location,target,
                 LocalDateTime.ofInstant(now.plusSeconds(1800),ZoneId.of("Asia/Seoul")),null,null,
                 LocalDateTime.ofInstant(now.plusSeconds(600),ZoneId.of("Asia/Seoul")))).id();
-        when(routeClient.search(any())).thenReturn(new RouteSearchResult("KAKAO",now,null,
-                List.of(RouteEvidenceAssemblerTest.candidate(0,1500,30),RouteEvidenceAssemblerTest.candidate(1,600,30))));
+        var candidates = List.of(RouteEvidenceAssemblerTest.candidate(0,1500,30),RouteEvidenceAssemblerTest.candidate(1,600,30));
+        when(routeClient.search(any())).thenReturn(new RouteSearchResult("KAKAO",now,null,candidates));
+        when(mappingResolver.resolve(any())).thenAnswer(call -> {
+            SegmentResolveRequest request = call.getArgument(0);
+            return candidates.stream().flatMap(candidate -> candidate.segments().stream())
+                    .filter(step -> step.mode() == request.mode() && step.providerRouteKey().equals(request.providerRouteKey()))
+                    .findFirst().orElseThrow().mapping();
+        });
     }
 
     /** 저장된 근거 JSON의 persistence 필드 하나를 꺼낸다. MySQL이 공백을 정규화하므로 문자열 비교는 쓰지 않는다. */
@@ -66,7 +76,9 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
                 (rs, rowNum) -> rs.getObject(1, LocalDateTime.class), scheduleId);
         assertThat(persistedVersion).isEqualTo(schedules.findById(scheduleId).orElseThrow().getUpdatedAt());
         assertThat(store.latest(scheduleId,owner).get("state")).isEqualTo("READY");
-        workflow.evaluate(scheduleId,owner,TriggerType.REFRESH,now.plusSeconds(30));
+        var second = workflow.evaluate(scheduleId,owner,TriggerType.REFRESH,now.plusSeconds(30));
+        assertThat(second.selectedKey()).isEqualTo(first.selectedKey());
+        assertThat(second.selected().assessment()).isEqualTo(first.selected().assessment());
         verify(routeClient,times(1)).search(any());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM route WHERE schedule_id=? AND is_selected=true",Integer.class,scheduleId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM route_segment_edge",Integer.class)).isEqualTo(2);

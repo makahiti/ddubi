@@ -25,6 +25,18 @@ public final class MetropolitanBusMatcher {
         master.validate();this.master=master;
         for(Route r:master.routes()) {byKey.put(r.key(),r);byName.computeIfAbsent(routeKey(r.routeName()),k->new ArrayList<>()).add(r);}
     }
+    /** 활성 불변 마스터의 출처별 노선/정류장 occurrence 수다. 물리 정류장 고유 수와 구분한다. */
+    public Map<String, Map<String, Long>> inventory() {
+        var result=new TreeMap<String,Map<String,Long>>();
+        for(var route:master.routes()) {
+            var counts=result.computeIfAbsent(route.namespace(),ignored->new TreeMap<>(Map.of("routes",0L,"stopOccurrences",0L)));
+            counts.compute("routes",(key,value)->value+1);
+            counts.compute("stopOccurrences",(key,value)->value+route.stops().size());
+        }
+        var immutable=new TreeMap<String,Map<String,Long>>();
+        result.forEach((namespace,counts)->immutable.put(namespace,Map.copyOf(counts)));
+        return Map.copyOf(immutable);
+    }
     /** 각 대안에 독립 결과를 반환한다. 동일 번호라도 예약·A/B가 다르면 합치지 않는다. */
     public List<BusAlternativeMapping> match(BusMappingRequest request,LocalDate asOf) {
         Map<String,String> labels=new LinkedHashMap<>();

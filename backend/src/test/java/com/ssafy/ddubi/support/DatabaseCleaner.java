@@ -40,6 +40,7 @@ public class DatabaseCleaner {
             "route_segment_edge", "route_segment", "route", "route_request",
             "schedule", "schedule_repeat",
             "device_token", "place", "user_transport_pref", "user_auth", "user",
+            "bus_reference_row", "bus_reference_chunk",
             "baseline_serving", "detection_log", "pipeline_config");
 
     /**

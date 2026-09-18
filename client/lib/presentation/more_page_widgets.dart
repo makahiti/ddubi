@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/config/app_environment.dart';
+
 class StampMissionUiModel {
   const StampMissionUiModel({
     required this.label,
@@ -15,17 +17,73 @@ class StampMissionUiModel {
 
 class MorePageDemoData {
   const MorePageDemoData._();
-  static const missions = [
-    StampMissionUiModel(label: '걷기', description: '한 걸음 더 건강한 하루', icon: Icons.directions_walk_rounded, completed: true),
-    StampMissionUiModel(label: '버스 타기', description: '대중교통으로 더 가까운 세상', icon: Icons.directions_bus_filled_rounded, completed: true),
-    StampMissionUiModel(label: '지하철 타기', description: '지하철로 빠르고 편리하게', icon: Icons.train_rounded, completed: true),
-    StampMissionUiModel(label: '정시 도착', description: '약속한 시간에 도착해요', icon: Icons.schedule_rounded, completed: true),
-    StampMissionUiModel(label: '즐겨찾기 추가', description: '자주 가는 곳을 더 편리하게', icon: Icons.star_rounded, completed: true),
-    StampMissionUiModel(label: '새 장소 저장', description: '새로운 곳을 기록해요', icon: Icons.add_location_alt_rounded, completed: false),
-    StampMissionUiModel(label: '경로 이탈 없이 도착', description: '계획한 경로로 안전하게', icon: Icons.route_rounded, completed: false),
-    StampMissionUiModel(label: '일정 등록', description: '일정을 등록하고 더 스마트하게', icon: Icons.event_available_rounded, completed: false),
-    StampMissionUiModel(label: '알림 확인', description: '중요한 알림을 놓치지 않아요', icon: Icons.notifications_active_rounded, completed: false),
-    StampMissionUiModel(label: '비 오는 날 이동', description: '날씨에도 멈추지 않아요', icon: Icons.water_drop_rounded, completed: false),
+
+  /// 실제 미션은 개발 환경에서만 데모로 채운다. 운영에서는 비어 있고, 화면은 빈 상태를 그린다.
+  static const List<StampMissionUiModel> missions = AppEnvironment.allowMockData
+      ? _demoMissions
+      : <StampMissionUiModel>[];
+
+  static const _demoMissions = [
+    StampMissionUiModel(
+      label: '걷기',
+      description: '한 걸음 더 건강한 하루',
+      icon: Icons.directions_walk_rounded,
+      completed: true,
+    ),
+    StampMissionUiModel(
+      label: '버스 타기',
+      description: '대중교통으로 더 가까운 세상',
+      icon: Icons.directions_bus_filled_rounded,
+      completed: true,
+    ),
+    StampMissionUiModel(
+      label: '지하철 타기',
+      description: '지하철로 빠르고 편리하게',
+      icon: Icons.train_rounded,
+      completed: true,
+    ),
+    StampMissionUiModel(
+      label: '정시 도착',
+      description: '약속한 시간에 도착해요',
+      icon: Icons.schedule_rounded,
+      completed: true,
+    ),
+    StampMissionUiModel(
+      label: '즐겨찾기 추가',
+      description: '자주 가는 곳을 더 편리하게',
+      icon: Icons.star_rounded,
+      completed: true,
+    ),
+    StampMissionUiModel(
+      label: '새 장소 저장',
+      description: '새로운 곳을 기록해요',
+      icon: Icons.add_location_alt_rounded,
+      completed: false,
+    ),
+    StampMissionUiModel(
+      label: '경로 이탈 없이 도착',
+      description: '계획한 경로로 안전하게',
+      icon: Icons.route_rounded,
+      completed: false,
+    ),
+    StampMissionUiModel(
+      label: '일정 등록',
+      description: '일정을 등록하고 더 스마트하게',
+      icon: Icons.event_available_rounded,
+      completed: false,
+    ),
+    StampMissionUiModel(
+      label: '알림 확인',
+      description: '중요한 알림을 놓치지 않아요',
+      icon: Icons.notifications_active_rounded,
+      completed: false,
+    ),
+    StampMissionUiModel(
+      label: '비 오는 날 이동',
+      description: '날씨에도 멈추지 않아요',
+      icon: Icons.water_drop_rounded,
+      completed: false,
+    ),
   ];
 }
 
@@ -43,6 +101,21 @@ class WeeklyStampBoardCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final completed = missions.where((mission) => mission.completed).length;
+    if (missions.isEmpty) {
+      return Container(
+        key: const Key('weeklyStampBoardCard'),
+        padding: const EdgeInsets.fromLTRB(15, 13, 15, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFDCE6EC)),
+        ),
+        child: const Text(
+          '이번 주 미션이 아직 준비되지 않았어요.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF52677B)),
+        ),
+      );
+    }
     return Container(
       key: const Key('weeklyStampBoardCard'),
       padding: const EdgeInsets.fromLTRB(15, 13, 15, 12),
@@ -154,9 +227,7 @@ class WeeklyStampBoardCard extends StatelessWidget {
             key: const Key('stampMissionPreviewRow'),
             children: missions
                 .map(
-                  (mission) => Expanded(
-                    child: _PreviewStamp(mission: mission),
-                  ),
+                  (mission) => Expanded(child: _PreviewStamp(mission: mission)),
                 )
                 .toList(),
           ),
@@ -283,7 +354,10 @@ class StampBoardGuideSheet extends StatelessWidget {
                     CircleAvatar(
                       radius: 18,
                       backgroundColor: Color(0xFFDDF8F3),
-                      child: Icon(Icons.adjust_rounded, color: Color(0xFF0CB3A2)),
+                      child: Icon(
+                        Icons.adjust_rounded,
+                        color: Color(0xFF0CB3A2),
+                      ),
                     ),
                     SizedBox(width: 9),
                     Expanded(
@@ -594,13 +668,12 @@ class StampBoardDetailSheet extends StatelessWidget {
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         itemCount: missions.length,
-                        gridDelegate:
-                            SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: columns,
-                              mainAxisSpacing: 9,
-                              crossAxisSpacing: 9,
-                              childAspectRatio: .78,
-                            ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          mainAxisSpacing: 9,
+                          crossAxisSpacing: 9,
+                          childAspectRatio: .78,
+                        ),
                         itemBuilder: (context, index) =>
                             _DetailedStamp(mission: missions[index]),
                       );

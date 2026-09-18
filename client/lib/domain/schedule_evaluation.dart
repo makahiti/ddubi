@@ -1,3 +1,25 @@
+/// Translate only known historical evidence codes. Never expose opaque IDs as reasons.
+String? historicalReferenceReasonLabel(String reason) {
+  final parts = reason.split(':');
+  final index = parts.indexWhere(
+    (part) => part.startsWith('HISTORICAL_REFERENCE_'),
+  );
+  if (index < 0) return null;
+  return switch (parts[index]) {
+    'HISTORICAL_REFERENCE_APPLIED' => '버스 과거 평균 소요시간 적용',
+    'HISTORICAL_REFERENCE_WEATHER_UNKNOWN' => '과거 평균에 현재 날씨 미반영',
+    'HISTORICAL_REFERENCE_VERSION' ||
+    'HISTORICAL_REFERENCE_DATA_VERSION' ||
+    'HISTORICAL_REFERENCE_SAMPLE_KIND' => '사용한 과거 자료의 버전·종류 기록',
+    'HISTORICAL_REFERENCE_MIN_SAMPLE_COUNT' ||
+    'HISTORICAL_REFERENCE_MIN_OBSERVED_DATES' => '사용한 과거 자료의 표본·관측일 수 기록',
+    'HISTORICAL_REFERENCE_OLDEST_OBSERVATION_END' ||
+    'HISTORICAL_REFERENCE_NEWEST_OBSERVATION_END' => '사용한 과거 자료의 관측 기간 기록',
+    'HISTORICAL_REFERENCE_ENTRY_UNCERTAINTY_SECONDS' => '구간 진입시각 오차 범위 확인',
+    _ => '과거 자료 적용 조건이 맞지 않아 기본 경로시간 유지',
+  };
+}
+
 enum EvaluationState {
   pending,
   running,
@@ -69,6 +91,10 @@ enum DurationSource {
   realtimeArrival,
   timetable,
   mlPreview,
+
+  /// 운영 계약(PRODUCTION)을 만족한 ML 예측. 현재 서버 기본 모드(SHADOW)에서는 나오지 않는다.
+  mlProduction,
+  busHistoricalReference,
   unknown;
 
   static DurationSource fromRaw(String? raw) => switch (raw) {
@@ -78,6 +104,8 @@ enum DurationSource {
     'REALTIME_ARRIVAL' => realtimeArrival,
     'TIMETABLE' || 'SUBWAY_TIMETABLE' => timetable,
     'ML_PREVIEW' => mlPreview,
+    'ML_PRODUCTION' => mlProduction,
+    'BUS_HISTORICAL_REFERENCE' => busHistoricalReference,
     _ => unknown,
   };
 }
@@ -373,16 +401,63 @@ class ScheduleEvaluationV2 {
   final EvaluationVersions? versions;
 
   bool isExpiredAt(DateTime now) =>
-      validUntil != null && validUntil!.isBefore(now);
+      validUntil != null && !validUntil!.isAfter(now);
 
   bool get isLegacy => schemaVersion != 'schedule-evaluation-v2';
 
-  bool canAcceptAt(DateTime now) =>
+  bool get hasHistoricalReference =>
+      legs.any(
+        (leg) => leg.durationSource == DurationSource.busHistoricalReference,
+      ) ||
+      quality.fallbackReasons.any(
+        (reason) => reason.split(':').contains('HISTORICAL_REFERENCE_APPLIED'),
+      );
+
+  /// A separately labelled estimate is not permission to accept a recommendation.
+  bool canShowHistoricalEstimateAt(DateTime now) =>
+      hasHistoricalReference &&
+      !isLegacy &&
       state == EvaluationState.ready &&
-      decision != DepartureDecision.unknown &&
+      estimatedArrivalAt != null &&
+      proposedDepartAt != null &&
+      validUntil != null &&
+      !isExpiredAt(now) &&
+      quality.costCoverage == 'COMPLETE' &&
+      search?.complete != false &&
+      const {
+        DepartureDecision.keepDeparture,
+        DepartureDecision.advanceDeparture,
+        DepartureDecision.departNow,
+        DepartureDecision.marginUnavailable,
+        DepartureDecision.lateExpected,
+      }.contains(decision);
+
+  bool canRecommendAt(DateTime now) =>
+      !isLegacy &&
+      state == EvaluationState.ready &&
+      const {
+        DepartureDecision.keepDeparture,
+        DepartureDecision.advanceDeparture,
+        DepartureDecision.departNow,
+        DepartureDecision.marginUnavailable,
+        DepartureDecision.lateExpected,
+      }.contains(decision) &&
       !quality.preview &&
       quality.productionEligible &&
+      quality.costCoverage == 'COMPLETE' &&
+      search?.complete != false &&
+      estimatedArrivalAt != null &&
+      validUntil != null &&
       !isExpiredAt(now) &&
+      !legs.any(
+        (leg) =>
+            (leg.role == RouteLegRole.ride || leg.role == RouteLegRole.wait) &&
+            (leg.durationSource == DurationSource.providerTotalFallback ||
+                leg.durationSource == DurationSource.unknown),
+      );
+
+  bool canAcceptAt(DateTime now) =>
+      canRecommendAt(now) &&
       actualDepartAt == null &&
       !departureMissed &&
       proposedDepartAt != null;

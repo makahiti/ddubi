@@ -50,7 +50,13 @@ public class ConditionalDepartureEvaluator {
     /** 원천은 평가 시작 시 고정하고 이후 출발 후보에서는 API 경로 재검색/증거 재수집을 하지 않는다. */
     public Evaluation evaluate(List<RouteCandidate> candidates, RouteEvidenceAssembler.Snapshot snapshot,
                                Instant asOf, Instant planned, Instant deadline) {
-        var session = journeys.newSession(maxMillis);
+        return evaluate(candidates, snapshot, asOf, planned, deadline, maxMillis);
+    }
+    /** 트리거별 계산 예산(ms)을 받는다. 최초 등록·자동 갱신·수동 갱신이 다른 예산을 쓴다. 범위는 1~60000ms. */
+    public Evaluation evaluate(List<RouteCandidate> candidates, RouteEvidenceAssembler.Snapshot snapshot,
+                               Instant asOf, Instant planned, Instant deadline, long budgetMillis) {
+        if (budgetMillis < 1 || budgetMillis > 60000) throw new IllegalArgumentException("계산 예산 범위 오류");
+        var session = journeys.newSession(budgetMillis);
         var boundaries = new TreeSet<Instant>();
         // 운행표 경계 외에도 시간대·통제 적용 경계를 포함한다. 접근시간 때문에 경계만으로
         // 최적 출발을 증명할 수 없으므로 제한 격자라는 한계를 응답에 유지한다.
@@ -65,7 +71,7 @@ public class ConditionalDepartureEvaluator {
         Instant hour=upper.truncatedTo(java.time.temporal.ChronoUnit.HOURS);
         for(int i=0;i<=maxEvaluations && !hour.isBefore(asOf);i++,hour=hour.minusSeconds(3600)) boundaries.add(hour);
         var evaluated = evaluate(candidates.size(), asOf, planned, deadline, boundaries,
-                at -> journeys.compare(candidates, snapshot, asOf, at, deadline, session));
+                at -> journeys.compare(candidates, snapshot, asOf, at, deadline, session), budgetMillis);
         // 탐색 도중 모델이 교체되면 이전 출발 후보의 숫자도 비교 근거를 잃는다.
         // 마지막 batch만 무효화하면 앞 batch의 ETA가 최선으로 살아남으므로 평가 전체를 폐기한다.
         if (session.mixedModel) return new Evaluation(Decision.DATA_INSUFFICIENT,null,evaluated.targetArriveAt(),
@@ -78,16 +84,20 @@ public class ConditionalDepartureEvaluator {
     /** 고정시각 fixture와 Replay를 위한 함수 경계. 전 시각의 duration을 빼는 역산은 사용하지 않는다. */
     public Evaluation evaluate(int candidateCount, Instant asOf, Instant planned, Instant deadline,
             Collection<Instant> boundaries, Function<Instant, MlRoutePreview.Comparison> forward) {
-        long budgetEnd = System.nanoTime() + Duration.ofMillis(maxMillis).toNanos();
+        return evaluate(candidateCount, asOf, planned, deadline, boundaries, forward, maxMillis);
+    }
+    public Evaluation evaluate(int candidateCount, Instant asOf, Instant planned, Instant deadline,
+            Collection<Instant> boundaries, Function<Instant, MlRoutePreview.Comparison> forward, long budgetMillis) {
+        long budgetEnd = System.nanoTime() + Duration.ofMillis(budgetMillis).toNanos();
         Instant effective = planned.isBefore(asOf) ? asOf : planned;
         var initial = forward.apply(effective);
         var policy = new ConditionalDeparturePolicy().inspect(initial.candidates().stream()
                 .map(MlRoutePreview.Candidate::result).toList(), planned, deadline, asOf);
         int count = candidateCount;
         if (!policy.searchRequired()) return result(policy.departureMissed() ? Decision.DEPART_NOW : Decision.KEEP_DEPARTURE,
-                policy, initial, initial, policy.best(), count, !initial.budgetExhausted() && count<=maxEvaluations && System.nanoTime()<budgetEnd);
+                policy, initial, initial, policy.best(), count, !initial.budgetExhausted() && count<=maxEvaluations && System.nanoTime()<budgetEnd, budgetMillis);
 
-        if(candidateCount==0) return result(Decision.ROUTE_UNAVAILABLE,policy,initial,initial,null,0,true);
+        if(candidateCount==0) return result(Decision.ROUTE_UNAVAILABLE,policy,initial,initial,null,0,true,budgetMillis);
         Instant upper = planned.isBefore(policy.target()) ? planned : policy.target();
         // 메모리도 예산으로 제한한다. 거대한 시간표/수개월 일정은 전체 시각열을 만들지 않는다.
         var times = new TreeSet<Instant>(Comparator.reverseOrder());
@@ -123,7 +133,7 @@ public class ConditionalDepartureEvaluator {
                 // 메모리 제한으로 버린 더 이른 후보는 이 해를 개선하지 못한다. 시간/호출 예산
                 // 초과는 complete로 계속 차단하고, truncated는 해 없이 탐색을 마칠 때만 적용한다.
                 return result(at.equals(asOf) ? Decision.DEPART_NOW : Decision.ADVANCE_DEPARTURE,
-                        policy, initial, batch, current, count, complete);
+                        policy, initial, batch, current, count, complete, budgetMillis);
             if (!complete) break;
         }
         // 잘린 도메인의 끝에 도달해도 완료라고 표시하지 않는다.
@@ -131,13 +141,13 @@ public class ConditionalDepartureEvaluator {
         Decision decision = best==null ? (candidateCount==0 || initial.candidates().stream().allMatch(c -> c.result().assessment()==Assessment.BLOCKED)
                 ? Decision.ROUTE_UNAVAILABLE : Decision.DATA_INSUFFICIENT)
                 : best.estimatedArrivalAt().isBefore(deadline) ? Decision.MARGIN_UNAVAILABLE : Decision.LATE_EXPECTED;
-        return result(decision, policy, initial, bestComparison, best, count, complete);
+        return result(decision, policy, initial, bestComparison, best, count, complete, budgetMillis);
     }
     private Evaluation result(Decision decision, ConditionalDeparturePolicy.Initial p, MlRoutePreview.Comparison original,
-            MlRoutePreview.Comparison chosen, Result proposed, int count, boolean complete) {
+            MlRoutePreview.Comparison chosen, Result proposed, int count, boolean complete, long budgetMillis) {
         return new Evaluation(complete ? decision : Decision.SEARCH_INCOMPLETE, complete ? null : decision,
                 p.target(), p.bufferSeconds(), p.departureMissed(), p.best(), proposed, original, chosen,
                 new Search(p.searchRequired()?"BOUNDED_GRID_AND_SOURCE_BOUNDARIES":"PLANNED_DEPARTURE_ONLY",count,complete,
-                        gridSeconds,maxEvaluations,maxMillis,p.searchRequired()?List.of("CONTINUOUS_OPTIMUM_NOT_PROVEN","FUTURE_TRANSIT_COVERAGE_LIMITED"):List.of()),null);
+                        gridSeconds,maxEvaluations,(int)budgetMillis,p.searchRequired()?List.of("CONTINUOUS_OPTIMUM_NOT_PROVEN","FUTURE_TRANSIT_COVERAGE_LIMITED"):List.of()),null);
     }
 }

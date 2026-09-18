@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:ddubi/domain/auth.dart';
 import 'package:ddubi/domain/schedule_evaluation.dart';
+import 'package:ddubi/presentation/departure_headline.dart';
 import 'package:ddubi/presentation/screens.dart';
 import 'package:ddubi/services/app_api.dart';
 import 'package:ddubi/services/recommendation_api.dart';
@@ -102,13 +103,6 @@ class _CountingLegacyRecommendationApi extends RecommendationApi {
   }
 }
 
-String _displayTime(DateTime value) {
-  final local = value.toLocal();
-  return '${local.month}/${local.day} '
-      '${local.hour.toString().padLeft(2, '0')}:'
-      '${local.minute.toString().padLeft(2, '0')}';
-}
-
 void main() {
   late ScheduleEvaluationV2 keep;
 
@@ -126,15 +120,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.latestCalls, 1);
+    // 홈은 결론 한 줄만 보여주지만, 시각은 일정 상세와 같은 v2 P와 ETA여야 한다.
     expect(
-      find.text('제안 출발: ${_displayTime(keep.proposedDepartAt!)}'),
+      find.text(
+        '${formatClock(keep.proposedDepartAt!)}에 나가면 '
+        '${formatClock(keep.estimatedArrivalAt!)} 도착',
+      ),
       findsOneWidget,
     );
-    expect(
-      find.text('예상 도착: ${_displayTime(keep.estimatedArrivalAt!)}'),
-      findsOneWidget,
-    );
-    expect(find.text('현재 출발 계획을 유지해도 일정 전에 도착할 것으로 예상됩니다.'), findsOneWidget);
+    expect(find.byKey(const Key('departureHeadlineTap')), findsOneWidget);
   });
 
   testWidgets('v2 조회 실패를 구버전 추천 성공으로 숨기지 않는다', (tester) async {

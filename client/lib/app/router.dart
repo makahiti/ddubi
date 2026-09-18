@@ -4,12 +4,15 @@ import 'package:go_router/go_router.dart';
 
 import '../core/constants/layout_constants.dart';
 import '../core/theme.dart';
+import '../core/network/dio_provider.dart';
 import '../domain/models.dart';
 import '../domain/schedule_evaluation.dart';
 import '../presentation/screens.dart';
 import '../providers/app_providers.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final sessions = ref.watch(authSessionStoreProvider);
+  var wasAuthenticated = sessions.session != null;
   final repository = ref.watch(ddubiRepositoryProvider);
   final scheduleRepository = ref.watch(scheduleRepositoryProvider);
   final authRepository = ref.watch(authRepositoryProvider);
@@ -27,7 +30,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final reportApi = ref.watch(reportApiProvider);
 
   return GoRouter(
-    initialLocation: '/intro',
+    initialLocation: sessions.session != null
+        ? '/home'
+        : sessions.hasLaunched
+        ? '/login'
+        : '/intro',
+    refreshListenable: sessions,
+    redirect: (context, state) {
+      if (sessions.session != null) {
+        wasAuthenticated = true;
+      } else if (wasAuthenticated) {
+        wasAuthenticated = false;
+        return '/login';
+      }
+      return null;
+    },
     routes: [
       GoRoute(path: '/', redirect: (context, state) => '/intro'),
       GoRoute(path: '/intro', builder: (context, state) => const IntroScreen()),
@@ -38,6 +55,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           kakaoLoginService: kakaoLoginService,
           googleLoginService: googleLoginService,
           naverLoginService: naverLoginService,
+          onKeepSignedInChanged: (value) => sessions.keepSignedIn = value,
         ),
       ),
       ShellRoute(

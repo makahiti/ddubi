@@ -4,11 +4,21 @@ import '../core/constants/api_paths.dart';
 import '../core/network/api_error_response.dart';
 import '../domain/models.dart';
 import '../domain/schedule_evaluation.dart';
+import '../domain/transit_reference.dart';
+import 'transit_reference_api.dart';
 
 class ScheduleApi {
   const ScheduleApi(this._dio);
 
   final Dio _dio;
+
+  Future<TransitReferenceStatus> transitReferenceStatus() =>
+      TransitReferenceApi(_dio).fetchStatus();
+
+  Future<TransitReferenceDetail> transitReferenceDetail(
+    String kind,
+    String referenceId,
+  ) => TransitReferenceApi(_dio).fetchDetail(kind, referenceId);
 
   /// 인증 Dio로 현재 평가 상태를 읽는다. 실패 응답을 빈 정상 결과로 바꾸지 않는다.
   Future<ScheduleEvaluationV2> latestEvaluation(String id) async {
@@ -36,11 +46,16 @@ class ScheduleApi {
     String id,
     String action, [
     Map<String, dynamic>? body,
+    Duration? receiveTimeout,
   ]) async {
     try {
       await _dio.post<Map<String, dynamic>>(
         '${ApiPaths.schedule(id)}/$action',
         data: body ?? {},
+        // 수동 다시 계산은 서버가 동기로 계산한다(예산 10초 + 경로 조회). 기본 10초보다 길게 기다린다.
+        options: receiveTimeout == null
+            ? null
+            : Options(receiveTimeout: receiveTimeout),
       );
     } on DioException catch (error) {
       throw _evaluationFailure(error);
@@ -111,8 +126,42 @@ class ScheduleApi {
     }
   }
 
+  /// 일정 취소(soft 삭제). 서버는 같은 요청이 다시 와도 204 로 답한다(멱등).
+  /// 403(남의 일정)·404(없는 일정)·409(완료된 일정)·연결 실패를 구분해 던진다.
   Future<void> cancelSchedule(String id) async {
-    await _dio.delete<void>(ApiPaths.schedule(id));
+    try {
+      await _dio.delete<void>(ApiPaths.schedule(id));
+    } on DioException catch (error) {
+      throw _commandFailure(error, '일정을 취소하지 못했습니다.');
+    }
+  }
+
+  ScheduleCommandFailure _commandFailure(
+    DioException error,
+    String fallbackMessage,
+  ) {
+    final raw = error.response?.data;
+    final apiError = raw is Map
+        ? ApiErrorResponse.fromJson(_stringKeyed(raw))
+        : null;
+    final kind = switch (error.response?.statusCode) {
+      401 => ScheduleCommandFailureKind.unauthenticated,
+      403 => ScheduleCommandFailureKind.forbidden,
+      404 => ScheduleCommandFailureKind.notFound,
+      409 => ScheduleCommandFailureKind.conflict,
+      _
+          when error.type == DioExceptionType.connectionError ||
+              error.type == DioExceptionType.connectionTimeout ||
+              error.type == DioExceptionType.receiveTimeout ||
+              error.type == DioExceptionType.sendTimeout =>
+        ScheduleCommandFailureKind.network,
+      _ => ScheduleCommandFailureKind.unknown,
+    };
+    return ScheduleCommandFailure(
+      kind: kind,
+      message: apiError?.message ?? fallbackMessage,
+      code: apiError?.code,
+    );
   }
 
   Future<List<ScheduleConflict>> getConflicts({

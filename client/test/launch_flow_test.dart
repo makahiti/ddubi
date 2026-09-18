@@ -5,9 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('초기화가 끝나면 로고 스플래시에서 기존 인트로로 이동한다', (
-    tester,
-  ) async {
+  testWidgets('초기화가 끝나면 로고 스플래시에서 기존 인트로로 이동한다', (tester) async {
     final startup = Completer<void>();
 
     await tester.pumpWidget(

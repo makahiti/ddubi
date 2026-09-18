@@ -13,6 +13,8 @@ import com.ssafy.ddubi.global.exception.*;
 import java.sql.Timestamp;
 import java.time.*;
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class ScheduleEvaluationStore {
+
+    private static final Logger log = LoggerFactory.getLogger(ScheduleEvaluationStore.class);
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -111,6 +115,14 @@ public class ScheduleEvaluationStore {
                 if (RouteEvidenceAssembler.key(candidate).equals(chosen)) route.select();
                 routes.saveAndFlush(route);
                 ids.put(RouteEvidenceAssembler.key(candidate), route.getId());
+            }
+            // 새 검색분을 저장했으니 더 쓰이지 않는 옛 후보는 여기서 정리한다.
+            // 지난 추천이 가리키는 경로와 선택된 경로는 남기고, 방금 전 검색분은 유예 시간 동안 둔다(레포지토리 조건).
+            var stale = routes.findStaleCandidates(s.getId(), request.getId(),
+                    local(now).minus(SavedRouteRepository.STALE_CANDIDATE_GRACE));
+            if (!stale.isEmpty()) {
+                routes.deleteAll(stale);
+                log.info("옛 후보 경로 정리 scheduleId={} 삭제={}건", s.getId(), stale.size());
             }
             RouteCandidate selectedCandidate = search.candidates().stream().filter(c -> RouteEvidenceAssembler.key(c).equals(chosen))
                     .findFirst().orElse(job.cache() == null ? null : job.cache().selectedCandidate());

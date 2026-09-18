@@ -1,7 +1,9 @@
 # 수도권 공통 마스터
 
 원본 배포 파일은 이 폴더에서만 관리한다. 버스는 `bus/`, 지하철 마스터·좌표·출처는
-`subway/`, 도로 대응표 상태는 `road/`에 둔다. 파일 이동으로 버전·내용·canonical ID는 바꾸지 않았다.
+`subway/`, 도로 대응표 상태는 `road/`에 둔다. 최초 파일 이동 당시에는 내용이 같았으며,
+2026-09-17 버스 master/crosswalk는 공식 누락 노선을 보충해 새 버전·SHA로 갱신했다.
+현재 기준은 [갱신 계약](../../docs/contracts/transit-data-refresh.md)과 `manifest.json`이다.
 버스 생성 및 과거 검증 상세는 [기존 안내](README.md)를 참고한다.
 
 `manifest.json`은 파일별 버전·압축 바이트 SHA-256·출처 문서·기준일과 호환 조합을 기록한다.
@@ -40,4 +42,8 @@ Compose의 Spark는 선택 실행 설정을 보존한다. 활성화한 환경에
 `SPARK_BUS_CROSSWALK_PATH`도 위 BUS 경로로 갱신하고 `SPARK_BUS_CROSSWALK_SHA256`에는
 같은 대응표 SHA를 지정한다. 빈 설정을 이번 경로 변경만으로 자동 활성화하지 않는다.
 
-파일 내용과 SHA는 바뀌지 않았다. 운영 배포나 환경변수 변경은 아직 실행하지 않았다.
+2026-09-17 버스 파일 내용과 SHA가 변경됐으며, 사용자 요청으로 운영 DB 활성화와 양 서버 파일,
+버스 수집기 2개·Spark realtime의 데이터 설정 반영을 완료했다. Spark 인덱스 캐시 구현을 확인해
+crosswalk도 활성화했고 Redis의 새 버전 결과까지 검증했다. BE 코드 자체는 기존 운영 버전이다.
+운영 설정에는 새 SHA가 고정돼 있으므로 다음 정식 배포에도 이 데이터 버전을 포함해야 한다.
+검증 시각·범위·복구 위치는 [갱신 계약](../../docs/contracts/transit-data-refresh.md)을 따른다.

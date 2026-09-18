@@ -25,17 +25,17 @@ spring:
       hibernate:
         format_sql: true
 
-# 로컬 전용 placeholder. 운영에서는 환경변수 JWT_SECRET 으로 주입한다.
-# HS256 이라 최소 32바이트여야 하며, 짧으면 기동이 실패한다.
+# 개발에서도 서명키는 .env 의 JWT_SECRET 으로 주입한다. 저장소에 공개된 기본 키는 두지 않는다(2026-09-18).
+# HS256 이라 최소 32바이트여야 하며, 비어 있거나 짧으면 기동이 실패한다.
 ddubi:
   jwt:
-    secret: ${JWT_SECRET:ddubi-local-dev-only-secret-key-do-not-use-in-production}
+    secret: ${JWT_SECRET:}
 
-  # 개발용 엔드포인트(테스트 알림 발송). 내 PC 에서는 항상 켠다.
-  # 다른 환경에서 켜려면 DDUBI_DEV_ENDPOINTS_ENABLED=true 를 준다 — 기본값은 꺼짐이다.
+  # 개발용 엔드포인트(테스트 알림 발송). 어느 환경에서도 기본은 꺼짐이고,
+  # 쓰려면 DDUBI_DEV_ENDPOINTS_ENABLED=true 를 명시한다.
   # 프로파일이 아니라 별도 스위치인 이유는 DevNotificationController 주석 참고.
   dev-endpoints:
-    enabled: ${DDUBI_DEV_ENDPOINTS_ENABLED:true}
+    enabled: ${DDUBI_DEV_ENDPOINTS_ENABLED:false}
 
 logging:
   level:
@@ -47,4 +47,5 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        # 개발에서도 전체 노출("*")은 쓰지 않는다. env·configprops 는 필요할 때만 잠시 추가한다.
+        include: health, info, prometheus, metrics

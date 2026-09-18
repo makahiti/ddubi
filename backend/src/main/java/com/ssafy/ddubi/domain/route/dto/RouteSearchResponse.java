@@ -33,11 +33,12 @@ public record RouteSearchResponse(
 
     /** 운영 검색은 주입된 모델 경계로 대안별 평가한다. 카카오 원본 시간은 변경하지 않는다. */
     public static RouteSearchResponse from(RouteSearchResult result,BusJourneyEvaluator evaluator) {
+        var session=evaluator.forRequest();
         return new RouteSearchResponse(
                 result.provider(),
                 result.fetchedAt(),
                 result.landingUrl(),
-                result.candidates().stream().map(c->Candidate.from(c,evaluator,result.fetchedAt())).toList()
+                result.candidates().stream().map(c->Candidate.from(c,session,result.fetchedAt())).toList()
         );
     }
 

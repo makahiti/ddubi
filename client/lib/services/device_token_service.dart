@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/constants/api_paths.dart';
 import '../domain/auth.dart';
+import '../core/diagnostics/app_log.dart';
 
 const expectedFirebaseProjectId = 'ddubi-85d2b';
 
@@ -41,8 +42,8 @@ Future<void> initializeFirebaseForAndroid() async {
       );
     }
   } on Object catch (error, stackTrace) {
-    debugPrint('Firebase initialization skipped: $error');
-    debugPrintStack(stackTrace: stackTrace);
+    AppLog.debug('Firebase initialization skipped: $error');
+    AppLog.stack(stackTrace);
   }
 }
 
@@ -66,16 +67,16 @@ class DeviceTokenService {
         .listen(
           (token) => unawaited(_registerToken(token)),
           onError: (Object error, StackTrace stackTrace) {
-            debugPrint('FCM token refresh failed: $error');
-            debugPrintStack(stackTrace: stackTrace);
+            AppLog.debug('FCM token refresh failed: $error');
+            AppLog.stack(stackTrace);
           },
         );
 
     _notificationOpenSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
       _handleNotificationOpened,
       onError: (Object error, StackTrace stackTrace) {
-        debugPrint('FCM notification open handling failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        AppLog.debug('FCM notification open handling failed: $error');
+        AppLog.stack(stackTrace);
       },
     );
 
@@ -112,13 +113,13 @@ class DeviceTokenService {
       await FirebaseMessaging.instance.requestPermission();
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null || token.isEmpty) {
-        debugPrint('FCM did not return a registration token.');
+        AppLog.debug('FCM did not return a registration token.');
         return;
       }
       await _registerToken(token);
     } on Object catch (error, stackTrace) {
-      debugPrint('FCM token registration failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLog.debug('FCM token registration failed: $error');
+      AppLog.stack(stackTrace);
     }
   }
 
@@ -131,11 +132,11 @@ class DeviceTokenService {
         data: {'fcmToken': token, 'platform': 'ANDROID'},
       );
     } on DioException catch (error, stackTrace) {
-      debugPrint(
+      AppLog.debug(
         'FCM token API failed (${error.response?.statusCode ?? error.type}): '
         '${error.message}',
       );
-      debugPrintStack(stackTrace: stackTrace);
+      AppLog.stack(stackTrace);
     }
   }
 
@@ -163,7 +164,7 @@ class DeviceTokenService {
     final actualProjectId = Firebase.app().options.projectId;
     if (actualProjectId == expectedFirebaseProjectId) return true;
 
-    debugPrint(
+    AppLog.debug(
       'FCM disabled: expected Firebase project $expectedFirebaseProjectId, '
       'got $actualProjectId.',
     );

@@ -17,6 +17,10 @@ ddubi:
     monitor-enabled: false
     commit-wakeup-enabled: false
     kafka-enabled: false
+    # 통합 테스트는 시험 적용 모드다. 운영 기본값(SHADOW)은 수치만 기록하고 시간 계산에 쓰지 않는다.
+    # TEST_APPLY는 아래 허용 값이 함께 있어야만 기동된다(운영 compose는 이 값을 전달하지 않는다).
+    ml-apply-mode: TEST_APPLY
+    ml-test-apply-allowed: true
   jwt:
     secret: ddubi-integration-test-secret-key-32-bytes-min
     access-token-validity: 60m

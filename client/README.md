@@ -81,3 +81,25 @@ flutter run -d chrome --web-port=3001 \
 - Dio 설정: `lib/core/network/dio_provider.dart`
 - 실제 HTTP 호출: `lib/services/`
 - 현재 화면용 Mock 저장소: `lib/data/mock_repository.dart`
+
+## 개발/운영 환경 (2026-09-18)
+
+판정은 `lib/core/config/app_environment.dart` 한 곳에서 한다. 근거는 빌드 시 넘기는
+`--dart-define=DDUBI_ENV=dev|prod` 하나이며, 지정이 없으면 **릴리스는 `prod`, 그 외는 `dev`** 다.
+
+| 항목 | 개발(dev) | 운영(prod) |
+|---|---|---|
+| API 주소 | `API_BASE_URL`(기본 `http://localhost:8080/api/v1`) | 운영 https 주소 고정. https 가 아닌 override 는 무시 |
+| 더보기 > 개발자 옵션 | 보임 | 카드 자체를 그리지 않음 |
+| `localadmin`/`local1234` 로그인·계정 비밀번호 우회 | 통과 | 차단 |
+| 세션 없을 때 사용자 프로필 | 가짜 `debug` 사용자 | 오류로 올려 화면이 오류 상태를 보여줌 |
+| Mock 저장소(`USE_SCHEDULE_API=false`) | 사용 | 기동 시 즉시 중단(가짜 데이터 fallback 금지) |
+| 스탬프 데모 미션 | 데모 표시 | 빈 목록 |
+
+새 화면에서 `kDebugMode` 를 직접 보지 말고 `AppEnvironment` 값을 쓴다.
+
+## 로그
+
+출력은 `lib/core/diagnostics/app_log.dart` 의 `AppLog.debug`/`AppLog.stack` 만 쓴다.
+`debugPrint` 는 릴리스 빌드에서도 출력되므로 직접 호출하지 않는다.
+`test/logging_convention_test.dart` 와 CI 의 `forbidden-output-check` 가 이를 막는다.

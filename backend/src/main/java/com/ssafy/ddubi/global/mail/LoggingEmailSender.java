@@ -18,13 +18,22 @@ public class LoggingEmailSender implements EmailSender {
 
     @Override
     public void send(String to, String subject, String body) {
-        log.info("""
+        // 본문에는 인증 코드가 들어간다. 로그 대체 발송이라도 본문과 주소 원문은 남기지 않는다(2026-09-18).
+        log.info("메일 발송(로그 대체) to={} subject={} bodyChars={}", mask(to), subject, body == null ? 0 : body.length());
+        if (log.isDebugEnabled()) log.debug("""
 
-                ┌───────────── 메일 발송 (로그 대체) ─────────────
-                │ to      : {}
-                │ subject : {}
+                ┌───────────── 메일 본문 (DEBUG 전용) ─────────────
                 │ {}
                 └────────────────────────────────────────────────""",
-                to, subject, body.replace("\n", "\n│ "));
+                body == null ? "" : body.replace("\n", "\n│ "));
+    }
+
+    /** 로컬 파트만 앞 두 글자 남기고 가린다. 도메인은 그대로 둔다. */
+    static String mask(String email) {
+        if (email == null) return "(없음)";
+        int at = email.indexOf('@');
+        if (at <= 0) return "***";
+        String local = email.substring(0, at);
+        return (local.length() <= 2 ? local.charAt(0) + "*" : local.substring(0, 2) + "***") + email.substring(at);
     }
 }

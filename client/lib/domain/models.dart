@@ -114,6 +114,22 @@ class RouteSearchCondition {
   String get destinationPlace => destination.name;
 }
 
+/// 서버 일정 상태(SCH-005). 삭제는 행을 지우지 않고 CANCELED 로 바꾸는 soft 취소다.
+/// 목록 API 는 status 를 지정하지 않으면 취소 일정도 돌려주므로 화면에서 걸러야 한다.
+enum ScheduleStatus {
+  upcoming,
+  done,
+  canceled,
+  unknown;
+
+  static ScheduleStatus fromApi(String? raw) => switch (raw?.toUpperCase()) {
+    null || '' || 'UPCOMING' => upcoming,
+    'DONE' => done,
+    'CANCELED' || 'CANCELLED' => canceled,
+    _ => unknown,
+  };
+}
+
 class Schedule {
   const Schedule({
     required this.id,
@@ -127,6 +143,7 @@ class Schedule {
     this.preferredTransport = TransportPreferenceChoice.balanced,
     this.repeatLabel,
     this.updatedAt,
+    this.status = ScheduleStatus.upcoming,
   });
 
   final String id;
@@ -141,6 +158,13 @@ class Schedule {
   final TransportPreferenceChoice preferredTransport;
   final String? repeatLabel;
   final DateTime? updatedAt;
+  final ScheduleStatus status;
+
+  bool get isCanceled => status == ScheduleStatus.canceled;
+
+  /// 목록·홈에 보여줄 일정만 남긴다. 취소된 일정은 서버에 남아 있어도 화면에서는 제외한다.
+  static List<Schedule> visible(Iterable<Schedule> schedules) =>
+      schedules.where((schedule) => !schedule.isCanceled).toList();
 
   String get place => destination.name;
   String get departurePlace => origin.name;
@@ -172,6 +196,7 @@ class Schedule {
     importance: ScheduleImportance.fromApi(json['importance'] as String?),
     considerLastTrip: json['considerLastTrip'] as bool? ?? false,
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+    status: ScheduleStatus.fromApi(json['status']?.toString()),
   );
 
   Map<String, dynamic> toCreateRequestJson() => {
@@ -211,6 +236,7 @@ class Schedule {
     preferredTransport: preferredTransport,
     repeatLabel: repeatLabel,
     updatedAt: updatedAt ?? this.updatedAt,
+    status: status,
   );
 }
 
@@ -358,6 +384,7 @@ class AppNotification {
     this.scheduleId,
     this.evaluationId,
     this.decision,
+    this.validUntil,
     this.readAt,
   });
 
@@ -365,6 +392,7 @@ class AppNotification {
   final String? scheduleId;
   final String? evaluationId;
   final String? decision;
+  final DateTime? validUntil;
   final String type;
   final String title;
   final String body;
@@ -380,6 +408,7 @@ class AppNotification {
         scheduleId: json['scheduleId']?.toString(),
         evaluationId: json['evaluationId']?.toString(),
         decision: json['decision']?.toString(),
+        validUntil: DateTime.tryParse(json['validUntil'] as String? ?? ''),
         type: json['type'] as String? ?? 'INFO',
         title: json['title'] as String? ?? '',
         body: json['body'] as String? ?? '',
@@ -554,6 +583,40 @@ class RouteOption {
   });
   final RouteKind kind;
   final String label, transport, departure, arrival, margin, detail, fare;
+}
+
+/// 일정 변경 요청(취소 등) 실패 종류. 서버 상태 코드를 화면 문구로 옮기기 위한 최소 구분이다.
+enum ScheduleCommandFailureKind {
+  /// 401 — 로그인이 만료됐거나 인증되지 않음. 남의 일정(403)과 다른 안내가 필요하다.
+  unauthenticated,
+
+  /// 403 — 다른 사용자의 일정.
+  forbidden,
+
+  /// 404 — 이미 지워졌거나 존재하지 않는 일정.
+  notFound,
+
+  /// 409 — 완료된 일정 등 지금 상태에서는 처리할 수 없는 요청.
+  conflict,
+
+  /// 연결·시간 초과.
+  network,
+  unknown,
+}
+
+class ScheduleCommandFailure implements Exception {
+  const ScheduleCommandFailure({
+    required this.kind,
+    required this.message,
+    this.code,
+  });
+
+  final ScheduleCommandFailureKind kind;
+  final String message;
+  final String? code;
+
+  @override
+  String toString() => message;
 }
 
 abstract interface class ScheduleRepository {

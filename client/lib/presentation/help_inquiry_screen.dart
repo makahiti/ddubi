@@ -190,16 +190,16 @@ class _HelpInquiryScreenState extends State<HelpInquiryScreen> {
     required Widget child,
     EdgeInsetsGeometry padding = const EdgeInsets.all(17),
   }) => Material(
-      color: Colors.white,
-      elevation: 1,
-      shadowColor: const Color(0x1A1A6275),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(22),
-        side: const BorderSide(color: Color(0xFFE4EDF2)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(padding: padding, child: child),
-    );
+    color: Colors.white,
+    elevation: 1,
+    shadowColor: const Color(0x1A1A6275),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(22),
+      side: const BorderSide(color: Color(0xFFE4EDF2)),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Padding(padding: padding, child: child),
+  );
 
   Future<void> _copyInquiry() async {
     final message = _inquiryController.text.trim();

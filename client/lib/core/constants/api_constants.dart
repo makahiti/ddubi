@@ -1,10 +1,10 @@
+import '../config/app_environment.dart';
+
 class ApiConstants {
   ApiConstants._();
 
-  static const String baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:8080/api/v1',
-  );
+  /// 운영/개발 주소 선택은 [AppEnvironment.apiBaseUrl] 이 한다. 여기서는 그대로 넘긴다.
+  static String get baseUrl => AppEnvironment.apiBaseUrl;
 
   static const bool useScheduleApi = bool.fromEnvironment(
     'USE_SCHEDULE_API',

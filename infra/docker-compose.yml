@@ -71,7 +71,7 @@ x-collector-env: &collector-env
   # 기본값을 여기(compose)에 두는 이유: 파일이 저장소에 있으니 지문도 같은 커밋에서 함께 바뀌어야 한다.
   # 파일을 새로 만들면 backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.manifest.json 의 sha256 으로 갱신
   BUS_CROSSWALK_PATH: ${BUS_CROSSWALK_PATH:-/opt/ddubi/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz}
-  BUS_CROSSWALK_SHA256: ${BUS_CROSSWALK_SHA256:-e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd}
+  BUS_CROSSWALK_SHA256: ${BUS_CROSSWALK_SHA256:-8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246}
 
 # Spark 3개 노드가 공유하는 마운트. 설정은 infra/spark/conf/ 디렉터리를 /opt/spark/conf 에 마운트
 # (파일 하나를 마운트하면 git pull 로 파일이 교체돼도 컨테이너는 옛 inode 를 계속 봐서 재생성 전엔 반영되지 않는다.
@@ -245,15 +245,22 @@ services:
     image: mysql:${MYSQL_VERSION:-8.4}
     container_name: mysql
     profiles: ["data"]
-    mem_limit: 1g
+    # 2026-09-18 진단: 사용량 880MB/1GiB(86%)로 여유가 144MB뿐이라 2026-09-17 23:42 커널이
+    # mysqld 를 메모리 초과로 종료했다. 호스트 여유가 10.9GB 라 제한만 올린다.
+    mem_limit: 2g
     ports:
       - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
       - --default-time-zone=+09:00
+      # 버퍼 풀은 그대로 둔다. 16384쪽 중 15365쪽(94%)이 차 있어 줄이면 조회가 더 느려진다.
       - --innodb-buffer-pool-size=256M
-      - --max-connections=200
+      # 최대 연결은 실제 최대 사용 13(앱 연결 풀 10 + 관리·스케줄러)에 맞춘다.
+      # 최악의 경우 연결별 버퍼가 약 400MB에서 80MB 로 줄어든다.
+      - --max-connections=40
+      # 로그 버퍼 기본 64MiB 는 이 쓰기량에 과하다. 48MiB 를 고정 확보에서 되돌린다.
+      - --innodb-log-buffer-size=16M
       - --slow-query-log=ON
       - --long-query-time=1
     environment:
@@ -324,7 +331,9 @@ services:
       TZ: ${TZ:-Asia/Seoul}
       ML_BUNDLE_DIR: /models/v12
       ML_MAX_WAITING_REQUESTS: ${ML_MAX_WAITING_REQUESTS:-4}
-      ML_QUEUE_WAIT_SECONDS: ${ML_QUEUE_WAIT_SECONDS:-5}
+      # 대기 상한 2초. 5초였을 때는 백엔드(호출 제한 5초)가 먼저 끊어 양쪽 모두 헛수고였다(2026-09-18).
+      # 밀린 요청은 빨리 MODEL_BUSY 로 돌려주고 호출자가 남은 예산을 과거 평균 계산에 쓰게 한다.
+      ML_QUEUE_WAIT_SECONDS: ${ML_QUEUE_WAIT_SECONDS:-2}
       ML_REFERENCE_CACHE_MIB: ${ML_REFERENCE_CACHE_MIB:-256}
     volumes:
       - ${ML_BUNDLE_DIR:-../artifacts/ml-serving/20260908-v12}:/models/v12:ro
@@ -357,7 +366,7 @@ services:
         required: false
     environment:
       TZ: ${TZ:-Asia/Seoul}
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       BACKEND_PORT: 8080
       # 같은 도커 네트워크라 서비스 이름으로 접속한다 (서버 IP 불필요)
       MYSQL_HOST: mysql
@@ -389,14 +398,51 @@ services:
       DDUBI_TRANSIT_MASTER_DATA_VERSION: ${DDUBI_TRANSIT_MASTER_DATA_VERSION:-}
       DDUBI_TRANSIT_MASTER_BUS_WORKBOOK: ${DDUBI_TRANSIT_MASTER_BUS_WORKBOOK:-}
       DDUBI_TRANSIT_MASTER_SUBWAY_TIMETABLE: ${DDUBI_TRANSIT_MASTER_SUBWAY_TIMETABLE:-}
+      # 평가기는 importer CSV가 아닌 SubwayTimetable.Data JSON을 읽는다.
+      DDUBI_SUBWAY_TIMING_TIMETABLE_PATH: ${DDUBI_SUBWAY_TIMING_TIMETABLE_PATH:-}
+      # 데이터 담당의 분해/대응 검증 전에는 true로 바꾸지 않는다.
+      DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED: ${DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED:-false}
+      DDUBI_BUS_WAITING_DECOMPOSITION_VERIFIED: ${DDUBI_BUS_WAITING_DECOMPOSITION_VERIFIED:-false}
+      # 검토 참고자료: 적재 완료와 검증 후에만 버전을 명시한다. 운영 추천 승인 플래그가 아니다.
+      DDUBI_BUS_REFERENCE_DATA_VERSION: ${DDUBI_BUS_REFERENCE_DATA_VERSION:-}
+      DDUBI_BUS_REFERENCE_FALLBACK_ENABLED: ${DDUBI_BUS_REFERENCE_FALLBACK_ENABLED:-false}
+      DDUBI_BUS_REFERENCE_FALLBACK_EXPECTED_ROWS: ${DDUBI_BUS_REFERENCE_FALLBACK_EXPECTED_ROWS:-0}
+      DDUBI_BUS_REFERENCE_FALLBACK_EXPECTED_CHUNKS: ${DDUBI_BUS_REFERENCE_FALLBACK_EXPECTED_CHUNKS:-0}
+      DDUBI_BUS_REFERENCE_FALLBACK_MAX_AGE_DAYS: ${DDUBI_BUS_REFERENCE_FALLBACK_MAX_AGE_DAYS:-90}
+      DDUBI_BUS_REFERENCE_FALLBACK_MIN_SAMPLES: ${DDUBI_BUS_REFERENCE_FALLBACK_MIN_SAMPLES:-3}
+      DDUBI_BUS_REFERENCE_FALLBACK_MIN_DATES: ${DDUBI_BUS_REFERENCE_FALLBACK_MIN_DATES:-3}
+      DDUBI_BUS_REFERENCE_FALLBACK_MAX_FUTURE_DAYS: ${DDUBI_BUS_REFERENCE_FALLBACK_MAX_FUTURE_DAYS:-7}
+      DDUBI_BUS_REFERENCE_FALLBACK_SAMPLE_KIND: ${DDUBI_BUS_REFERENCE_FALLBACK_SAMPLE_KIND:-HOURLY_SOURCE_MEAN}
+      # 아래 패키지는 현재 시간표/확정 통제가 아니다. 기존 읽기 전용 transit-master 마운트 내 경로를 사용한다.
+      DDUBI_REFERENCE_PACKAGES_SUBWAY_PATH: ${DDUBI_REFERENCE_PACKAGES_SUBWAY_PATH:-}
+      DDUBI_REFERENCE_PACKAGES_SUBWAY_SHA256: ${DDUBI_REFERENCE_PACKAGES_SUBWAY_SHA256:-}
+      DDUBI_REFERENCE_PACKAGES_ROAD_PATH: ${DDUBI_REFERENCE_PACKAGES_ROAD_PATH:-}
+      DDUBI_REFERENCE_PACKAGES_ROAD_SHA256: ${DDUBI_REFERENCE_PACKAGES_ROAD_SHA256:-}
       DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS: ${DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS:-}
       DDUBI_TRANSIT_MASTER_ALIASES: ${DDUBI_TRANSIT_MASTER_ALIASES:-}
       # 수도권 버스 마스터(V4) 관리 적재. 일반 기동은 false. 적재는 backend 팀과 함께 플래그를 켜 한 번 재기동 → 다시 false
       DDUBI_METROPOLITAN_BUS_IMPORT_ENABLED: ${DDUBI_METROPOLITAN_BUS_IMPORT_ENABLED:-false}
       DDUBI_METROPOLITAN_BUS_ARTIFACT: ${DDUBI_METROPOLITAN_BUS_ARTIFACT:-/opt/ddubi/transit-master/bus/metropolitan-bus-v6.json.gz}
       DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE: ${DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE:-}
-      DDUBI_METROPOLITAN_BUS_SHA256: ${DDUBI_METROPOLITAN_BUS_SHA256:-e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64}   # metropolitan-bus-v6.json.manifest.json 의 sha256
+      DDUBI_METROPOLITAN_BUS_SHA256: ${DDUBI_METROPOLITAN_BUS_SHA256:-6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2}   # metropolitan-bus-v6.json.manifest.json 의 sha256
       DDUBI_RECOMMENDATION_ML_PREVIEW_BASE_URL: ${DDUBI_RECOMMENDATION_ML_PREVIEW_BASE_URL:-http://ml-serving:8000}
+      # ML 호출 한 건의 제한. 실측 단독 응답이 약 4초라 5초는 여유가 없었다. 상한은 코드에서 10초로 막는다.
+      # 이 값은 한 번의 호출에만 적용되고, 평가 전체 예산(첫 계산 30초·수동 10초)을 넘기지 않도록
+      # 남은 시간이 부족하면 호출을 시작하지 않는다.
+      DDUBI_RECOMMENDATION_ML_PREVIEW_TIMEOUT_MS: ${DDUBI_RECOMMENDATION_ML_PREVIEW_TIMEOUT_MS:-7000}
+      # 버스 ML 적용 모드. SHADOW=숫자만 기록(기본, 시간 계산에 쓰지 않음) / TEST_APPLY=테스트 환경에서만 시험 적용
+      # / PRODUCTION=운영 계약(production_ready·training_ids_verified·feature_version·features_as_of·valid_until·input_digest)을
+      # 모두 만족한 응답만 적용. 어느 모드도 productionReady 를 true 로 바꾸지 않는다. 되돌리기는 이 값만 SHADOW 로.
+      DDUBI_RECOMMENDATION_ML_APPLY_MODE: ${DDUBI_RECOMMENDATION_ML_APPLY_MODE:-SHADOW}
+      # TEST_APPLY 는 이 값이 true 일 때만 기동한다. 실수로 켜지는 것을 막고, 의도적으로 켤 때는 두 값을 같이 지정한다.
+      # v12 로 실제 통합 경로를 검증하는 동안 서버2에서 true 로 둔다. 문제가 보이면 적용 모드를 SHADOW 로 되돌린다.
+      DDUBI_RECOMMENDATION_ML_TEST_APPLY_ALLOWED: ${DDUBI_RECOMMENDATION_ML_TEST_APPLY_ALLOWED:-false}
+      # 한 평가 예산 중 ML 호출에 쓰는 비율(0~1). 나머지는 과거 평균·시간표 계산에 남긴다.
+      DDUBI_RECOMMENDATION_ML_BUDGET_SHARE: ${DDUBI_RECOMMENDATION_ML_BUDGET_SHARE:-0.6}
+      # 평가 예산(밀리초). 첫 계산/자동 갱신/사용자 수동 다시 계산을 따로 둔다. 앱 안내 문구(30초·10초)와 맞춘다.
+      DDUBI_RECOMMENDATION_BUDGET_INITIAL_MILLIS: ${DDUBI_RECOMMENDATION_BUDGET_INITIAL_MILLIS:-30000}
+      DDUBI_RECOMMENDATION_BUDGET_AUTO_REFRESH_MILLIS: ${DDUBI_RECOMMENDATION_BUDGET_AUTO_REFRESH_MILLIS:-15000}
+      DDUBI_RECOMMENDATION_BUDGET_MANUAL_REFRESH_MILLIS: ${DDUBI_RECOMMENDATION_BUDGET_MANUAL_REFRESH_MILLIS:-10000}
       JAVA_OPTS: -Xms256m -Xmx512m
     volumes:
       # 기본값을 저장소의 backend/transit-master 로(9/11). 이전 기본값 ./transit-master 는 서버에 빈 폴더였다.

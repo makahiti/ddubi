@@ -99,6 +99,13 @@ android {
                 // release task is rejected by the guard above.
                 signingConfigs.getByName("debug")
             }
+            // R8 renames the Kakao map and Naver login classes that those SDKs look up
+            // by name at runtime, which aborts the release app. Keep rules live in
+            // proguard-rules.pro; without this line they are never applied.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

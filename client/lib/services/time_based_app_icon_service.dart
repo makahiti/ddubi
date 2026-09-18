@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../core/diagnostics/app_log.dart';
+
 enum AppIconType { day, night }
 
 class TimeBasedAppIconService {
@@ -58,8 +60,8 @@ class TimeBasedAppIconLifecycle with WidgetsBindingObserver {
     try {
       await _service.updateForCurrentTime();
     } on PlatformException catch (error, stackTrace) {
-      debugPrint('Failed to update the launcher icon: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLog.debug('Failed to update the launcher icon: $error');
+      AppLog.stack(stackTrace);
     }
   }
 }

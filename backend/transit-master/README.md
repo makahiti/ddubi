@@ -15,7 +15,11 @@ backend/transit-master/
 배포 원본은 `backend/transit-master/bus/`로 이동했다. 공통 manifest와 배포 설정은
 [공통 마스터 안내](distribution.md)를 따른다.
 
-`metropolitan-bus-v6.json.gz`는 통합 CSV의 1,578개 출처별 노선·106,650개 정류장 순번과 공식 형상을 묶은 서빙 artifact다. 노선별 중복 출처가 있으므로 1,578을 고유 운행 노선 수로 해석하지 않는다. 숫자 ID·선행 0·미정차 경유점·결측값·방향은 원본대로 보존한다.
+`metropolitan-bus-v6.json.gz`의 현재 본문 버전은 `METRO-BUS-20260917-SEOUL-0902`다.
+기존 1,578개 출처별 노선·106,650개 정류장 순번에 공식 OA-1095의 누락 노선 8개를 보충하여
+1,586개 노선·107,185개 순번을 제공한다. 출처별 중복 노선이 있으므로 고유 운행 노선 수가 아니다.
+숫자 ID·선행 0·미정차 경유점·결측값·방향은 원본대로 보존한다. 파일명 v6는 경로 호환용이다.
+원천별 열·SHA·업데이트 방법·남은 범위는 [갱신 계약](../../docs/contracts/transit-data-refresh.md)을 따른다.
 
 ## 적용 상태
 
@@ -23,7 +27,9 @@ backend/transit-master/
 - BUS 요청은 항상 수도권 매핑기를 사용한다. 마스터가 미적재이면 `UNMAPPED/MASTER_DATA_NOT_CONFIGURED`를 반환하며 서울 전용 매핑기로 돌아가지 않는다.
 - 버스 새 버전을 적재해도 기존 서울/지하철 마스터와 활성 포인터는 바꾸지 않는다.
 - DB에 적재하기 전 Flyway V4 및 ERD 변경을 Backend 담당과 리뷰한다. 이 작업에서 운영 DB나 배포 설정은 변경하지 않았다.
-- ML 입력/결과 검증 포트와 전체 버스 step 평균 합산은 구현되어 있다. 실제 GPU 모델·학습 ID 대응 어댑터는 아직 없으므로 기본 응답은 카카오 fallback이다.
+- 검색 ML 포트에 실제 HTTP PREVIEW 어댑터가 연결되어 있다. 검증된 서울 edge의 프리뷰 수치만 별도 제공하며, 운영 승인 false 및 카카오 fallback을 유지한다. GBIS·인천은 미지원이다.
+- 여러 검증 차량 대안은 일정 평가에서 별도 여정으로 전개한다. 캐시 사용 시 현재 마스터로 재매핑한다. `GET /api/v1/routes/data-status`는 실제 활성 자료를 진단한다.
+- 2026-09-17 새 마스터는 운영 DB에 적재·활성화했고 Collector/Spark에도 같은 대응표와 SHA를 적용했다. Redis에서 새 버전 결과를 확인했다. 로컬 BE 변경 코드의 배포와는 별개다.
 
 ## 1. 관리 적재
 
@@ -63,6 +69,10 @@ DDUBI_METROPOLITAN_BUS_SHA256=<metropolitan-bus-v6.json.manifest.json의 sha256>
 전체 응답 계약은 `docs/contracts/metropolitan-bus-mapping.md`를 따른다. 검토 날짜가 지난 예약·분기 별칭은 자동 연장하지 않는다. `2026-09-09`는 과거 검증을 재현하는 기준일이며 운영 날짜를 이 값으로 고정하면 안 된다. 정확한 좌표 패턴의 짧은 A-B-A 형상 보정은 매번 공식 형상/거리 조건을 다시 확인하므로 날짜 별칭과 다르게 처리한다.
 
 ## 3. 파일 재생성
+
+아래 명령은 기존 v6를 재생성하는 **기초 단계**다. 현재 9월 17일 보충본은 이 결과의 SHA를
+검증한 뒤 [갱신 계약](../../docs/contracts/transit-data-refresh.md)의 `update_seoul_bus_master.py`를 추가 실행한다.
+운영 파일 경로에 바로 덮어쓰지 말고 별도 출력에서 master/crosswalk/manifest를 함께 검증한다.
 
 원본 다운로드와 카카오 1~20.json은 바탕화면 `경로` 폴더에 그대로 둔다. 저장소 루트에서 실행:
 

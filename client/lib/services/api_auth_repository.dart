@@ -26,7 +26,7 @@ class ApiAuthRepository implements AuthRepository {
   Future<void> login({required String email, required String password}) async {
     try {
       final response = await _api.login(email: email, password: password);
-      _saveSession(response.data);
+      await _saveSession(response.data);
     } on DioException catch (error) {
       throw _mapDioException(error);
     } on AuthException {
@@ -49,7 +49,7 @@ class ApiAuthRepository implements AuthRepository {
         provider: provider,
         accessToken: accessToken,
       );
-      _handleOAuthResponse(response.data, provider);
+      await _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
       final linkRequired = _accountLinkRequired(error, provider);
       if (linkRequired != null) throw linkRequired;
@@ -78,7 +78,7 @@ class ApiAuthRepository implements AuthRepository {
         redirectUri: redirectUri,
         state: state,
       );
-      _handleOAuthResponse(response.data, provider);
+      await _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
       final linkRequired = _accountLinkRequired(error, provider);
       if (linkRequired != null) throw linkRequired;
@@ -103,7 +103,7 @@ class ApiAuthRepository implements AuthRepository {
         linkToken: linkToken,
         password: password,
       );
-      _saveSession(response.data);
+      await _saveSession(response.data);
     } on DioException catch (error) {
       throw _mapDioException(error);
     } on AuthException {
@@ -169,7 +169,7 @@ class ApiAuthRepository implements AuthRepository {
         provider: provider,
         idToken: idToken,
       );
-      _handleOAuthResponse(response.data, provider);
+      await _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
       final linkRequired = _accountLinkRequired(error, provider);
       if (linkRequired != null) throw linkRequired;
@@ -184,7 +184,7 @@ class ApiAuthRepository implements AuthRepository {
     }
   }
 
-  void _saveSession(Map<String, dynamic>? body) {
+  Future<void> _saveSession(Map<String, dynamic>? body) async {
     final data = body?['data'];
     if (body?['success'] != true || data is! Map<String, dynamic>) {
       throw const AuthException(
@@ -196,14 +196,19 @@ class ApiAuthRepository implements AuthRepository {
     final sessionData = tokens is Map
         ? tokens.map((key, value) => MapEntry(key.toString(), value))
         : data;
-    _sessionStore.save(AuthSession.fromJson(sessionData));
+    try {
+      await _sessionStore.save(AuthSession.fromJson(sessionData));
+    } on Object {
+      await _sessionStore.clear();
+      rethrow;
+    }
     _deviceTokenService.registerAfterAuthentication();
   }
 
-  void _handleOAuthResponse(
+  Future<void> _handleOAuthResponse(
     Map<String, dynamic>? body,
     String fallbackProvider,
-  ) {
+  ) async {
     final rawData = body?['data'];
     if (body?['success'] != true || rawData is! Map) {
       throw const AuthException(
@@ -233,7 +238,7 @@ class ApiAuthRepository implements AuthRepository {
         message: '지원하지 않는 로그인 상태입니다.',
       );
     }
-    _saveSession(body);
+    await _saveSession(body);
   }
 
   @override
@@ -269,7 +274,7 @@ class ApiAuthRepository implements AuthRepository {
         password: password,
         nickname: nickname,
       );
-      _saveSession(response.data);
+      await _saveSession(response.data);
     } on DioException catch (error) {
       throw _mapDioException(error);
     }
@@ -280,15 +285,18 @@ class ApiAuthRepository implements AuthRepository {
     final session = _sessionStore.session;
     if (session == null) return;
     try {
-      await _deviceTokenService.unregisterBeforeLogout();
-      await _api.logout(
-        refreshToken: session.refreshToken,
-        deviceId: session.deviceId,
-      );
+      try {
+        await _deviceTokenService.unregisterBeforeLogout();
+      } finally {
+        await _api.logout(
+          refreshToken: session.refreshToken,
+          deviceId: session.deviceId,
+        );
+      }
     } on DioException catch (error) {
       throw _mapDioException(error);
     } finally {
-      _sessionStore.clear();
+      await _sessionStore.clear();
     }
   }
 

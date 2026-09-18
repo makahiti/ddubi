@@ -1,5 +1,30 @@
 # 도로 링크 영향 보강: 검토용 v1
 
+## 2026-09-17 추가 확인과 live 입력
+
+새 표준링크 XLSX 11,572쌍을 추가 대조했다. 기존 버스 도로 후보 24,052개 중 완전 ID 연결은
+13,606개이며 운영 승격은 0개다. 현행 진행방향·AccInfo namespace·완전 통제/적용시간 근거가
+여전히 필요하다. 원천 SHA와 결과는 `backend/transit-master/validation/road-link-update-20260917.json`,
+재검토 도구는 `backend/tools/road-impact/audit_standard_links.py`다. 아래 9월 11일 수치는 당시 자료 기준이다.
+
+`streaming.segment_status_live --blockages VERIFIED.jsonl`은 이제 각 tick에서 검증된 snapshot을 읽는다.
+스키마는 batch evaluate와 같은 `segmentId, masterVersion, eventId, occurredAt, validUntil, source`
+문자열과 `confirmed` boolean이다. eventId는 원천 사건을 추적할 수 있는 **UUID 형식**이어야 한다.
+시각은 KST 오프셋 포함 ISO 8601, segmentId는 활성 registry의
+canonical 구간, masterVersion은 같은 버전이어야 한다. 원시 AccInfo 응답을 여기에 직접 넣지 않는다.
+confirmed는 **전체 운행 불가 및 해당 구간·방향·기간이 검증됨**을 뜻하며 단순 사고 발생이 아니다.
+이벤트 작성자가 해당 공식 근거/ID 대응 이력을 보존해야 한다.
+
+미설정이면 기존 통제 입력 없음 경로를 사용한다. 설정 파일의 누락·파싱 오류는 배치 실패로 처리하고,
+evaluate에서 미래/만료/버전 불일치/미확정 통제를 제외한다. 완성된 batch manifest 재시도는 원래
+계산 결과를 재발행하여 멱등성을 유지한다. 이 입력 연결이 실제 사건 → 검증 통제 자동 변환의 완료를 뜻하지 않는다.
+
+```json
+{"segmentId":"<검증된 canonical ID>","masterVersion":"<활성 registry 버전>","eventId":"<공식 사건 추적 ID>","occurredAt":"2026-09-17T09:00:00+09:00","validUntil":"2026-09-17T09:10:00+09:00","source":"<공식 근거 출처>","confirmed":true}
+```
+
+위 JSON은 필드 설명용이며 실제 사건 데이터가 아니다. 수집기/잡 실행 주기와 배포 설정은 변경하지 않았다.
+
 2026-09-11 원본 로컬 프로젝트에서 구현. 운영 활성화/수집주기 변경/모델 재학습은 하지 않았다.
 기존 metropolitan-bus-v6와 canonical ID를 바꾸지 않고 별도 도로 대응표를 붙인다.
 

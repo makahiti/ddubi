@@ -30,11 +30,21 @@ public class ScheduleCommitWakeup {
     @TransactionalEventListener(phase=TransactionPhase.BEFORE_COMMIT)
     public void invalidate(ScheduleInputChanged change) {
         jdbc.update("UPDATE evaluation_notification_outbox SET status='CANCELED',lease_token=NULL,lease_until=NULL WHERE schedule_id=? AND status IN ('PENDING','SENDING')",change.scheduleId());
+        if(canceled(change.scheduleId())) {
+            // 취소된 일정은 다시 평가하지 않는다. 평가 행은 이력으로 남기고 감시만 멈춘다(stopped=true).
+            jdbc.update("UPDATE schedule_evaluation SET stopped=true,lease_token=NULL,lease_until=NULL,notification_json=NULL WHERE schedule_id=?",change.scheduleId());
+            return;
+        }
         jdbc.update("UPDATE schedule_evaluation SET next_check_at=?,last_error=NULL,failure_count=0,retry_exhausted=false WHERE schedule_id=?",ScheduleEvaluationStore.ts(Instant.now()),change.scheduleId());
+    }
+    /** 취소·삭제된 일정인지 확인한다. 행이 없으면 평가할 대상이 없으므로 취소로 본다. */
+    boolean canceled(long scheduleId) {
+        var status=jdbc.queryForList("SELECT status FROM schedule WHERE id=?",String.class,scheduleId);
+        return status.isEmpty() || "CANCELED".equals(status.get(0));
     }
     @TransactionalEventListener(phase=TransactionPhase.AFTER_COMMIT)
     public void committed(ScheduleInputChanged change) {
-        if(!enabled) return;
+        if(!enabled || canceled(change.scheduleId())) return;
         try { executor.execute(()->{
             try { workflow.evaluate(change.scheduleId(),null,TriggerType.INITIAL,Instant.now()); }
             catch(RuntimeException unavailable) { /* store 실패 상태 또는 다른 lease: DB due가 재처리한다. */ }

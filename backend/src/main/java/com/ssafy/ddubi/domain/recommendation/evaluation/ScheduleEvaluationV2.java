@@ -81,7 +81,7 @@ public record ScheduleEvaluationV2(String schemaVersion, String variant, String 
         boolean access=eta!=null && legs.stream().anyMatch(l->l.legRole().equals("ACCESS_WALK")&&appliedWalk(l,p));
         boolean egress=eta!=null && legs.stream().anyMatch(l->l.legRole().equals("EGRESS_WALK")&&appliedWalk(l,p));
         String costCoverage=p==null || p.steps().stream().anyMatch(x->x.key().equals("provider-total"))?"UNKNOWN":
-                routes!=null && routes.stream().filter(r->("candidate-"+r.providerCandidateIndex()).equals(p.journeyKey()))
+                routes!=null && routes.stream().filter(r->RouteEvidenceAssembler.key(r).equals(p.journeyKey()))
                         .anyMatch(r->r.unassignedDurationSeconds()==0 && r.totalDurationSeconds()==r.segments().stream().mapToLong(com.ssafy.ddubi.domain.route.model.RouteSegment::durationSeconds).sum())?"COMPLETE":"PARTIAL";
         boolean realtime=p!=null && eta!=null && (comparison.waitPredictions().stream().anyMatch(w -> w.candidateKey().equals(p.journeyKey()) && w.applied() && w.eventId()!=null)
                 || comparison.subwayPredictions().stream().anyMatch(s -> s.candidateKey().equals(p.journeyKey()) && s.applied() && s.estimate().arrivalEventId()!=null));
@@ -158,9 +158,10 @@ public record ScheduleEvaluationV2(String schemaVersion, String variant, String 
             Long seconds=total||step==null||step.exitedAt()==null?null:Duration.between(step.enteredAt(),step.exitedAt()).getSeconds();
             String source=total?"PROVIDER_TOTAL_FALLBACK":leg.durationSource();
             if(!total && step!=null && "ML_PREVIEW".equals(step.source())) source="ML_PREVIEW";
+            else if(!total && step!=null && "BUS_HISTORICAL_REFERENCE".equals(step.source())) source="BUS_HISTORICAL_REFERENCE";
             else if(!total && evaluation.proposedComparison().subwayPredictions().stream().anyMatch(s->s.applied()
                     && s.candidateKey().equals(leg.candidateKey()) && s.stepKey().equals("step-"+leg.sequence()))) source="TIMETABLE";
-            var original=routes==null?null:routes.stream().filter(r->("candidate-"+r.providerCandidateIndex()).equals(leg.candidateKey()))
+            var original=routes==null?null:routes.stream().filter(r->RouteEvidenceAssembler.key(r).equals(leg.candidateKey()))
                     .flatMap(r->r.segments().stream()).filter(s->s.sequence()==leg.sequence()).findFirst().orElse(null);
             output.add(new Segment(leg.candidateKey(),leg.sequence(),original==null?null:original.mode().name(),
                     original==null?null:original.fromName(),original==null?null:original.toName(),leg.legRole(),seconds,source,leg.endpointEvidence()));

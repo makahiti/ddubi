@@ -144,6 +144,7 @@ public class RecommendationService {
         Scored best = scored.get(0);
 
         persist(scored, best);
+        cleanStaleCandidates(schedule.getId(), routeRequest.getId());
 
         return recommendationRepository.save(build(schedule, best, scored, dataCheckedAt, triggerType));
     }
@@ -229,6 +230,20 @@ public class RecommendationService {
             scored.add(new Scored(candidate, assembled.route(), solution));
         }
         return scored;
+    }
+
+    /**
+     * 새 검색분을 저장한 뒤 더 쓰이지 않는 옛 후보를 지운다.
+     *
+     * <p>재계산할 때마다 후보가 쌓이면 목록 순위가 반복되고 응답만 커진다. 지난 추천이
+     * 가리키는 경로와 선택된 경로는 남긴다 — 무엇을 추천했는지 기록이 깨지면 안 된다.
+     */
+    private void cleanStaleCandidates(Long scheduleId, Long keepRequestId) {
+        List<SavedRoute> stale = savedRouteRepository.findStaleCandidates(scheduleId, keepRequestId,
+                LocalDateTime.now(ZONE).minus(SavedRouteRepository.STALE_CANDIDATE_GRACE));
+        if (stale.isEmpty()) return;
+        savedRouteRepository.deleteAll(stale);
+        log.info("옛 후보 경로 정리 scheduleId={} 삭제={}건", scheduleId, stale.size());
     }
 
     /** 순위를 다시 매기고 1순위를 주 경로로 표시한다. */

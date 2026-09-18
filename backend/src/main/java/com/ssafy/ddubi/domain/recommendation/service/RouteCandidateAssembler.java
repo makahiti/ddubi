@@ -66,7 +66,7 @@ public class RouteCandidateAssembler {
             SavedRouteSegment saved = SavedRouteSegment.builder()
                     .seq(segment.sequence())
                     .mode(segment.mode())
-                    .providerRouteKey(segment.providerRouteKey())
+                    .providerRouteKey(com.ssafy.ddubi.domain.recommendation.evaluation.BusAlternativeExpansion.displayedRouteKey(segment))
                     .fromName(segment.fromName())
                     .toName(segment.toName())
                     .geometry(geometry(segment))

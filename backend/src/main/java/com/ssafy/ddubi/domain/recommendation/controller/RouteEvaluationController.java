@@ -54,7 +54,7 @@ public class RouteEvaluationController {
             if(count>limit) throw new BusinessException(ErrorCode.RATE_LIMITED);
         } catch(BusinessException e) { throw e; }
         catch(RuntimeException e) { throw new BusinessException(ErrorCode.REALTIME_DATA_UNAVAILABLE); }
-        var search=routes.search(new RouteSearchQuery(request.origin(),request.destination()));
+        var search=BusAlternativeExpansion.expand(routes.search(new RouteSearchQuery(request.origin(),request.destination())));
         var snapshot=evidence.read(search.candidates(),now);
         var enriched=walking.prepare(search.candidates(),request.origin(),request.destination(),now);
         var result=evaluator.evaluate(enriched.candidates(),snapshot,now,p,d).withWalking(enriched.evidence());

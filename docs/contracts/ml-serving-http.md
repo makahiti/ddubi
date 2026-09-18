@@ -348,6 +348,13 @@ Backend의 전체 timeout은 대기 예산 + 서버에서 측정한 계산 시�
 
 ## 8. 기존 Backend 계약과 연결 범위
 
+2026-09-17: 검색의 `BusPreviewPredictionAdapter`를 실제 HTTP 클라이언트에 연결했다.
+검색 응답의 `segments[].busEvaluations[].previewEstimatedSeconds`는 유효한 전체 버스 step
+PREVIEW 합계이며 `estimatedSeconds`/`predictionReady`의 운영 승인 의미를 바꾸지 않는다.
+이력 표본 0은 수치가 있어도 `ML_HISTORY_INSUFFICIENT`이며 step 전체가 API fallback한다.
+미지원 출처, 호출 오류, 예산 초과는 사유를 구분한다. 아래 포트의 미충족 승인 조건은 그대로다.
+대안 전개·참조 갱신·실제 배포 상태는 [갱신 계약](transit-data-refresh.md)을 따른다.
+
 현재 `BusPredictionPort`의 승인된 `Batch`와 이 HTTP 응답은 동일한 DTO가 아니다.
 HTTP 호출 성공만으로 그 계약에 맞는 운영 결과를 만들 수 없다.
 
@@ -378,8 +385,10 @@ Redis의 현재 상태 보정, baseline_serving 조회, 카카오 시간 선택�
 ## 9. 상태 확인 API
 
 - `GET /health/live`: 프로세스 생존 확인. HTTP 200 `{"status":"UP"}`. 모델 준비를 뜻하지 않음.
-- `GET /health/ready`: 모델 로드 성공 시 HTTP 200, 아래 메타데이터 반환.
+- `GET /health/ready`: 모델 로드 성공 및 오늘 KST가 지원 범위 안이면 HTTP 200, 아래 메타데이터 반환.
 - 미로드 readiness: HTTP 503 `{"detail":"MODEL_NOT_READY"}`.
+- 참조 날짜 미지원: HTTP 503, `status=REFERENCE_DATE_UNSUPPORTED` 및 아래 메타데이터.
+- 이 날짜 검사/추가 필드는 로컬 코드 변경이다. 운영 기존 이미지는 참조 묶음만 새로 설치되어 기본 지원 날짜 필드를 반환한다.
 
 ```json
 {
@@ -390,11 +399,16 @@ Redis의 현재 상태 보정, baseline_serving 조회, 카카오 시간 선택�
   "production_ready": false,
   "bundle_production_ready": false,
   "supported_from": "2026-09-10",
-  "supported_until": "2026-09-17"
+  "supported_until": "2026-10-10",
+  "reference_status": "CURRENT",
+  "reference_days_remaining": 23,
+  "missing_reference_file_count": 11
 }
 ```
 
-readiness는 로드된 객체 존재를 확인한다. 호출마다 모든 참조 파일의 SHA나 실제 추론을
+위 예시는 2026-09-17 KST 기준이며 days_remaining은 날짜에 따라 달라진다.
+reference_status는 CURRENT/NOT_STARTED/EXPIRED다. 결측 개수는 파일 단위이며 개별 노선 표본 수가 아니다.
+readiness는 로드된 객체와 오늘 지원 범위를 확인한다. 호출마다 모든 참조 파일의 SHA나 실제 추론을
 다시 검사하지 않으므로, 실행 중 참조 변경/손상이나 이후 I/O 실패까지 보장하지 않는다.
 모델 묶음은 실행 중 바꾸지 않고, 새 묶음 설치·검증 후 프로세스를 재시작한다.
 
@@ -433,3 +447,49 @@ Git에는 모델과 참조 자료가 포함되지 않으므로 코드만 받아�
 기존 검증: pytest **16개 통과**, 실제 10개 표본의 서버 원본 대비 수치 차이 **0초**,
 실제 로컬 HTTP 호출 성공. 이번 문서의 정상·부분 실패·422 예시도 실행 구현에서 생성·검증했다.
 이 결과는 모델 이식과 HTTP 동작의 근거이며 전체 노선 커버리지나 예측 정확도 보장은 아니다.
+
+## 12. Backend 적용 모드·배치 호출·missing_features 처리·운영 계약 제안 (2026-09-18, 로컬 검증만 완료)
+
+이 절은 Backend 쪽 계약 해석을 고정한다. ml-serving 자체 변경(모델 재학습 포함)은 범위 밖이며, 12.4는 ml-serving 팀에 제안하는 항목이다.
+
+### 12.1 적용 모드 (`DDUBI_RECOMMENDATION_ML_APPLY_MODE`, 기본 `SHADOW`)
+
+| 모드 | 숫자를 시간 계산에 사용 | 응답 표시 | 허용 환경 | `productionReady` |
+|---|---|---|---|---|
+| `SHADOW` | 아니오. `predictions[]`에 기록만 한다 | `step-N:ML_SHADOW_RECORDED`, `step-N:ML_NOT_APPLIED:SHADOW_MODE`, `step-N:API_FALLBACK` | 운영 기본 | false |
+| `TEST_APPLY` | 예. 단 `history_sample_count>0`이고 `data_insufficient=false`인 `PREVIEW` 수치만 | `ML_TEST_APPLIED`, `ML_MODEL_VERSION:`, `ML_MIN_HISTORY_SAMPLES:`, `ML_MAX_MISSING_FEATURES:`, step source `ML_PREVIEW`. 표본 0건·부족이면 `ML_NOT_APPLIED:ML_HISTORY_INSUFFICIENT` 로 step 전체 fallback | 테스트 프로파일만(`application-test.yml` + `ml-test-apply-allowed=true`) | false |
+| `PRODUCTION` | 12.4 운영 계약을 모두 만족한 응답만 | `ML_APPLIED`, step source `ML_PRODUCTION`. 미충족 시 `ML_NOT_APPLIED:ML_PRODUCTION_CONTRACT_NOT_MET` | 승인 후 | false(승인 정책 전환은 별도 결정) |
+
+- 어느 모드도 `productionReady`를 true로 바꾸지 않는다. 되돌리기는 값을 `SHADOW`로 바꾸고 backend를 재기동하는 것으로 끝난다(코드 변경·DB 변경 없음).
+- step 단위 원자성: 한 step의 edge 중 하나라도 숫자가 없으면 그 step 전체를 경로 API 원본 값으로 되돌리고 `ML_NOT_APPLIED:<원인>`을 남긴다. 부분 적용은 하지 않는다.
+- 잘못된 모드 문자열은 기동 실패(fail fast)다.
+
+### 12.2 배치 호출 (`BusPreviewClient.predictBatch`)
+
+1. 평가 시작 시 모든 후보의 지원 BUS edge 입력을 모아 `(노선, 출발정류장, 도착정류장, 구간순번, 진입시각)` 기준으로 중복을 제거한다.
+2. `maxBatchSegments`(기본 200, 1~1000) 단위로 나눠 `/v1/bus/predictions:batch`를 부른다. `segment_key`는 요청 안 순번 `e0..eN`이다.
+3. 응답 검증: `results` 수가 요청 수와 같아야 하고, 각 `segment_key`가 요청 키 집합에 정확히 한 번씩 있어야 한다. 수·키 불일치나 중복 키는 그 청크 전체를 `ML_INVALID_RESPONSE`로 처리한다(순서는 키로 다시 맞추므로 응답 순서에 의존하지 않는다).
+4. 실패 구분: 전체 요청 timeout → 그 청크 모든 입력 `ML_TIMEOUT`. HTTP/형식 오류 → `ML_HTTP_ERROR`/`ML_INVALID_RESPONSE`. 개별 `status=UNAVAILABLE`은 그 결과의 `reason`을 그대로 전달한다(다른 결과는 정상 사용).
+5. 결과는 평가 세션 캐시에 넣어 뒤 후보도 같은 값을 쓴다(공정성). 캐시에 없는 edge만 개별 호출하며, 개별 호출은 세션당 `INDIVIDUAL_CALL_LIMIT=8`회·ML 마감시각까지만 허용한다. 넘으면 `ML_BUDGET_EXHAUSTED`(자료 없음과 다른 코드).
+6. 예산: 트리거별 세션 예산(첫 계산 30초 / 자동 갱신 15초 / 수동 다시 계산 10초)의 `ml-budget-share`(기본 0.6)만 ML에 쓴다. 나머지는 과거 평균·시간표 계산에 남긴다.
+
+### 12.3 `missing_features` 처리
+
+- 배열이 없으면 `null`(정보 없음), 빈 배열이면 빈 목록(결측 없음)으로 구분해 보존한다.
+- 원소는 문자열이어야 하고 이름은 `[A-Za-z0-9_.:-]{1,64}`만 허용한다. 배열이 아니거나 이름이 규칙을 벗어나면 그 결과를 `ML_INVALID_RESPONSE`로 본다.
+- 배열 길이는 `missing_feature_count`와 같아야 한다. 다르면 `ML_INVALID_RESPONSE`.
+- 최대 32개까지만 보존하고 넘치면 `missingFeaturesTruncated=true`를 남긴다.
+- 이름은 진단(`predictions[].estimate.missingFeatures`)에만 쓴다. 로그에는 원문 응답·URL·비밀값을 남기지 않는다.
+- 2026-09-18 08시 실측(노선 110000004, 121000096→122000184, 순번 69) 15개: `history_recent_seconds`, `history_median_4obs`, `history_mean_4obs`, `history_median_8obs`, `history_mean_8obs`, `history_std_8obs`, `history_trend_seconds`, `to_board_daily_hour_lag2month`, `to_alight_daily_hour_lag2month`, `passenger_recent`, `passenger_mean_4obs`, `passenger_std_4obs`, `passenger_trend`, `boarding_lag77d`, `bus_runs_lag77d`. 모두 온라인 이력·승객 특성이며 정적 특성은 결측이 아니었다.
+
+### 12.4 운영 계약(PRODUCTION) — Backend가 요구하는 응답 조건 (ml-serving 제안)
+
+Backend `PRODUCTION` 모드는 아래를 모두 만족한 결과만 적용한다. 현재 ml-serving v12 응답은 어느 것도 만족하지 않으므로 운영 모드로 켜도 적용은 0건이고 `ML_PRODUCTION_CONTRACT_NOT_MET`만 남는다.
+
+| 위치 | 조건 |
+|---|---|
+| 배치 공통 | `production_ready=true`, `feature_version` 문자열, `features_as_of` ≤ 각 결과 `computed_at`, `valid_until` > 현재 시각, `input_digest` = 요청 본문 전체의 SHA-256(hex) |
+| 개별 결과 | `status=PRODUCTION`, `prediction.training_ids_verified=true`, `data_insufficient=false`(부족하면 `ML_HISTORY_INSUFFICIENT`로 미적용), 수치 `predicted_seconds` 존재 |
+| 커버리지 | 한 step의 모든 edge가 위 조건을 만족해야 그 step에 적용 |
+
+PREVIEW 계약(현행)은 `production_ready=false`, `status=PREVIEW`, `reason=MODEL_NOT_PRODUCTION_READY`, `training_ids_verified=false`를 그대로 요구하며, 두 계약은 `BusPreviewClient.Contract`로 분리돼 있어 조건을 지우거나 boolean을 강제로 바꾸는 방식으로는 운영 적용이 되지 않는다. 검증: `BusPreviewClientTest`(8) · `MlApplyModeTest`(6) 합성 응답으로 통과.

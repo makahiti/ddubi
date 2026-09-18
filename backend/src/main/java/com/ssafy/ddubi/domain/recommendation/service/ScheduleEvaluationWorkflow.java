@@ -26,13 +26,60 @@ public class ScheduleEvaluationWorkflow {
     private final EvaluationNotificationPlanner notifications;
     private final ScheduleMonitoringPolicy monitoring;
     private final com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking;
+    private final com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher;
+    private final Budget budget;
+
+    /**
+     * 트리거별 계산 예산(ms). 최초 등록은 화면이 "최대 30초" 안내와 함께 기다리고, 자동 갱신은 백그라운드,
+     * 사용자 수동 갱신은 "최대 10초" 안내다. 상한이며 계산이 끝나면 즉시 응답한다.
+     * 수동 갱신은 REFRESH에 사용자 ID가 함께 오는 경우(컨트롤러)이고, 사용자 ID가 없는 REFRESH·EVENT는 서버 자동 갱신이다.
+     */
+    public record Budget(long initialMillis, long autoRefreshMillis, long manualRefreshMillis) {
+        public static final Budget DEFAULT = new Budget(30000, 15000, 10000);
+        public Budget {
+            for (long value : new long[]{initialMillis, autoRefreshMillis, manualRefreshMillis})
+                if (value < 1 || value > 60000) throw new IllegalArgumentException("계산 예산 범위 오류");
+        }
+        public long forTrigger(TriggerType trigger, Long userId) {
+            if (trigger == TriggerType.INITIAL) return initialMillis;
+            if (trigger == TriggerType.REFRESH && userId != null) return manualRefreshMillis;
+            return autoRefreshMillis;
+        }
+    }
 
     public ScheduleEvaluationWorkflow(ScheduleEvaluationStore store, PublicTransitRouteClient routes,
             RouteEvidenceAssembler evidence, ConditionalDepartureEvaluator conditional, EvaluationNotificationPlanner notifications,
             com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking,
             @Value("${ddubi.recommendation.candidate-ttl-seconds:900}") int candidateTtl) {
+        this(store, routes, evidence, conditional, notifications, walking, candidateTtl, null);
+    }
+    public ScheduleEvaluationWorkflow(ScheduleEvaluationStore store, PublicTransitRouteClient routes,
+            RouteEvidenceAssembler evidence, ConditionalDepartureEvaluator conditional, EvaluationNotificationPlanner notifications,
+            com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking, int candidateTtl,
+            com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher) {
+        this(store, routes, evidence, conditional, notifications, walking, candidateTtl, mappingRefresher, Budget.DEFAULT);
+    }
+
+    /** 운영에서는 캐시 재사용에도 현재 매핑 판정을 적용한다. 외부 API TTL과 매핑 버전 수명은 별개다. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public ScheduleEvaluationWorkflow(ScheduleEvaluationStore store, PublicTransitRouteClient routes,
+            RouteEvidenceAssembler evidence, ConditionalDepartureEvaluator conditional, EvaluationNotificationPlanner notifications,
+            com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking,
+            @Value("${ddubi.recommendation.candidate-ttl-seconds:900}") int candidateTtl,
+            com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher,
+            @Value("${ddubi.recommendation.budget.initial-millis:30000}") long initialBudgetMillis,
+            @Value("${ddubi.recommendation.budget.auto-refresh-millis:15000}") long autoRefreshBudgetMillis,
+            @Value("${ddubi.recommendation.budget.manual-refresh-millis:10000}") long manualRefreshBudgetMillis) {
+        this(store, routes, evidence, conditional, notifications, walking, candidateTtl, mappingRefresher,
+                new Budget(initialBudgetMillis, autoRefreshBudgetMillis, manualRefreshBudgetMillis));
+    }
+    public ScheduleEvaluationWorkflow(ScheduleEvaluationStore store, PublicTransitRouteClient routes,
+            RouteEvidenceAssembler evidence, ConditionalDepartureEvaluator conditional, EvaluationNotificationPlanner notifications,
+            com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking, int candidateTtl,
+            com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher, Budget budget) {
         this.store = store; this.routes = routes; this.evidence = evidence; this.conditional = conditional;
-        this.notifications = notifications; this.walking=walking;
+        this.notifications = notifications; this.walking=walking; this.budget = Objects.requireNonNull(budget);
+        this.mappingRefresher = mappingRefresher;
         // 초기 실험 주기이며 검증된 도착 보장 임계값이 아니다. 여유시간으로 가산하지 않는다.
         monitoring = new ScheduleMonitoringPolicy(Duration.ofHours(1), Duration.ofMinutes(30), Duration.ofMinutes(10),
                 Duration.ofMinutes(10), Duration.ofMinutes(5), Duration.ofMinutes(1), Duration.ofSeconds(candidateTtl));
@@ -110,14 +157,26 @@ public class ScheduleEvaluationWorkflow {
         var job = store.claim(scheduleId, userId, now);
         try {
             var cache = job.cache();
-            boolean refresh = monitoring.refreshCandidates(now, cache == null ? null : cache.search().fetchedAt(), false);
-            RouteSearchResult search = refresh ? routes.search(new RouteSearchQuery(job.origin(), job.destination())) : cache.search();
+            boolean providerRefreshed = monitoring.refreshCandidates(now, cache == null ? null : cache.search().fetchedAt(), false);
+            boolean candidatesChanged = providerRefreshed;
+            RouteSearchResult search = providerRefreshed ? routes.search(new RouteSearchQuery(job.origin(), job.destination())) : cache.search();
+            if (!providerRefreshed && mappingRefresher != null) {
+                var remapped = BusAlternativeExpansion.expand(mappingRefresher.refresh(search));
+                // 매핑 변경은 DB 후보 교체만 요구한다. 외부 후보를 새로 조회한 것은 아니므로
+                // 아래 통제/지각 재조회 조건을 막지 않고 원본 fetchedAt도 유지한다.
+                candidatesChanged = !remapped.equals(search);
+                search = remapped;
+            }
+            var expanded = BusAlternativeExpansion.expand(search);
+            candidatesChanged |= !expanded.equals(search);
+            search = expanded;
 
             var snapshot = evidence.read(search.candidates(), now);
             Instant departure = job.departure().isBefore(now) ? now : job.departure();
             var walkingSession=new com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService.Session();
             var enriched=walking.prepare(search.candidates(),job.origin(),job.destination(),now,selectedKey(job,search),walkingSession);
-            var calculation = conditional.evaluate(enriched.candidates(), snapshot, now, job.departure(), job.arriveBy()).withWalking(enriched.evidence());
+            long budgetMillis = budget.forTrigger(trigger, userId);
+            var calculation = conditional.evaluate(enriched.candidates(), snapshot, now, job.departure(), job.arriveBy(), budgetMillis).withWalking(enriched.evidence());
             var comparison = calculation.proposedComparison();
             var suggestion = calculation.suggestion();
             String selectedKey = selectedKey(job, search);
@@ -131,18 +190,18 @@ public class ScheduleEvaluationWorkflow {
             boolean previousAtRisk = previous != null && (previous.selected().assessment() == Assessment.BLOCKED
                     || previous.selected().assessment() == Assessment.LATE_ESTIMATE
                     || previous.selected().reasons().stream().anyMatch(r -> r.startsWith("ROAD_POTENTIAL_IMPACT:")));
-            if (!refresh && newlyAtRisk && !previousAtRisk) {
-                search = routes.search(new RouteSearchQuery(job.origin(), job.destination()));
+            if (!providerRefreshed && newlyAtRisk && !previousAtRisk) {
+                search = BusAlternativeExpansion.expand(routes.search(new RouteSearchQuery(job.origin(), job.destination())));
 
                 snapshot = evidence.read(search.candidates(), now);
                 enriched=walking.prepare(search.candidates(),job.origin(),job.destination(),now,selectedKey(job,search),walkingSession);
-                calculation = conditional.evaluate(enriched.candidates(), snapshot, now, job.departure(), job.arriveBy()).withWalking(enriched.evidence());
+                calculation = conditional.evaluate(enriched.candidates(), snapshot, now, job.departure(), job.arriveBy(), budgetMillis).withWalking(enriched.evidence());
                 comparison = calculation.proposedComparison();
                 suggestion = calculation.suggestion();
-                selectedKey = selectedKey(job, search); selected = selected(suggestion, selectedKey); refresh = true;
+                selectedKey = selectedKey(job, search); selected = selected(suggestion, selectedKey); candidatesChanged = true;
             }
             var info = new ArrayList<CandidateInfo>();
-            for (RouteCandidate c : search.candidates()) info.add(new CandidateInfo(RouteEvidenceAssembler.key(c), evidence.riskReasons(c, snapshot), c.segments().stream().map(s -> new RouteStep(s.mode().name(), s.fromName(), s.toName(), s.vehicles().stream().map(v -> v.name()).toList())).toList()));
+            for (RouteCandidate c : search.candidates()) info.add(new CandidateInfo(RouteEvidenceAssembler.key(c), evidence.riskReasons(c, snapshot), c.segments().stream().map(s -> new RouteStep(s.mode().name(), s.fromName(), s.toName(), BusAlternativeExpansion.displayedVehicles(s))).toList()));
             var result = new Outcome(job.token(), scheduleId, null, job.departure(), job.arriveBy(), now,
                     selectedKey, selected, suggestion, info, snapshot, trigger, "cdep-v1", job.eventRevision(), comparison, null, calculation);
             // 출발 변경(accept)은 계속 막는다 — 미승인 모델 값으로 사용자의 일정을 바꾸지 않는다.
@@ -150,7 +209,7 @@ public class ScheduleEvaluationWorkflow {
             // 그때 dispatcher 는 아무것도 하지 않는다. EvaluationNotificationPlanner 참고.
             var planned = notifications.plan(job, result);
             Instant proposed = suggestion.proposed() == null ? null : suggestion.proposed().departureAt();
-            return store.complete(job, search, refresh, result, monitoring.nextEvaluation(now, job.arriveBy(), proposed),
+            return store.complete(job, search, candidatesChanged, result, monitoring.nextEvaluation(now, job.arriveBy(), proposed),
                     planned.map(p -> store.write(p.command())).orElse(null),
                     planned.map(EvaluationNotificationPlanner.Planned::key).orElse(null),
                     Instant.now());
@@ -172,7 +231,12 @@ public class ScheduleEvaluationWorkflow {
                 .orElse(suggestion.originalCandidates().get(0));
     }
 
-    /** 캐시 교체 시 차량·방향·정류장열로 기존 선택을 찾는다. 매칭 실패는 선택 소실로 따로 표시할 후속 UI 대상이다. */
+    /**
+     * 먼저 기존 canonical occurrence까지 일치하는 선택을 찾는다. 없으면 원본 차량·정류장·형상이
+     * 같고 이전에 비어 있던 매핑만 보강된 유일한 후보를 이어받는다. 기존 확정 edge의 교체나
+     * 여러 차량으로 갈라지는 선택은 자동 승인하지 않고 선택 소실로 남긴다.
+     * 성공한 새 후보는 complete에서 캐시의 selectedCandidate와 DB 선택을 함께 교체한다.
+     */
     private String selectedKey(ScheduleEvaluationStore.Job job, RouteSearchResult search) {
         if (job.cache() != null) {
             var previous = Optional.ofNullable(job.cache().selectedCandidate());
@@ -180,6 +244,10 @@ public class ScheduleEvaluationWorkflow {
                 String signature = signature(previous.get());
                 var matches = search.candidates().stream().filter(c -> signature(c).equals(signature)).toList();
                 if (matches.size() == 1) return RouteEvidenceAssembler.key(matches.get(0));
+                if (matches.isEmpty()) {
+                    var enriched = search.candidates().stream().filter(c -> canEnrichSelection(previous.get(), c)).toList();
+                    if (enriched.size() == 1) return RouteEvidenceAssembler.key(enriched.get(0));
+                }
             }
             return "previous-unavailable";
         }
@@ -188,7 +256,34 @@ public class ScheduleEvaluationWorkflow {
 
     private String signature(RouteCandidate candidate) {
         return store.write(candidate.segments().stream().map(s -> Arrays.asList(s.mode(), s.providerRouteKey(),
-                s.fromName(), s.toName(), s.stopNames(), s.vehicles(), s.geometry())).toList());
+                s.fromName(), s.toName(), s.stopNames(), s.vehicles(), s.geometry(),
+                RouteEvidenceAssembler.pathIdentity(s))).toList());
+    }
+
+    /**
+     * 미매핑 캐시를 현재 마스터로 보강하는 호환 검사다. 외부 I/O와 상태 변경은 없다.
+     * 1. 원본 이동 증거를 비교 → 2. 기존 확정 occurrence를 보존 → 3. 새 매핑의 EXACT를 확인한다.
+     * 비어 있던 edge를 채우는 경우만 허용하며, 후보 유일성은 호출자가 전체 목록에서 확인한다.
+     */
+    private boolean canEnrichSelection(RouteCandidate previous, RouteCandidate current) {
+        if (previous.segments().size() != current.segments().size()) return false;
+        for (int i = 0; i < previous.segments().size(); i++) {
+            var before = previous.segments().get(i);
+            var after = current.segments().get(i);
+            if (!providerIdentity(before).equals(providerIdentity(after))) return false;
+            var oldPath = RouteEvidenceAssembler.pathIdentity(before);
+            var newPath = RouteEvidenceAssembler.pathIdentity(after);
+            // 같은 정류장 쌍도 순환 노선의 승차 순번이 다르면 다른 선택이다.
+            if (!oldPath.isEmpty() && !oldPath.equals(newPath)) return false;
+            if (oldPath.isEmpty() && !newPath.isEmpty()
+                    && after.mapping().status() != com.ssafy.ddubi.domain.route.mapping.TransitMappingStatus.EXACT) return false;
+        }
+        return true;
+    }
+
+    private List<Object> providerIdentity(RouteSegment segment) {
+        return Arrays.asList(segment.mode(), segment.providerRouteKey(), segment.fromName(), segment.toName(),
+                segment.stopNames(), segment.vehicles(), segment.geometry());
     }
 
 }

@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../core/constants/api_paths.dart';
 import '../domain/auth.dart';
 import '../domain/models.dart';
+import '../core/config/app_environment.dart';
 
 Map<String, dynamic> _stringKeyed(Map<dynamic, dynamic> source) =>
     source.map((key, value) => MapEntry(key.toString(), value));
@@ -250,6 +251,10 @@ class UserApi {
   Future<UserProfile> getMe() async {
     final session = _sessionStore.session;
     if (session == null) {
+      // 운영 빌드는 가짜 사용자로 대체하지 않는다. 화면은 오류 상태를 보여주고 로그인으로 유도한다.
+      if (!AppEnvironment.allowFakeAuth) {
+        throw StateError('로그인 세션이 없어 계정 정보를 불러올 수 없습니다.');
+      }
       return const UserProfile(
         id: 'debug',
         email: null,

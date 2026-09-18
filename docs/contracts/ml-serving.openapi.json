@@ -25,7 +25,7 @@
     "/health/ready": {
       "get": {
         "summary": "Ready",
-        "description": "모델과 참조 무결성 검사를 통과한 경우만 준비 상태를 반환한다.",
+        "description": "무결성과 오늘 KST 참조 범위를 함께 확인한다. 만료 묶음은 503이며 과거 Replay API는 별도로 유지한다.",
         "operationId": "ready_health_ready_get",
         "responses": {
           "200": {
@@ -66,7 +66,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -113,7 +113,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {

@@ -188,6 +188,42 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <!-- 코드 컨벤션(2026-09-18). 규칙 문서 대신 도구가 맞춘다.
+                 - spotless: google-java-format(AOSP, 4칸)과 미사용 import 제거. develop 기준으로 바뀐 파일만 검사(ratchet)해
+                   기존 코드를 한 번에 재포맷하지 않아도 새 코드부터 강제된다. 전체 정리는 `spotless:apply` 로 별도 커밋한다.
+                 - checkstyle: 와일드카드 import 금지. 기존 위반(44파일)이 정리되기 전까지 CI 에서는 경고로 둔다. -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>2.44.3</version>
+                <configuration>
+                    <ratchetFrom>origin/develop</ratchetFrom>
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                        </includes>
+                        <googleJavaFormat>
+                            <version>1.24.0</version>
+                            <style>AOSP</style>
+                        </googleJavaFormat>
+                        <removeUnusedImports/>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <configLocation>config/checkstyle.xml</configLocation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
+import '../diagnostics/app_log.dart';
+
 /// 카카오 앱 키는 커밋하지 않고 --dart-define-from-file=.env 로 주입한다.
 class KakaoAuthConfig {
   const KakaoAuthConfig._();
@@ -31,8 +33,8 @@ class KakaoAuthConfig {
       );
       _initialized = true;
     } on Object catch (error, stackTrace) {
-      debugPrint('Kakao login SDK initialization failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLog.debug('Kakao login SDK initialization failed: $error');
+      AppLog.stack(stackTrace);
     }
   }
 }
