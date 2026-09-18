@@ -54,6 +54,40 @@ DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE=classpath:transit/metropolitan-subw
 대기시간 합산 설정은 켜지 않는다. 원천 열차 대응이 없으면 `SUBWAY_TIMETABLE`로 표시하고 Redis를 조회하지 않는다.
 원본·날짜가 바뀌면 재생성 및 Backend 재시작이 필요하다. 생성물은 gitignored `target`에 두며 운영 자동 배포는 하지 않는다.
 
+### 2.1 산출물 분리·manifest·GTFS 입력 (2026-09-18)
+
+`--output timetable.json` 기준으로 아래 파일이 함께 생긴다. 같은 입력·마스터면 `artifactSha256`이 같다(재현 확인).
+
+| 파일 | 내용 |
+|---|---|
+| `timetable.report.json` | 채택/격리 운행 수, 사유별 수, `dayTypesPresent`/`missingDayTypes`, 입력·마스터·산출물 SHA-256 |
+| `timetable.manifest.json` | 도구 버전, 생성 시각, 입력 파일별 SHA-256, 마스터 SHA-256·버전, 산출물 SHA-256, `serverReady=false`(사람 확인 전 연결 금지) |
+| `timetable.quarantine.unmapped.json` | 마스터에 없는(또는 여러 provider ID 에 대응되는) 역이 있는 운행 |
+| `timetable.quarantine.master-mismatch.json` | 마스터 인접 순서·노선 대응이 어긋난 운행 |
+| `timetable.quarantine.duplicates.json` | 같은 역·같은 시각 행이 반복된 운행 |
+| `timetable.quarantine.time-reversal.json` | 시각 역전·중간 결측·시각 형식 오류 운행 |
+| `timetable.quarantine.express.json` | 급행(미지원) 운행 |
+| `timetable.quarantine.other.json` | 위 분류에 없는 사유(등록 누락 방지) |
+| `timetable.missing-service-days.json` | 요청한 운행일 종류와 입력에 없는 종류. 요청 종류가 입력에 없으면 변환 자체를 멈춘다(`NO_ROWS_FOR_DAY_TYPE`) |
+
+GTFS 입력은 `--csv` 대신 `--gtfs <폴더>`를 준다. `gtfs_timetable.py`가 결정적 규칙(route_id `RR_ACC1_S-1-<호선>-<패턴>[DUIO]`,
+stop_id `RS_ACC1_S-1-<역사코드>`)으로만 대응하고, 규칙 밖 노선·역은 `timetable.gtfs-report.json`에 미매핑으로 남긴다(이름 유사도 사용 안 함).
+달력이 요일을 구분하지 않으면(`dayTypeDistinguishable=false`) 산출물을 만들지 않고 종료 코드 2로 멈춘다.
+`--allow-undistinguished-day-type`으로 강제 전개하면 `SUBWAY_GTFS_CALENDAR_WITHOUT_DAY_TYPE` 제한사항이 붙으며 서버 연결 대상이 아니다.
+
+```powershell
+python backend/tools/transit-timing/build_timetable.py `
+  --gtfs 'C:/Users/SSAFY/Downloads/대중교통GTFS(2025년 기준)/202503_GTFS_DataSet' `
+  --master backend/transit-master/subway/metropolitan-subway-master.json.gz `
+  --service-date 2026-09-18 --day-type DAY --published-at (Get-Date -Format o) `
+  --source-url 'https://www.ktdb.go.kr/ 대중교통GTFS(2025년 기준)' `
+  --output backend/target/transit-timing/gtfs/timetable.json
+```
+
+공식 원천(2026-09-18 확인): 공공데이터포털 15098251 「서울교통공사_서울 도시철도 열차운행시각표_20260616」(https://www.data.go.kr/data/15098251/fileData.do, 열: 호선·역사코드·역사명·방향·도착시간·출발시간 등, 영업일 기준 23시 초과 표기).
+서울열린데이터광장 OA-15492(첫차·막차)·OA-110/OA-108(역코드 막차 API)은 전체 시각표가 아니라 보조 검증용이다.
+KTDB 국가 GTFS(2025 배포, 2024년 기준)는 달력이 매일 동일한 service 하나라 운행일 종류 근거가 없고 개정판보다 오래되어 서버용 시간표로 쓸 수 없다.
+
 ## 3. 테스트
 
 ```powershell
