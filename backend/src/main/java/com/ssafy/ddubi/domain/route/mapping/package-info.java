@@ -5,9 +5,9 @@
  * <ol>
  *     <li>{@code SeoulTransitMasterImportService}가 버스 XLSX와 지하철 CSV를 검증해
  *     버전 마스터 테이블에 적재하고, 전체 성공 후에만 ACTIVE 포인터를 교체한다.</li>
- *     <li>{@code JdbcSeoulTransitMasterDataProvider}가 ACTIVE 버전을 노선별 정류장 순서와
+ *     <li>{@code MetropolitanBusCatalog}/{@code JdbcSeoulTransitMasterDataProvider}가 ACTIVE 버전을 노선별 정류장 순서와
  *     호선·방향·서비스 패턴별 역 순서의 불변 읽기 모델로 조립한다.</li>
- *     <li>{@code BusSegmentMatcher}/{@code SubwaySegmentMatcher}가 카카오의 노선명,
+ *     <li>{@code MetropolitanBusMatcher}/{@code SubwaySegmentMatcher}가 카카오의 노선명,
  *     승·하차명, 전체 통과 순서와 BUS 좌표를 공식 topology에 대조한다.</li>
  *     <li>후보 경로가 하나로 증명된 {@code EXACT}만 공식 인접 노드 쌍으로 전개한다.
  *     나머지는 실패 이유를 가진 {@code PARTIAL/AMBIGUOUS/UNMAPPED}로 남긴다.</li>

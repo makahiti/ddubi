@@ -3,7 +3,7 @@ package com.ssafy.ddubi.domain.route.mapping;
 import java.util.List;
 
 /**
- * 카카오의 BUS/SUBWAY step 하나를 서울 공식 마스터에 대조한 통합 결과다.
+ * 카카오의 BUS/SUBWAY step 하나를 수도권 버스·서울 지하철 공식 마스터에 대조한 통합 결과다.
  *
  * <p>호출자는 {@code status == EXACT}인 경우에만 {@code segments}를 기준선 계산에 사용하고,
  * 실시간값은 {@code realtimeCoverage}까지 확인한다. 판정에 사용한 마스터·정책 버전을 함께
@@ -29,13 +29,36 @@ public record TransitMappingResult(
         int candidateCount,
         String failureReason,
         RealtimeMappingCoverage realtimeCoverage,
-        List<MappedTransitSegment> segments
+        List<MappedTransitSegment> segments,
+        List<BusAlternativeMapping> busAlternatives
 ) {
     public TransitMappingResult {
         segments = segments == null ? List.of() : List.copyOf(segments);
+        busAlternatives = busAlternatives == null ? List.of() : List.copyOf(busAlternatives);
         if (realtimeCoverage == null) {
             realtimeCoverage = deriveRealtimeCoverage(status, segments);
         }
+    }
+
+    /** 응답 전용 복사본에 현재 모델 평가를 반영한다. 시각 의존 ML 승인을 정적 매핑 캐시에 저장하지 않는다.
+     * 한 대안에 여러 출처 후보가 있으면 하나 이상 승인된 후보가 있다는 뜻이며, 실제 선택은 평가의 candidateIndex를 따른다. */
+    public TransitMappingResult withBusPredictionReady(java.util.Set<Integer> readyAlternatives) {
+        var updated=java.util.stream.IntStream.range(0,busAlternatives.size()).mapToObj(i->{
+            var a=busAlternatives.get(i);
+            return new BusAlternativeMapping(a.providerName(),a.identityStatus(),a.geometryStatus(),a.reason(),readyAlternatives.contains(i),a.candidates());
+        }).toList();
+        return new TransitMappingResult(status,masterDataVersion,mappingPolicyVersion,officialRouteId,officialRouteName,
+                fromNodeId,toNodeId,startOrder,endOrder,direction,matchScore,passingMatchRatio,candidateCount,failureReason,
+                realtimeCoverage,segments,updated);
+    }
+
+    /** 기존 지하철·서울 매핑 소비 코드와 캐시 JSON에 대한 하위 호환 생성자다. */
+    public TransitMappingResult(TransitMappingStatus status,String masterDataVersion,String mappingPolicyVersion,
+            String officialRouteId,String officialRouteName,String fromNodeId,String toNodeId,Integer startOrder,Integer endOrder,
+            String direction,double matchScore,double passingMatchRatio,int candidateCount,String failureReason,
+            RealtimeMappingCoverage realtimeCoverage,List<MappedTransitSegment> segments) {
+        this(status,masterDataVersion,mappingPolicyVersion,officialRouteId,officialRouteName,fromNodeId,toNodeId,startOrder,endOrder,
+                direction,matchScore,passingMatchRatio,candidateCount,failureReason,realtimeCoverage,segments,List.of());
     }
 
     /** WALK처럼 서울 대중교통 마스터 매핑 대상이 아닌 구간의 명시적 결과다. */

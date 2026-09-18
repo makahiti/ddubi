@@ -1,0 +1,10 @@
+{
+  "description": "합성 FCM fixture. 재전송 시 notificationId가 유지된다. 표시 후 최신 평가를 조회한다.",
+  "title": "출발 계획을 확인해 주세요",
+  "body": "[검증용] 09:20 출발 시 09:50 도착 예상입니다.",
+  "data": {
+    "notificationId": "123",
+    "type": "EARLY_DEPART",
+    "scheduleId": "456"
+  }
+}

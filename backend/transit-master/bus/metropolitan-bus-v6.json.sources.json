@@ -1,0 +1,84 @@
+{
+  "addedRoutes": [
+    {
+      "missingSequences": [
+        1
+      ],
+      "routeId": "100100124",
+      "routeName": "0017",
+      "stopRows": 40
+    },
+    {
+      "missingSequences": [
+        24,
+        25,
+        41,
+        42
+      ],
+      "routeId": "100100389",
+      "routeName": "9401",
+      "stopRows": 61
+    },
+    {
+      "missingSequences": [
+        68
+      ],
+      "routeId": "100100522",
+      "routeName": "2016",
+      "stopRows": 137
+    },
+    {
+      "missingSequences": [
+        26,
+        84
+      ],
+      "routeId": "100100551",
+      "routeName": "673",
+      "stopRows": 106
+    },
+    {
+      "missingSequences": [
+        39,
+        40
+      ],
+      "routeId": "100100587",
+      "routeName": "705",
+      "stopRows": 67
+    },
+    {
+      "missingSequences": [
+        36
+      ],
+      "routeId": "100100604",
+      "routeName": "4211",
+      "stopRows": 74
+    },
+    {
+      "missingSequences": [
+        7,
+        8,
+        16,
+        17
+      ],
+      "routeId": "113000004",
+      "routeName": "9401-1",
+      "stopRows": 19
+    },
+    {
+      "missingSequences": [
+        1
+      ],
+      "routeId": "124000040",
+      "routeName": "8332",
+      "stopRows": 31
+    }
+  ],
+  "baseSha256": "e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64",
+  "baseVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+  "existingRoutesPreserved": 710,
+  "policy": "preserve official gaps; no edge across missing sequence; no source equivalence inference",
+  "sourceFile": "서울시버스노선별정류소정보(20260902).xlsx",
+  "sourceReferenceDate": "2026-09-02",
+  "sourceSha256": "b54816e9b7e77bcf49dd7562b993db06a093daa666351f115ea4d1dd0dd8b1df",
+  "sourceUrl": "https://data.seoul.go.kr/dataList/OA-1095/S/1/datasetView.do"
+}

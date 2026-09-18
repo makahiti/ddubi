@@ -39,9 +39,36 @@
     <name>dfs.client.use.datanode.hostname</name>
     <value>true</value>
   </property>
+  <!-- 데이터노드 사망 판정 단축 (2026-09-09, 9/7 장애 연습의 약점 보완).
+       판정 시간 = recheck-interval x 2 + heartbeat(3s) x 10. 기본 5분이면 10분 30초, 30초로 두면 1분 30초.
+       그동안 네임노드는 죽은 노드를 Live 로 알고 WebHDFS 읽기를 그 노드로 보내 실패시킨다 -->
+  <property>
+    <name>dfs.namenode.heartbeat.recheck-interval</name>
+    <value>30000</value>
+  </property>
+  <!-- 심장박동이 30초(dfs.namenode.stale.datanode.interval 기본값) 끊긴 노드는 "stale" 로 표시된다.
+       기본은 stale 노드도 읽기 대상에 넣지만, 켜 두면 읽기(WebHDFS 리다이렉트 포함)에서 뒤로 미룬다.
+       쓰기 회피는 켜지 않는다: 데이터노드가 2대라 한 대를 피하면 복제 대상이 하나뿐이다 -->
+  <property>
+    <name>dfs.namenode.avoid.read.stale.datanode</name>
+    <value>true</value>
+  </property>
   <!-- archiver 가 쓰는 WebHDFS (NameNode 9870 → DataNode 9864 리다이렉트) -->
   <property>
     <name>dfs.webhdfs.enabled</name>
     <value>true</value>
+  </property>
+  <!-- 세컨더리 네임노드(서버2)가 매시간 만든 목차 사본을 두는 폴더와, 세컨더리가 여는 웹 포트.
+       네임노드의 목차(어느 블록이 어느 파일인지)는 서버1 볼륨 한 곳에만 있어서, 서버1 디스크를 잃으면 HDFS 전체를 읽을 수 없었다.
+       이 폴더가 서버2에 남는 최대 한 시간 전 사본이 되고, 서버1을 잃었을 때 예비 네임노드가 이 폴더의 사본으로 시작한다.
+       네임노드와 데이터노드는 이 두 설정을 읽지 않는다. 그래서 이 항목을 추가해도 그 컨테이너들을 다시 만들 필요가 없다. -->
+
+  <property>
+    <name>dfs.namenode.checkpoint.dir</name>
+    <value>file:///hadoop/dfs/namesecondary</value>
+  </property>
+  <property>
+    <name>dfs.namenode.secondary.http-address</name>
+    <value>0.0.0.0:9868</value>
   </property>
 </configuration>

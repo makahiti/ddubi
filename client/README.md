@@ -31,12 +31,11 @@ Google과 Naver의 화면 확인용 Mock 성공 흐름은 사용하지 않습니
 ```text
 GOOGLE_WEB_CLIENT_ID=
 NAVER_CLIENT_ID=
-NAVER_CLIENT_SECRET=
-NAVER_CLIENT_NAME=DDUBI
+NAVER_REDIRECT_URI=https://j15e202.p.ssafy.io/oauth/naver
 ```
 
 - Google: Android OAuth 클라이언트에 `com.ssafy.ddubi`와 빌드 SHA-1을 등록합니다. `GOOGLE_WEB_CLIENT_ID`는 백엔드의 `GOOGLE_CLIENT_ID`와 같은 Web OAuth 클라이언트 ID여야 합니다. 앱의 ID 토큰은 `POST /api/v1/auth/oauth/id-token`으로 전달합니다.
-- Naver: 개발자 콘솔의 Android 환경에 `com.ssafy.ddubi`를 등록합니다. 공식 Android SDK가 요구하는 Client ID와 Client Secret은 Android 빌드 설정에 포함되므로 `.env`를 커밋하지 말고 콘솔의 앱 제한 설정도 함께 관리합니다. 앱의 액세스 토큰은 `POST /api/v1/auth/oauth/token`으로 전달합니다.
+- Naver: 앱에는 공개 식별자인 `NAVER_CLIENT_ID`만 주입합니다. 인앱 웹 인증의 Callback URL은 `https://j15e202.p.ssafy.io/oauth/naver`이며, 앱이 받은 인가 코드와 검증한 state를 `POST /api/v1/auth/oauth`로 전달합니다. `NAVER_CLIENT_SECRET`은 백엔드에만 둡니다.
 
 현재 출발·현재·도착 마커는 화면 확인용 강남권 Mock 좌표입니다. 백엔드 경로 API에 좌표와 경로 형상이 추가되면 `lib/presentation/screens.dart`의 `_RouteMapView`에서 교체합니다.
 
@@ -82,3 +81,25 @@ flutter run -d chrome --web-port=3001 \
 - Dio 설정: `lib/core/network/dio_provider.dart`
 - 실제 HTTP 호출: `lib/services/`
 - 현재 화면용 Mock 저장소: `lib/data/mock_repository.dart`
+
+## 개발/운영 환경 (2026-09-18)
+
+판정은 `lib/core/config/app_environment.dart` 한 곳에서 한다. 근거는 빌드 시 넘기는
+`--dart-define=DDUBI_ENV=dev|prod` 하나이며, 지정이 없으면 **릴리스는 `prod`, 그 외는 `dev`** 다.
+
+| 항목 | 개발(dev) | 운영(prod) |
+|---|---|---|
+| API 주소 | `API_BASE_URL`(기본 `http://localhost:8080/api/v1`) | 운영 https 주소 고정. https 가 아닌 override 는 무시 |
+| 더보기 > 개발자 옵션 | 보임 | 카드 자체를 그리지 않음 |
+| `localadmin`/`local1234` 로그인·계정 비밀번호 우회 | 통과 | 차단 |
+| 세션 없을 때 사용자 프로필 | 가짜 `debug` 사용자 | 오류로 올려 화면이 오류 상태를 보여줌 |
+| Mock 저장소(`USE_SCHEDULE_API=false`) | 사용 | 기동 시 즉시 중단(가짜 데이터 fallback 금지) |
+| 스탬프 데모 미션 | 데모 표시 | 빈 목록 |
+
+새 화면에서 `kDebugMode` 를 직접 보지 말고 `AppEnvironment` 값을 쓴다.
+
+## 로그
+
+출력은 `lib/core/diagnostics/app_log.dart` 의 `AppLog.debug`/`AppLog.stack` 만 쓴다.
+`debugPrint` 는 릴리스 빌드에서도 출력되므로 직접 호출하지 않는다.
+`test/logging_convention_test.dart` 와 CI 의 `forbidden-output-check` 가 이를 막는다.

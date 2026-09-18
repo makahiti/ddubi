@@ -1,0 +1,978 @@
+{
+  "schemaVersion": 1,
+  "kind": "REAL",
+  "masterDataVersion": "OA1095-20260902-422",
+  "masterSource": "OA-1095 서울시버스노선별정류소정보(20260902).xlsx; SHA256 b54816e9b7e77bcf49dd7562b993db06a093daa666351f115ea4d1dd0dd8b1df; 공식 routeId=107000008 전체 116행만 추출. 사용자 제공 JSON의 14번째 후보를 별도 응답으로 발췌, geometry는 양 끝만 보존, guidance 생략. 지하철 마스터 없음. 전체 응답/전체 마스터의 정확도 표본이 아님.",
+  "busMaxEndpointDistanceMeters": 150,
+  "busRoutes": [
+    {
+      "routeId": "107000008",
+      "routeName": "422",
+      "stops": [
+        {
+          "stopId": "206000498",
+          "stopName": "구미동차고지앞",
+          "sequence": 1,
+          "longitude": 127.1060443196,
+          "latitude": 37.342266288
+        },
+        {
+          "stopId": "206000219",
+          "stopName": "하얀마을.구미도서관",
+          "sequence": 2,
+          "longitude": 127.1091780457,
+          "latitude": 37.344649883
+        },
+        {
+          "stopId": "206000088",
+          "stopName": "까치마을.건영빌라.2001아울렛",
+          "sequence": 3,
+          "longitude": 127.1091446428,
+          "latitude": 37.3474501828
+        },
+        {
+          "stopId": "206000267",
+          "stopName": "미금역",
+          "sequence": 4,
+          "longitude": 127.1106611297,
+          "latitude": 37.3498425823
+        },
+        {
+          "stopId": "206000328",
+          "stopName": "대원사거리.까치마을",
+          "sequence": 5,
+          "longitude": 127.1160783136,
+          "latitude": 37.351650713
+        },
+        {
+          "stopId": "206000327",
+          "stopName": "더샵분당파크리버.헬스케어혁신파크",
+          "sequence": 6,
+          "longitude": 127.1182657121,
+          "latitude": 37.3541846252
+        },
+        {
+          "stopId": "206000248",
+          "stopName": "정자3동행정복지센터",
+          "sequence": 7,
+          "longitude": 127.119280281,
+          "latitude": 37.3602870204
+        },
+        {
+          "stopId": "206000247",
+          "stopName": "정든마을.우성아파트",
+          "sequence": 8,
+          "longitude": 127.1192763715,
+          "latitude": 37.3627595186
+        },
+        {
+          "stopId": "206000246",
+          "stopName": "한솔마을.LG아파트",
+          "sequence": 9,
+          "longitude": 127.1192999599,
+          "latitude": 37.3654181232
+        },
+        {
+          "stopId": "206000245",
+          "stopName": "푸른마을",
+          "sequence": 10,
+          "longitude": 127.123180511,
+          "latitude": 37.3698933971
+        },
+        {
+          "stopId": "206000321",
+          "stopName": "샛별마을.우방아파트",
+          "sequence": 11,
+          "longitude": 127.1274631365,
+          "latitude": 37.3730085082
+        },
+        {
+          "stopId": "206000320",
+          "stopName": "중앙공원.샛별마을.라이프아파트",
+          "sequence": 12,
+          "longitude": 127.1299049888,
+          "latitude": 37.3747720664
+        },
+        {
+          "stopId": "206000319",
+          "stopName": "효자촌",
+          "sequence": 13,
+          "longitude": 127.1335237202,
+          "latitude": 37.3773347383
+        },
+        {
+          "stopId": "206000318",
+          "stopName": "서현중학교",
+          "sequence": 14,
+          "longitude": 127.1343281349,
+          "latitude": 37.3812176946
+        },
+        {
+          "stopId": "206000438",
+          "stopName": "양현보도육교",
+          "sequence": 15,
+          "longitude": 127.1300811749,
+          "latitude": 37.3841115912
+        },
+        {
+          "stopId": "206000316",
+          "stopName": "이매촌한신.서현역.AK프라자",
+          "sequence": 16,
+          "longitude": 127.124575295,
+          "latitude": 37.3884476145
+        },
+        {
+          "stopId": "206000200",
+          "stopName": "성남역",
+          "sequence": 17,
+          "longitude": 127.1216459533,
+          "latitude": 37.3945385547
+        },
+        {
+          "stopId": "206000314",
+          "stopName": "성남역.이매고교.아름마을.효성선경아파트",
+          "sequence": 18,
+          "longitude": 127.1236461614,
+          "latitude": 37.3952886349
+        },
+        {
+          "stopId": "206000313",
+          "stopName": "매송중학교.풍림아파트",
+          "sequence": 19,
+          "longitude": 127.1236795656,
+          "latitude": 37.3975555477
+        },
+        {
+          "stopId": "206000077",
+          "stopName": "이매촌삼성아파트",
+          "sequence": 20,
+          "longitude": 127.1255662341,
+          "latitude": 37.4004133327
+        },
+        {
+          "stopId": "206000076",
+          "stopName": "삼환아파트",
+          "sequence": 21,
+          "longitude": 127.1255617124,
+          "latitude": 37.4045223977
+        },
+        {
+          "stopId": "206000075",
+          "stopName": "하탑초교.탑마을3차아파트",
+          "sequence": 22,
+          "longitude": 127.1255633835,
+          "latitude": 37.4075972073
+        },
+        {
+          "stopId": "206000252",
+          "stopName": "야탑2동행정복지센터.차병원",
+          "sequence": 23,
+          "longitude": 127.1265981864,
+          "latitude": 37.4096756495
+        },
+        {
+          "stopId": "206000158",
+          "stopName": "야탑역.종합버스터미널(후면)",
+          "sequence": 24,
+          "longitude": 127.1290160034,
+          "latitude": 37.4116621946
+        },
+        {
+          "stopId": "205000029",
+          "stopName": "성남시청전면",
+          "sequence": 25,
+          "longitude": 127.1291020618,
+          "latitude": 37.419353022
+        },
+        {
+          "stopId": "205000069",
+          "stopName": "모란역4번출구",
+          "sequence": 26,
+          "longitude": 127.1295667081,
+          "latitude": 37.4310172467
+        },
+        {
+          "stopId": "204000087",
+          "stopName": "모란고개",
+          "sequence": 27,
+          "longitude": 127.1285883233,
+          "latitude": 37.4369992202
+        },
+        {
+          "stopId": "204000019",
+          "stopName": "성남수정경찰서",
+          "sequence": 28,
+          "longitude": 127.1276944925,
+          "latitude": 37.4417956117
+        },
+        {
+          "stopId": "204000022",
+          "stopName": "수진리고개.태평고개",
+          "sequence": 29,
+          "longitude": 127.1272441296,
+          "latitude": 37.4446829295
+        },
+        {
+          "stopId": "204000021",
+          "stopName": "가천대역.가천대학교",
+          "sequence": 30,
+          "longitude": 127.1269787346,
+          "latitude": 37.4488954081
+        },
+        {
+          "stopId": "204000020",
+          "stopName": "복우물.웃말입구",
+          "sequence": 31,
+          "longitude": 127.126873403,
+          "latitude": 37.453289333
+        },
+        {
+          "stopId": "204000227",
+          "stopName": "복정파출소.복정캠퍼스맛집거리",
+          "sequence": 32,
+          "longitude": 127.1267269507,
+          "latitude": 37.4554685406
+        },
+        {
+          "stopId": "204000116",
+          "stopName": "동서울대학교",
+          "sequence": 33,
+          "longitude": 127.1261383338,
+          "latitude": 37.458996938
+        },
+        {
+          "stopId": "204000115",
+          "stopName": "복정초등학교",
+          "sequence": 34,
+          "longitude": 127.1262653498,
+          "latitude": 37.4617596525
+        },
+        {
+          "stopId": "204000114",
+          "stopName": "복정동행정복지센터",
+          "sequence": 35,
+          "longitude": 127.1266706308,
+          "latitude": 37.4662135678
+        },
+        {
+          "stopId": "123000329",
+          "stopName": "복정역2번출구",
+          "sequence": 36,
+          "longitude": 127.1268694814,
+          "latitude": 37.4692838154
+        },
+        {
+          "stopId": "123000215",
+          "stopName": "복정역1번출구",
+          "sequence": 37,
+          "longitude": 127.127123,
+          "latitude": 37.472757
+        },
+        {
+          "stopId": "123000015",
+          "stopName": "장지역.가든파이브",
+          "sequence": 38,
+          "longitude": 127.126126,
+          "latitude": 37.478856
+        },
+        {
+          "stopId": "123000013",
+          "stopName": "문정법조단지.건영아파트",
+          "sequence": 39,
+          "longitude": 127.124583,
+          "latitude": 37.481955
+        },
+        {
+          "stopId": "123000011",
+          "stopName": "문정로데오거리입구",
+          "sequence": 40,
+          "longitude": 127.1214198552,
+          "latitude": 37.4882127127
+        },
+        {
+          "stopId": "123000009",
+          "stopName": "가락시장.가락시장역",
+          "sequence": 41,
+          "longitude": 127.117262,
+          "latitude": 37.494271
+        },
+        {
+          "stopId": "123000007",
+          "stopName": "송파역",
+          "sequence": 42,
+          "longitude": 127.111934,
+          "latitude": 37.500093
+        },
+        {
+          "stopId": "123000005",
+          "stopName": "석촌역",
+          "sequence": 43,
+          "longitude": 127.109062,
+          "latitude": 37.503242
+        },
+        {
+          "stopId": "123000003",
+          "stopName": "석촌호수.한솔병원",
+          "sequence": 44,
+          "longitude": 127.1058262006,
+          "latitude": 37.5068001738
+        },
+        {
+          "stopId": "123000579",
+          "stopName": "잠실역.롯데월드몰",
+          "sequence": 45,
+          "longitude": 127.1006716357,
+          "latitude": 37.512726197
+        },
+        {
+          "stopId": "123000001",
+          "stopName": "잠실역.잠실대교남단",
+          "sequence": 46,
+          "longitude": 127.0985638839,
+          "latitude": 37.5155383911
+        },
+        {
+          "stopId": "104000101",
+          "stopName": "자양동잠실대교북단",
+          "sequence": 47,
+          "longitude": 127.0858514017,
+          "latitude": 37.5321201527
+        },
+        {
+          "stopId": "104000291",
+          "stopName": "동서울우편집중국앞",
+          "sequence": 48,
+          "longitude": 127.084333,
+          "latitude": 37.535052
+        },
+        {
+          "stopId": "104000055",
+          "stopName": "NH농협은행자양로지점",
+          "sequence": 49,
+          "longitude": 127.0834073669,
+          "latitude": 37.5389648482
+        },
+        {
+          "stopId": "104000053",
+          "stopName": "광진경찰서. 동대부가람중고",
+          "sequence": 50,
+          "longitude": 127.0846474366,
+          "latitude": 37.5430873683
+        },
+        {
+          "stopId": "104000061",
+          "stopName": "구의사거리",
+          "sequence": 51,
+          "longitude": 127.0863480831,
+          "latitude": 37.5458173579
+        },
+        {
+          "stopId": "104000059",
+          "stopName": "구의2동주민센터입구",
+          "sequence": 52,
+          "longitude": 127.08958588,
+          "latitude": 37.5486416815
+        },
+        {
+          "stopId": "104000165",
+          "stopName": "아차산역2번출구",
+          "sequence": 53,
+          "longitude": 127.0905075507,
+          "latitude": 37.5508666828
+        },
+        {
+          "stopId": "104000046",
+          "stopName": "중곡동입구",
+          "sequence": 54,
+          "longitude": 127.0886689538,
+          "latitude": 37.5541967204
+        },
+        {
+          "stopId": "104000045",
+          "stopName": "신성시장",
+          "sequence": 55,
+          "longitude": 127.0879297616,
+          "latitude": 37.5583189468
+        },
+        {
+          "stopId": "104000044",
+          "stopName": "대원여자고등학교앞",
+          "sequence": 56,
+          "longitude": 127.0873093515,
+          "latitude": 37.5626950451
+        },
+        {
+          "stopId": "104000043",
+          "stopName": "대원고교앞",
+          "sequence": 57,
+          "longitude": 127.0869681157,
+          "latitude": 37.5641992207
+        },
+        {
+          "stopId": "104000042",
+          "stopName": "중곡SK아파트.용암사입구",
+          "sequence": 58,
+          "longitude": 127.0863735321,
+          "latitude": 37.5678680041
+        },
+        {
+          "stopId": "104000273",
+          "stopName": "중곡역.국립정신건강센터",
+          "sequence": 59,
+          "longitude": 127.0843249567,
+          "latitude": 37.5662294972
+        },
+        {
+          "stopId": "104000274",
+          "stopName": "보건복지행정타운",
+          "sequence": 60,
+          "longitude": 127.0833026919,
+          "latitude": 37.564373065
+        },
+        {
+          "stopId": "104000275",
+          "stopName": "중곡동성당",
+          "sequence": 61,
+          "longitude": 127.082402,
+          "latitude": 37.562765
+        },
+        {
+          "stopId": "104000019",
+          "stopName": "중곡2동주민센터앞",
+          "sequence": 62,
+          "longitude": 127.0808552636,
+          "latitude": 37.5598837254
+        },
+        {
+          "stopId": "104000160",
+          "stopName": "군자역7번출구",
+          "sequence": 63,
+          "longitude": 127.07882,
+          "latitude": 37.556322
+        },
+        {
+          "stopId": "104000159",
+          "stopName": "능동교회앞",
+          "sequence": 64,
+          "longitude": 127.0769927342,
+          "latitude": 37.5528739948
+        },
+        {
+          "stopId": "104000158",
+          "stopName": "세종대학교. 어린이대공원정문",
+          "sequence": 65,
+          "longitude": 127.07544,
+          "latitude": 37.549752
+        },
+        {
+          "stopId": "104000138",
+          "stopName": "어린이대공원역3번출구",
+          "sequence": 66,
+          "longitude": 127.075148,
+          "latitude": 37.546807
+        },
+        {
+          "stopId": "104000290",
+          "stopName": "어린이회관",
+          "sequence": 67,
+          "longitude": 127.079592,
+          "latitude": 37.545273
+        },
+        {
+          "stopId": "104000051",
+          "stopName": "구의사거리.광진소방서앞",
+          "sequence": 68,
+          "longitude": 127.084305,
+          "latitude": 37.544998
+        },
+        {
+          "stopId": "104000052",
+          "stopName": "광진경찰서. 건국사대부중",
+          "sequence": 69,
+          "longitude": 127.0836883111,
+          "latitude": 37.5415336614
+        },
+        {
+          "stopId": "104000082",
+          "stopName": "NH농협은행자양로지점",
+          "sequence": 70,
+          "longitude": 127.0831891894,
+          "latitude": 37.5387627825
+        },
+        {
+          "stopId": "104000095",
+          "stopName": "자양동잠실대교북단",
+          "sequence": 71,
+          "longitude": 127.0848057104,
+          "latitude": 37.5329553244
+        },
+        {
+          "stopId": "123000002",
+          "stopName": "잠실역.잠실대교남단",
+          "sequence": 72,
+          "longitude": 127.0996446129,
+          "latitude": 37.5137872849
+        },
+        {
+          "stopId": "123000004",
+          "stopName": "석촌호수.한솔병원",
+          "sequence": 73,
+          "longitude": 127.1052520216,
+          "latitude": 37.507105259
+        },
+        {
+          "stopId": "123000006",
+          "stopName": "석촌역",
+          "sequence": 74,
+          "longitude": 127.108318,
+          "latitude": 37.503857
+        },
+        {
+          "stopId": "123000008",
+          "stopName": "송파역",
+          "sequence": 75,
+          "longitude": 127.111084,
+          "latitude": 37.500836
+        },
+        {
+          "stopId": "123000010",
+          "stopName": "가락시장.가락시장역",
+          "sequence": 76,
+          "longitude": 127.116389,
+          "latitude": 37.495024
+        },
+        {
+          "stopId": "123000012",
+          "stopName": "문정로데오거리입구",
+          "sequence": 77,
+          "longitude": 127.120756,
+          "latitude": 37.489317
+        },
+        {
+          "stopId": "123000014",
+          "stopName": "문정법조단지.건영아파트",
+          "sequence": 78,
+          "longitude": 127.123821,
+          "latitude": 37.483219
+        },
+        {
+          "stopId": "123000016",
+          "stopName": "장지역.가든파이브",
+          "sequence": 79,
+          "longitude": 127.12543,
+          "latitude": 37.480076
+        },
+        {
+          "stopId": "123000249",
+          "stopName": "장지동",
+          "sequence": 80,
+          "longitude": 127.1263366558,
+          "latitude": 37.4691472156
+        },
+        {
+          "stopId": "204000113",
+          "stopName": "복정동행정복지센터",
+          "sequence": 81,
+          "longitude": 127.1261279444,
+          "latitude": 37.4660668905
+        },
+        {
+          "stopId": "204000112",
+          "stopName": "동서울대학교",
+          "sequence": 82,
+          "longitude": 127.1256549352,
+          "latitude": 37.4604054079
+        },
+        {
+          "stopId": "204000253",
+          "stopName": "복정파출소.복정캠퍼스맛집거리",
+          "sequence": 83,
+          "longitude": 127.1259172951,
+          "latitude": 37.4567072761
+        },
+        {
+          "stopId": "204000111",
+          "stopName": "복우물.웃말입구",
+          "sequence": 84,
+          "longitude": 127.1262931434,
+          "latitude": 37.4540856438
+        },
+        {
+          "stopId": "204000110",
+          "stopName": "가천대역.가천대학교",
+          "sequence": 85,
+          "longitude": 127.1264202802,
+          "latitude": 37.4496846343
+        },
+        {
+          "stopId": "204000023",
+          "stopName": "수진리고개.태평고개",
+          "sequence": 86,
+          "longitude": 127.1267572855,
+          "latitude": 37.4441608064
+        },
+        {
+          "stopId": "204000011",
+          "stopName": "성남수정경찰서앞",
+          "sequence": 87,
+          "longitude": 127.1273463019,
+          "latitude": 37.440629916
+        },
+        {
+          "stopId": "204000088",
+          "stopName": "모란고개",
+          "sequence": 88,
+          "longitude": 127.1281229439,
+          "latitude": 37.4365294331
+        },
+        {
+          "stopId": "205000020",
+          "stopName": "모란역6.7번출구",
+          "sequence": 89,
+          "longitude": 127.12891107,
+          "latitude": 37.4317533658
+        },
+        {
+          "stopId": "205000245",
+          "stopName": "성남시청전면",
+          "sequence": 90,
+          "longitude": 127.1285559072,
+          "latitude": 37.4181313535
+        },
+        {
+          "stopId": "206000361",
+          "stopName": "동부.코오롱아파트",
+          "sequence": 91,
+          "longitude": 127.1285691896,
+          "latitude": 37.4158463748
+        },
+        {
+          "stopId": "206000157",
+          "stopName": "야탑역.종합버스터미널(전면)",
+          "sequence": 92,
+          "longitude": 127.1285461605,
+          "latitude": 37.4113785802
+        },
+        {
+          "stopId": "206000258",
+          "stopName": "야탑2동행정복지센터.차병원",
+          "sequence": 93,
+          "longitude": 127.1267742245,
+          "latitude": 37.4099341736
+        },
+        {
+          "stopId": "206000106",
+          "stopName": "하탑초교.탑마을진덕아파트",
+          "sequence": 94,
+          "longitude": 127.1253708639,
+          "latitude": 37.4058629706
+        },
+        {
+          "stopId": "206000105",
+          "stopName": "이매중학교",
+          "sequence": 95,
+          "longitude": 127.1253338714,
+          "latitude": 37.4033511942
+        },
+        {
+          "stopId": "206000104",
+          "stopName": "상공회의소",
+          "sequence": 96,
+          "longitude": 127.1253501456,
+          "latitude": 37.3995124491
+        },
+        {
+          "stopId": "206000306",
+          "stopName": "매송중학교.풍림아파트",
+          "sequence": 97,
+          "longitude": 127.1234295394,
+          "latitude": 37.3975722094
+        },
+        {
+          "stopId": "206000305",
+          "stopName": "성남역.이매고교.아름마을.효성선경아파트",
+          "sequence": 98,
+          "longitude": 127.1234461407,
+          "latitude": 37.3954053174
+        },
+        {
+          "stopId": "206000762",
+          "stopName": "이매촌안말초교.성지아파트",
+          "sequence": 99,
+          "longitude": 127.1253035865,
+          "latitude": 37.3939750122
+        },
+        {
+          "stopId": "206000240",
+          "stopName": "이매촌금강아파트.코오롱아파트.동부아파트",
+          "sequence": 100,
+          "longitude": 127.1234634464,
+          "latitude": 37.39129613
+        },
+        {
+          "stopId": "206000695",
+          "stopName": "이매촌한신.서현역.AK프라자",
+          "sequence": 101,
+          "longitude": 127.1244104743,
+          "latitude": 37.3881600056
+        },
+        {
+          "stopId": "206000238",
+          "stopName": "양현보도육교.시범삼성한신아파트",
+          "sequence": 102,
+          "longitude": 127.1288155136,
+          "latitude": 37.3842958018
+        },
+        {
+          "stopId": "206000237",
+          "stopName": "서현중학교",
+          "sequence": 103,
+          "longitude": 127.1341758136,
+          "latitude": 37.3808870076
+        },
+        {
+          "stopId": "206000186",
+          "stopName": "동아우성아파트.효자촌.시범단지",
+          "sequence": 104,
+          "longitude": 127.1330445208,
+          "latitude": 37.3773363279
+        },
+        {
+          "stopId": "206000185",
+          "stopName": "중앙공원.샛별마을라이프아파트",
+          "sequence": 105,
+          "longitude": 127.1294308196,
+          "latitude": 37.3748086247
+        },
+        {
+          "stopId": "206000184",
+          "stopName": "중앙공원.샛별마을우방아파트",
+          "sequence": 106,
+          "longitude": 127.1261976865,
+          "latitude": 37.3724872026
+        },
+        {
+          "stopId": "206000244",
+          "stopName": "푸른마을",
+          "sequence": 107,
+          "longitude": 127.1231569096,
+          "latitude": 37.3703006605
+        },
+        {
+          "stopId": "206000243",
+          "stopName": "한솔마을.LG아파트",
+          "sequence": 108,
+          "longitude": 127.1188816201,
+          "latitude": 37.3655110478
+        },
+        {
+          "stopId": "206000242",
+          "stopName": "정든마을.우성아파트",
+          "sequence": 109,
+          "longitude": 127.1188950134,
+          "latitude": 37.362455877
+        },
+        {
+          "stopId": "206000223",
+          "stopName": "정자3동행정복지센터",
+          "sequence": 110,
+          "longitude": 127.1188913462,
+          "latitude": 37.360101272
+        },
+        {
+          "stopId": "206000178",
+          "stopName": "더샵분당파크리버.헬스케어혁신파크",
+          "sequence": 111,
+          "longitude": 127.1185314963,
+          "latitude": 37.3550957525
+        },
+        {
+          "stopId": "206000177",
+          "stopName": "청솔마을.주공9단지.동아아파트",
+          "sequence": 112,
+          "longitude": 127.1157775228,
+          "latitude": 37.3518386886
+        },
+        {
+          "stopId": "206000272",
+          "stopName": "미금역.농협.2001아울렛",
+          "sequence": 113,
+          "longitude": 127.1105530122,
+          "latitude": 37.350142874
+        },
+        {
+          "stopId": "206000094",
+          "stopName": "까치마을건영빌라.구미도서관",
+          "sequence": 114,
+          "longitude": 127.1086779944,
+          "latitude": 37.3474335111
+        },
+        {
+          "stopId": "206000216",
+          "stopName": "하얀마을",
+          "sequence": 115,
+          "longitude": 127.1086945953,
+          "latitude": 37.3440498188
+        },
+        {
+          "stopId": "206000335",
+          "stopName": "구미동차고지",
+          "sequence": 116,
+          "longitude": 127.105827697,
+          "latitude": 37.3419829277
+        }
+      ]
+    }
+  ],
+  "subwayLines": [],
+  "aliases": {
+    "busRouteAliasIds": {},
+    "busStopAliasIds": {},
+    "subwayLineAliasIds": {},
+    "subwayStationAliasIds": {}
+  },
+  "captures": [
+    {
+      "caseId": "user-provided-candidate14-endpoint-excerpt",
+      "region": "OUTSIDE_SEOUL",
+      "capturedAt": null,
+      "response": {
+        "status": "OK",
+        "properties": {
+          "total": 1,
+          "busAndSubway": 1
+        },
+        "routes": [
+          {
+            "properties": {
+              "type": "BUS_AND_SUBWAY",
+              "totalDistance": 4964,
+              "totalTime": 2017,
+              "transfers": 1,
+              "fare": {
+                "value": 1550
+              }
+            },
+            "steps": [
+              {
+                "properties": {
+                  "type": "SUBWAY",
+                  "distance": 700,
+                  "time": 150,
+                  "stops": [
+                    {
+                      "name": "판교"
+                    },
+                    {
+                      "name": "성남"
+                    }
+                  ],
+                  "vehicles": [
+                    {
+                      "name": "경강선",
+                      "type": "일반"
+                    }
+                  ]
+                },
+                "path": {
+                  "points": [
+                    [
+                      127.1119827,
+                      37.39477589
+                    ],
+                    [
+                      127.11955987,
+                      37.39474504
+                    ]
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "type": "WALKING",
+                  "distance": 215,
+                  "time": 253,
+                  "stops": [
+                    {
+                      "name": "성남"
+                    },
+                    {
+                      "name": "성남역"
+                    }
+                  ]
+                },
+                "path": {
+                  "points": [
+                    [
+                      127.11954905,
+                      37.39474505
+                    ],
+                    [
+                      127.12179622,
+                      37.39464635
+                    ]
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "type": "BUS",
+                  "distance": 3433,
+                  "time": 977,
+                  "stops": [
+                    {
+                      "name": "성남역"
+                    },
+                    {
+                      "name": "성남역.이매고교.아름마을.효성선경아파트"
+                    },
+                    {
+                      "name": "매송중학교.풍림아파트"
+                    },
+                    {
+                      "name": "이매촌삼성아파트"
+                    },
+                    {
+                      "name": "삼환아파트"
+                    },
+                    {
+                      "name": "하탑초교.탑마을3차아파트"
+                    },
+                    {
+                      "name": "야탑2동행정복지센터.차병원"
+                    },
+                    {
+                      "name": "야탑역.종합버스터미널(후면)"
+                    },
+                    {
+                      "name": "성남시청전면"
+                    }
+                  ],
+                  "vehicles": [
+                    {
+                      "name": "422",
+                      "type": "간선"
+                    }
+                  ]
+                },
+                "path": {
+                  "points": [
+                    [
+                      127.12179762,
+                      37.39463914
+                    ],
+                    [
+                      127.12898106,
+                      37.41928154
+                    ]
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "labels": []
+    }
+  ]
+}

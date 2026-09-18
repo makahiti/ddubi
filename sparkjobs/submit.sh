@@ -2,6 +2,7 @@
 # Spark 잡 제출 (spark 컨테이너 안에서 실행. 작업 디렉터리 /opt/ddubi/sparkjobs)
 #
 #   sh submit.sh streaming/weather_latest.py [잡 인자...]
+#   sh submit.sh streaming/realtime_latest.py [잡 인자...]
 #
 # - Kafka 커넥터(spark-sql-kafka-0-10_2.12)는 --packages 로 받는다. 첫 실행 때 Maven 에서 내려받고
 #   spark-ivy 볼륨(SPARK_IVY_DIR)에 캐시된다.

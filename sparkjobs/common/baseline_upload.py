@@ -7,13 +7,17 @@
 - 응답은 뚜비 공통 래퍼 {"success", "data"|"error", "timestamp", "requestId"} 로 온다
 - 활성화 전까지는 서빙에 반영되지 않는다. 중간 실패 시 이전 버전이 계속 서빙된다
 
-backend 의 실제 엔드포인트는 Phase 5 예정. 그 전까지는 tests/mock_baseline_server.py 를
-상대로 개발·검증한다 (주소만 바꾸면 실물에 붙는다).
+backend 엔드포인트는 2026-09-08 develop 에 배포됨(서버1 → http://<서버2 사설IP>/internal 통합 시험 통과).
+로컬 개발은 tests/mock_baseline_server.py 를 상대로 한다 (주소만 바꾸면 실물에 붙는다).
+
+정상적인 급감(노선 폐지 등)은 activate 에 allowShrink=true + shrinkReason 을 보내 한 번만 허용한다.
+운영자가 환경변수 BASELINE_ALLOW_SHRINK / BASELINE_SHRINK_REASON 으로 켠다 (shrink_options_from_env).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
@@ -22,6 +26,7 @@ import requests
 log = logging.getLogger("baseline_upload")
 
 CHUNK_MAX = 5000          # 계약: 한 요청당 rows 최대 5000개
+SHRINK_REASON_MAX = 100   # 계약: shrinkReason maxLength (backend 의 pipeline_config.config_value 가 VARCHAR(100))
 RETRIABLE_STATUS = {500, 502, 503, 504}
 
 
@@ -63,12 +68,13 @@ class BaselineUploadClient:
 
     # -- 공개 API ------------------------------------------------------------
 
-    def upload_and_activate(self, data_version: str, rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    def upload_and_activate(self, data_version: str, rows: Iterable[Dict[str, Any]],
+                            allow_shrink: bool = False, shrink_reason: Optional[str] = None) -> Dict[str, Any]:
         """rows 전체를 업로드하고 활성화까지 마친다. 성공 시 activate 응답 data 를 돌려준다."""
         total = self.upload_rows(data_version, rows)
-        result = self.activate(data_version, total)
-        log.info("baseline activated version=%s rows=%d previous=%s",
-                 data_version, total, (result or {}).get("previous"))
+        result = self.activate(data_version, total, allow_shrink=allow_shrink, shrink_reason=shrink_reason)
+        log.info("baseline activated version=%s rows=%d previous=%s purged=%s",
+                 data_version, total, (result or {}).get("previousVersion"), (result or {}).get("purgedVersions"))
         return result
 
     def upload_rows(self, data_version: str, rows: Iterable[Dict[str, Any]]) -> int:
@@ -85,10 +91,26 @@ class BaselineUploadClient:
             raise UploadError("업로드할 행이 없습니다 (rows 가 비어 있음)")
         return total
 
-    def activate(self, data_version: str, total_rows: int) -> Dict[str, Any]:
-        """업로드 완료를 선언한다. 서버가 행 수 대조·급감 검사 후 활성 버전을 전환한다."""
+    def activate(self, data_version: str, total_rows: int,
+                 allow_shrink: bool = False, shrink_reason: Optional[str] = None) -> Dict[str, Any]:
+        """업로드 완료를 선언한다. 서버가 행 수 대조·급감 검사 후 활성 버전을 전환한다.
+
+        allow_shrink=True 는 "직전 활성 버전 대비 절반 미만" 검사만 건너뛴다(정상 축소를 운영자가 허용).
+        이유(shrink_reason)가 없으면 서버가 400 을 주므로 여기서 먼저 막는다.
+        """
+        payload = {"totalRows": total_rows}  # type: Dict[str, Any]
+        if allow_shrink:
+            reason = (shrink_reason or "").strip()
+            if not reason:
+                raise ValueError("allow_shrink=True 이면 shrink_reason 이 필요합니다 (BASELINE_SHRINK_REASON)")
+            if len(reason) > SHRINK_REASON_MAX:
+                raise ValueError("shrink_reason 은 {}자 이내여야 합니다 (지금 {}자). 짧은 사유 + 이슈 번호로 쓰고 긴 근거는 이슈에 둡니다".format(
+                    SHRINK_REASON_MAX, len(reason)))
+            payload["allowShrink"] = True
+            payload["shrinkReason"] = reason
+            log.warning("activate with allowShrink version=%s reason=%s", data_version, payload["shrinkReason"])
         return self._post("/internal/baselines/{}/versions/{}/activate".format(
-            self.baseline_type, data_version), {"totalRows": total_rows}) or {}
+            self.baseline_type, data_version), payload) or {}
 
     # -- 내부 ------------------------------------------------------------------
 
@@ -129,6 +151,17 @@ class BaselineUploadClient:
             raise upload_error
 
         raise last_error if last_error else UploadError("알 수 없는 업로드 실패")
+
+
+def shrink_options_from_env(environ: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """운영자가 이번 실행에만 급감 허용을 켰는지 환경변수로 읽는다.
+
+    BASELINE_ALLOW_SHRINK=true|1|yes 와 BASELINE_SHRINK_REASON 을 본다. 배치 잡은
+    client.upload_and_activate(version, rows, **shrink_options_from_env()) 로 넘긴다.
+    """
+    env = os.environ if environ is None else environ
+    flag = (env.get("BASELINE_ALLOW_SHRINK") or "").strip().lower() in ("1", "true", "yes")
+    return {"allow_shrink": flag, "shrink_reason": (env.get("BASELINE_SHRINK_REASON") or "").strip() or None}
 
 
 def _parse_wrapper(resp: "requests.Response") -> Dict[str, Any]:

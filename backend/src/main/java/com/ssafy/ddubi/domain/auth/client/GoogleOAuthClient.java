@@ -110,17 +110,14 @@ public class GoogleOAuthClient extends AbstractOAuthClient {
 
     @Override
     protected OAuthUserInfo parseProfile(JsonNode body) {
-        // 미인증 이메일로는 계정을 통합하지 않는다(도메인 규칙 3).
+        // 값과 검증 여부를 그대로 넘기고, 쓸지 말지는 AuthService 가 정한다.
         // 구글 개인 계정은 사실상 항상 true 지만, Workspace 관리자가 만든 계정은 아닐 수 있다.
-        String email = null;
-        if (body.path("email").isTextual()) {
-            if (isEmailVerified(body)) {
-                email = body.path("email").asText();
-            } else {
-                log.warn("구글 이메일 미인증 — 계정 통합 대상에서 제외한다");
-            }
+        String email = body.path("email").isTextual() ? body.path("email").asText() : null;
+        boolean emailVerified = isEmailVerified(body);
+        if (email != null && !emailVerified) {
+            log.warn("구글 이메일 미인증 — 계정 연동에 쓰지 않는다");
         }
-        return new OAuthUserInfo(text(body, "sub"), email, text(body, "name"));
+        return new OAuthUserInfo(text(body, "sub"), email, emailVerified, text(body, "name"));
     }
 
     /** 구글은 email_verified 를 boolean 으로도 문자열 "true" 로도 준다. */

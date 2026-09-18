@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-keep",
+  "scheduleId": "schedule-1",
+  "inputVersion": 3,
+  "state": "READY",
+  "decision": "KEEP_DEPARTURE",
+  "userInputDepartAt": "2026-09-17T23:50:00+09:00",
+  "plannedDepartAt": "2026-09-17T23:50:00+09:00",
+  "arriveBy": "2026-09-18T00:40:00+09:00",
+  "targetArriveAt": "2026-09-18T00:30:00+09:00",
+  "proposedDepartAt": "2026-09-17T23:50:00+09:00",
+  "estimatedArrivalAt": "2026-09-18T00:25:00+09:00",
+  "durationSeconds": 2100,
+  "selectedRouteId": "route-1",
+  "quality": {
+    "preview": false,
+    "productionEligible": true,
+    "realtimeApplied": true,
+    "walkingApiApplied": true,
+    "walkingApiCoverage": "BOTH",
+    "costCoverage": "COMPLETE",
+    "missingInputs": [],
+    "fallbackReasons": []
+  },
+  "legs": [
+    {
+      "sequence": 1,
+      "mode": "WALK",
+      "legRole": "ACCESS_WALK",
+      "durationSource": "KAKAO_WALKING_API",
+      "fromName": "집",
+      "toName": "정류장",
+      "durationSeconds": 305,
+      "endpointEvidence": {"verified": true, "source": "STOP_MASTER"}
+    },
+    {
+      "sequence": 2,
+      "mode": "BUS",
+      "legRole": "RIDE",
+      "durationSource": "REALTIME_ARRIVAL",
+      "fromName": "정류장",
+      "toName": "환승역",
+      "durationSeconds": 1200
+    },
+    {
+      "sequence": 3,
+      "mode": "WALK",
+      "legRole": "TRANSFER_WALK",
+      "durationSource": "PUBLIC_TRANSIT_STEP",
+      "fromName": "환승역",
+      "toName": "승강장",
+      "durationSeconds": 180
+    },
+    {
+      "sequence": 4,
+      "mode": "WALK",
+      "legRole": "EGRESS_WALK",
+      "durationSource": "KAKAO_WALKING_API",
+      "fromName": "도착역",
+      "toName": "회사",
+      "durationSeconds": 415
+    }
+  ],
+  "computedAt": "2026-09-17T14:45:00Z",
+  "validUntil": "2099-09-17T15:00:00Z"
+}

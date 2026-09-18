@@ -1,3 +1,4 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
@@ -23,15 +24,27 @@ val kakaoNativeAppKey = System.getenv("KAKAO_NATIVE_APP_KEY")
     ?: localEnv.getProperty("KAKAO_NATIVE_APP_KEY")
     ?: "NOT_CONFIGURED"
 
-val naverClientId = System.getenv("NAVER_CLIENT_ID")
-    ?: localEnv.getProperty("NAVER_CLIENT_ID")
-    ?: ""
-val naverClientSecret = System.getenv("NAVER_CLIENT_SECRET")
-    ?: localEnv.getProperty("NAVER_CLIENT_SECRET")
-    ?: ""
-val naverClientName = System.getenv("NAVER_CLIENT_NAME")
-    ?: localEnv.getProperty("NAVER_CLIENT_NAME")
-    ?: "DDUBI"
+val ddubiKeystorePath = System.getenv("DDUBI_KEYSTORE_PATH")
+val ddubiKeystorePassword = System.getenv("DDUBI_KEYSTORE_PASSWORD")
+val ddubiKeyAlias = System.getenv("DDUBI_KEY_ALIAS") ?: "ddubi"
+val ddubiKeyPassword = System.getenv("DDUBI_KEY_PASSWORD")
+val ddubiKeystoreFile = ddubiKeystorePath
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::File)
+val releaseSigningConfigured = listOf(
+    ddubiKeystorePassword,
+    ddubiKeyPassword,
+).all { !it.isNullOrBlank() } && ddubiKeystoreFile?.isFile == true
+val releaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
+if (releaseTaskRequested && !releaseSigningConfigured) {
+    throw GradleException(
+        "Release signing is not configured. Set DDUBI_KEYSTORE_PATH, " +
+            "DDUBI_KEYSTORE_PASSWORD, and DDUBI_KEY_PASSWORD.",
+    )
+}
 
 fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
@@ -50,6 +63,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = ddubiKeystoreFile
+                storePassword = ddubiKeystorePassword
+                keyAlias = ddubiKeyAlias
+                keyPassword = ddubiKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.ssafy.ddubi"
@@ -64,22 +88,26 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         manifestPlaceholders["KAKAO_NATIVE_APP_KEY"] = kakaoNativeAppKey
-        buildConfigField("String", "NAVER_CLIENT_ID", naverClientId.asBuildConfigString())
-        buildConfigField("String", "NAVER_CLIENT_SECRET", naverClientSecret.asBuildConfigString())
-        buildConfigField("String", "NAVER_CLIENT_NAME", naverClientName.asBuildConfigString())
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                // IDE model sync and debug builds remain usable, while an actual
+                // release task is rejected by the guard above.
+                signingConfigs.getByName("debug")
+            }
+            // R8 renames the Kakao map and Naver login classes that those SDKs look up
+            // by name at runtime, which aborts the release app. Keep rules live in
+            // proguard-rules.pro; without this line they are never applied.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
-}
-
-dependencies {
-    implementation("com.navercorp.nid:oauth:5.12.0")
 }
 
 kotlin {

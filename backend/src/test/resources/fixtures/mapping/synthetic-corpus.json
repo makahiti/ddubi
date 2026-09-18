@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "kind": "SYNTHETIC",
+  "masterDataVersion": "SYNTHETIC-V1",
+  "masterSource": "합성 단위 테스트. 실제 서울 노선·ID·운행시간이 아님.",
+  "busMaxEndpointDistanceMeters": 150,
+  "busRoutes": [{
+    "routeId": "R1", "routeName": "검증버스",
+    "stops": [
+      {"stopId": "A", "stopName": "가상출발", "sequence": 1, "longitude": 127.0, "latitude": 37.5},
+      {"stopId": "B", "stopName": "가상경유", "sequence": 2, "longitude": 127.005, "latitude": 37.5},
+      {"stopId": "C", "stopName": "가상도착", "sequence": 3, "longitude": 127.01, "latitude": 37.5}
+    ]
+  }],
+  "subwayLines": [{
+    "subwayId": "S1", "realtimeSubwayId": null, "lineName": "검증선",
+    "direction": "UP", "servicePatternId": "SYNTHETIC-PATTERN",
+    "stations": [
+      {"stationId": "X", "realtimeStationId": null, "stationName": "가상역가", "sequence": 1},
+      {"stationId": "Y", "realtimeStationId": null, "stationName": "가상역나", "sequence": 2}
+    ]
+  }],
+  "aliases": {"busRouteAliasIds": {}, "busStopAliasIds": {}, "subwayLineAliasIds": {}, "subwayStationAliasIds": {}},
+  "captures": [{
+    "caseId": "synthetic-bus-subway", "region": "SEOUL", "capturedAt": "2026-09-07T10:00:00+09:00",
+    "response": {
+      "status": "OK", "properties": {"total": 1},
+      "routes": [{
+        "properties": {"type": "BUS_AND_SUBWAY", "totalDistance": 2100, "totalTime": 900, "transfers": 1},
+        "steps": [
+          {"properties": {"type": "BUS", "distance": 1000, "time": 300,
+            "stops": [{"name": "가상출발"}, {"name": "가상경유"}, {"name": "가상도착"}],
+            "vehicles": [{"name": "검증버스", "type": "간선"}]},
+            "path": {"points": [[127.0, 37.5], [127.01, 37.5]]}},
+          {"properties": {"type": "WALKING", "distance": 100, "time": 120,
+            "stops": [{"name": "가상도착"}, {"name": "가상역가"}]}},
+          {"properties": {"type": "SUBWAY", "distance": 1000, "time": 180,
+            "stops": [{"name": "가상역가"}, {"name": "가상역나"}],
+            "vehicles": [{"name": "검증선", "type": "일반"}]}}
+        ]
+      }]
+    },
+    "labels": [
+      {"candidateIndex": 0, "stepSequence": 1, "reviewedBy": "synthetic-test", "evidence": "합성 A-B-C 순서",
+        "expectedStatus": "EXACT", "expectedSegmentIds": ["BUS:R1:A:B", "BUS:R1:B:C"]},
+      {"candidateIndex": 0, "stepSequence": 3, "reviewedBy": "synthetic-test", "evidence": "합성 X-Y 순서, 실시간 대응 없음",
+        "expectedStatus": "EXACT", "expectedSegmentIds": ["SUB:S1:X:Y"]}
+    ]
+  }]
+}

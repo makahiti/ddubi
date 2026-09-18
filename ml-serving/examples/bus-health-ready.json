@@ -1,0 +1,10 @@
+{
+  "status": "READY_FOR_PREVIEW",
+  "model_version": "20260908-v12",
+  "model_type": "lightgbm",
+  "target": "hourly_mean_bus_segment_seconds",
+  "production_ready": false,
+  "bundle_production_ready": false,
+  "supported_from": "2026-09-10",
+  "supported_until": "2026-09-17"
+}

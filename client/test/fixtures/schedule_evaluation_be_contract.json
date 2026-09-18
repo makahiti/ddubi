@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-be-contract",
+  "scheduleId": "schedule-1",
+  "state": "READY",
+  "decision": "KEEP_DEPARTURE",
+  "plannedDepartAt": "2026-09-17T23:50:00+09:00",
+  "proposedDepartAt": "2026-09-17T23:50:00+09:00",
+  "estimatedArrivalAt": "2026-09-18T00:25:00+09:00",
+  "quality": {
+    "preview": false,
+    "productionEligible": true,
+    "realtimeApplied": true,
+    "walkingApiApplied": true,
+    "walkingApiCoverage": "ACCESS_ONLY",
+    "costCoverage": "COMPLETE",
+    "missingInputs": [],
+    "fallbackReasons": []
+  },
+  "segments": [
+    {
+      "sequence": 1,
+      "mode": "WALK",
+      "legRole": "ACCESS_WALK",
+      "durationSource": "KAKAO_WALKING_API",
+      "fromName": "집",
+      "toName": "정류장",
+      "durationSeconds": 240,
+      "endpointEvidence": {
+        "verified": true,
+        "source": "STOP_MASTER",
+        "mappingVersion": "bus-master-20260917",
+        "policyVersion": "endpoint-policy-v2",
+        "distanceMeters": 18,
+        "judgment": "MATCHED",
+        "providerCoordinate": {"latitude": 35.1, "longitude": 129.1},
+        "masterCoordinate": {"latitude": 35.1001, "longitude": 129.1001}
+      }
+    }
+  ],
+  "causes": [
+    {
+      "incidentKey": "incident-42",
+      "revision": 3,
+      "source": "OFFICIAL_NOTICE",
+      "officialNoticeAt": "2026-09-17T14:20:00Z",
+      "affectedSegmentIds": ["segment-1", "segment-2"],
+      "evidenceLevel": "FULL",
+      "reasonCode": "ROAD_CONTROL",
+      "observedAt": "2026-09-17T14:21:00Z"
+    }
+  ],
+  "computedAt": "2026-09-17T14:45:00Z",
+  "validUntil": "2099-09-17T15:00:00Z"
+}

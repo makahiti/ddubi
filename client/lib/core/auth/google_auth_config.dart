@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../diagnostics/app_log.dart';
+
 class GoogleAuthConfig {
   const GoogleAuthConfig._();
 
@@ -22,8 +24,8 @@ class GoogleAuthConfig {
       await GoogleSignIn.instance.initialize(serverClientId: webClientId);
       _initialized = true;
     } on Object catch (error, stackTrace) {
-      debugPrint('Google Sign-In SDK initialization failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      AppLog.debug('Google Sign-In SDK initialization failed: $error');
+      AppLog.stack(stackTrace);
     }
   }
 }

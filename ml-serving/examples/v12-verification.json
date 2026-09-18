@@ -1,0 +1,36 @@
+{
+  "model_version": "20260908-v12",
+  "compared_rows": 10,
+  "max_absolute_difference_seconds": 0.0,
+  "load_seconds": 1.288911099996767,
+  "batch_seconds": [
+    2.0665537000022596,
+    1.8481031999981496
+  ],
+  "production_ready": false,
+  "purpose": "서버 원본과 로컬 HTTP 이식 동등성; 모델 정확도 평가 아님",
+  "verified_on": "2026-09-10",
+  "model_sha256": "977dfd88d8ee978515975f2f0ec5e116e1102b4ea78cbefd12ed9bca4fb0a19f",
+  "runtime_versions": {
+    "numpy": "2.5.2",
+    "pandas": "3.0.5",
+    "scikit-learn": "1.9.0",
+    "lightgbm": "4.7.0",
+    "joblib": "1.6.0",
+    "pyarrow": "25.0.1",
+    "holidays": "0.103"
+  },
+  "missing_reference_files": [
+    "aux_daily/OA-21218/2026-06-16.parquet",
+    "aux_daily/OA-21218/2026-07-01.parquet",
+    "aux_daily/OA-21219/2026-07-01.parquet",
+    "bus_daily/2026-05-16.parquet",
+    "bus_daily/2026-05-18.parquet",
+    "bus_daily/2026-06-15.parquet",
+    "bus_daily/2026-06-28.parquet",
+    "bus_daily/2026-07-01.parquet"
+  ],
+  "sample_scope": "서울 노선 100100001의 10개 인접 구간, 2026-09-10 09시; 전체 커버리지나 정확도 평가 아님",
+  "http_smoke_test": "127.0.0.1:8000 실제 POST 10개 모두 PREVIEW",
+  "tests": "16 passed"
+}

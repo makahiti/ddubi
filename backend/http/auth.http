@@ -507,3 +507,137 @@ Content-Type: application/json
         client.assert(response.status === 400);
     });
 %}
+
+###############################################################################
+# 계정 연동 (AUTH-003b, 2026-09-10)
+#
+# 소셜 이메일이 기존 계정과 같아도 자동으로 붙지 않는다. 아래 순서로 확인한다.
+# 자세한 계약: docs/contracts/api-spec-account-link-amendment.md
+###############################################################################
+
+### ⑴ 로컬로 먼저 가입해 둔다 — 붙일 대상 계정
+# (이메일 인증 코드 발송·확인은 위쪽 시나리오 참고)
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "link-test@ddubi.com",
+  "password": "password123",
+  "nickname": "기존사용자",
+  "deviceId": "dev-link"
+}
+
+### ⑵ 같은 이메일의 소셜로 로그인 — ACCOUNT_LINK_REQUIRED 가 나와야 한다
+# 응답 data.status 를 확인한다. AUTHENTICATED 가 나오면 자동 통합이 되살아난 것이다.
+#
+# 기대:
+#   "status": "ACCOUNT_LINK_REQUIRED"
+#   "linkToken": "..."            ← ⑶ 에 넣는다
+#   "email": "li***@ddubi.com"    ← 마스킹
+#   "tokens": 없음
+POST {{host}}/api/v1/auth/oauth/token
+Content-Type: application/json
+
+{
+  "provider": "NAVER",
+  "accessToken": "네이버_SDK_액세스토큰",
+  "deviceId": "dev-link"
+}
+
+### ⑶ 비밀번호를 틀리게 — 401, 그리고 티켓이 소비된다
+@linkToken = ⑵_응답의_linkToken
+POST {{host}}/api/v1/auth/oauth/link
+Content-Type: application/json
+
+{ "linkToken": "{{linkToken}}", "password": "wrong-password", "deviceId": "dev-link" }
+
+### ⑷ 같은 티켓으로 맞는 비밀번호 — 401 LINK_TOKEN_INVALID
+# ⑶ 에서 이미 소비됐다. 통하면 이 화면이 비밀번호 대입 창구가 된다.
+POST {{host}}/api/v1/auth/oauth/link
+Content-Type: application/json
+
+{ "linkToken": "{{linkToken}}", "password": "password123", "deviceId": "dev-link" }
+
+### ⑸ ⑵ 를 다시 불러 새 티켓을 받은 뒤 — 연동 성공, 토큰 발급
+@freshLinkToken = 다시_받은_linkToken
+POST {{host}}/api/v1/auth/oauth/link
+Content-Type: application/json
+
+{ "linkToken": "{{freshLinkToken}}", "password": "password123", "deviceId": "dev-link" }
+
+### ⑹ 연동 후 같은 소셜로 로그인 — 이제 바로 AUTHENTICATED
+POST {{host}}/api/v1/auth/oauth/token
+Content-Type: application/json
+
+{
+  "provider": "NAVER",
+  "accessToken": "네이버_SDK_액세스토큰",
+  "deviceId": "dev-link"
+}
+
+### ⑺ 비밀번호 없는 계정에 다른 소셜 — 409 ACCOUNT_LINK_UNAVAILABLE
+# 준비: 로컬 가입 없이 구글로만 가입한 계정을 만든 뒤, 같은 이메일로 카카오 로그인.
+# 메시지에 실제로 붙어 있는 제공자 이름(GOOGLE)이 들어가야 한다.
+POST {{host}}/api/v1/auth/oauth/token
+Content-Type: application/json
+
+{
+  "provider": "KAKAO",
+  "accessToken": "카카오_SDK_액세스토큰",
+  "deviceId": "dev-link2"
+}
+
+### ⑻ 마이페이지 소셜 연결 — 로그인 상태에서, 비밀번호 없이
+# ⑺ 에서 409 ACCOUNT_LINK_UNAVAILABLE 을 받은 사용자가 오는 곳.
+# 기존에 쓰던 소셜(GOOGLE)로 로그인해 토큰을 받은 뒤 새 소셜(KAKAO)을 붙인다.
+#
+# 응답: {"providers": ["GOOGLE", "KAKAO"]}  ← 연결 후 전체 로그인 수단
+@meToken = 기존_소셜로_로그인해서_받은_accessToken
+POST {{host}}/api/v1/auth/social-links
+Authorization: Bearer {{meToken}}
+Content-Type: application/json
+
+{ "provider": "KAKAO", "accessToken": "카카오_SDK_액세스토큰" }
+
+### ⑼ 같은 소셜을 또 연결 — 200, 멱등
+POST {{host}}/api/v1/auth/social-links
+Authorization: Bearer {{meToken}}
+Content-Type: application/json
+
+{ "provider": "KAKAO", "accessToken": "카카오_SDK_액세스토큰" }
+
+### ⑽ 같은 제공자의 다른 계정 — 409 DUPLICATE_RESOURCE
+# 조용히 갈아치우면 원래 그 계정으로 로그인하던 사람이 못 들어온다.
+POST {{host}}/api/v1/auth/social-links
+Authorization: Bearer {{meToken}}
+Content-Type: application/json
+
+{ "provider": "KAKAO", "accessToken": "다른_카카오계정_액세스토큰" }
+
+### ⑾ 로그인 없이 — 401
+POST {{host}}/api/v1/auth/social-links
+Content-Type: application/json
+
+{ "provider": "KAKAO", "accessToken": "카카오_SDK_액세스토큰" }
+
+### ⑿ 소셜 해제 — 수단이 둘 이상일 때만 된다
+# 응답: {"providers": ["LOCAL"]}  ← 해제 후 남은 수단
+DELETE {{host}}/api/v1/auth/social-links/KAKAO
+Authorization: Bearer {{meToken}}
+
+### ⒀ 마지막 하나를 떼려 하면 409 LAST_LOGIN_METHOD
+# 떼면 사용자가 자기 계정에서 잠기고 되돌릴 방법이 없다.
+# 프론트는 남은 수단이 하나면 버튼 자체를 비활성화한다.
+DELETE {{host}}/api/v1/auth/social-links/GOOGLE
+Authorization: Bearer {{meToken}}
+
+### ⒁ LOCAL 은 이 API 로 못 뗀다 — 400
+DELETE {{host}}/api/v1/auth/social-links/LOCAL
+Authorization: Bearer {{meToken}}
+
+### ⒂ 연결되지 않은 소셜 — 404
+DELETE {{host}}/api/v1/auth/social-links/NAVER
+Authorization: Bearer {{meToken}}
+
+### ⒃ 로그인 없이 — 401
+DELETE {{host}}/api/v1/auth/social-links/KAKAO

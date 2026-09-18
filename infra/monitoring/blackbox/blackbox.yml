@@ -1,0 +1,11 @@
+# blackbox exporter 설정. "어떻게 찔러 볼지" 를 모듈로 정의한다. 어떤 주소를 찌를지는 prometheus.yml 이 정한다.
+modules:
+  # HTTP GET 을 보내 2xx 가 오면 성공. ml-serving 의 /health/ready 는 모델이 준비되면 200, 아니면 503 을 주므로
+  # 이 모듈 하나로 "살아 있고 예측 가능한 상태인가" 를 판정한다. 응답이 10초 넘으면 실패로 본다(모델이 막혀 있는 경우).
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      preferred_ip_protocol: ip4
+      follow_redirects: false

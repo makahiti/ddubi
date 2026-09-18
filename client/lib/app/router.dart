@@ -4,11 +4,15 @@ import 'package:go_router/go_router.dart';
 
 import '../core/constants/layout_constants.dart';
 import '../core/theme.dart';
+import '../core/network/dio_provider.dart';
 import '../domain/models.dart';
+import '../domain/schedule_evaluation.dart';
 import '../presentation/screens.dart';
 import '../providers/app_providers.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final sessions = ref.watch(authSessionStoreProvider);
+  var wasAuthenticated = sessions.session != null;
   final repository = ref.watch(ddubiRepositoryProvider);
   final scheduleRepository = ref.watch(scheduleRepositoryProvider);
   final authRepository = ref.watch(authRepositoryProvider);
@@ -16,16 +20,34 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final googleLoginService = ref.watch(googleLoginServiceProvider);
   final naverLoginService = ref.watch(naverLoginServiceProvider);
   final placeSearchService = ref.watch(placeApiProvider);
+  final savedPlaceApi = ref.watch(savedPlaceApiProvider);
   final homeApi = ref.watch(homeApiProvider);
   final repeatScheduleRepository = ref.watch(repeatScheduleRepositoryProvider);
   final notificationApi = ref.watch(notificationApiProvider);
   final userApi = ref.watch(userApiProvider);
   final recommendationApi = ref.watch(recommendationApiProvider);
+  final arrivalApi = ref.watch(arrivalApiProvider);
+  final reportApi = ref.watch(reportApiProvider);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: sessions.session != null
+        ? '/home'
+        : sessions.hasLaunched
+        ? '/login'
+        : '/intro',
+    refreshListenable: sessions,
+    redirect: (context, state) {
+      if (sessions.session != null) {
+        wasAuthenticated = true;
+      } else if (wasAuthenticated) {
+        wasAuthenticated = false;
+        return '/login';
+      }
+      return null;
+    },
     routes: [
-      GoRoute(path: '/', redirect: (context, state) => '/login'),
+      GoRoute(path: '/', redirect: (context, state) => '/intro'),
+      GoRoute(path: '/intro', builder: (context, state) => const IntroScreen()),
       GoRoute(
         path: '/login',
         builder: (context, state) => LoginScreen(
@@ -33,6 +55,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           kakaoLoginService: kakaoLoginService,
           googleLoginService: googleLoginService,
           naverLoginService: naverLoginService,
+          onKeepSignedInChanged: (value) => sessions.keepSignedIn = value,
         ),
       ),
       ShellRoute(
@@ -41,8 +64,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/home',
-            builder: (context, state) =>
-                HomeScreen(repository: repository, homeApi: homeApi),
+            builder: (context, state) => HomeScreen(
+              homeApi: homeApi,
+              recommendationApi: recommendationApi,
+              evaluationRepository:
+                  scheduleRepository is ScheduleEvaluationRepository
+                  ? scheduleRepository as ScheduleEvaluationRepository
+                  : null,
+            ),
           ),
           GoRoute(
             path: '/schedules',
@@ -66,6 +95,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 ),
               ),
               GoRoute(
+                path: 'repeats',
+                builder: (context, state) => RepeatSchedulesScreen(
+                  repository: repeatScheduleRepository,
+                  placeSearchService: placeSearchService,
+                ),
+              ),
+              GoRoute(
+                path: 'repeats/:id/edit',
+                builder: (context, state) => RepeatScheduleEditScreen(
+                  repository: repeatScheduleRepository,
+                  placeSearchService: placeSearchService,
+                  repeatId: state.pathParameters['id']!,
+                ),
+              ),
+              GoRoute(
                 path: ':id/edit',
                 builder: (context, state) => ScheduleEditScreen(
                   repository: scheduleRepository,
@@ -75,10 +119,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               GoRoute(
                 path: ':id',
-                builder: (context, state) => ScheduleDetailScreen(
-                  repository: scheduleRepository,
-                  scheduleId: state.pathParameters['id']!,
-                ),
+                builder: (context, state) {
+                  final arguments = state.extra is ScheduleDetailArguments
+                      ? state.extra! as ScheduleDetailArguments
+                      : null;
+                  return ScheduleDetailScreen(
+                    repository: scheduleRepository,
+                    routeRepository: repository,
+                    recommendationApi: recommendationApi,
+                    scheduleId: state.pathParameters['id']!,
+                    arrivalApi: arrivalApi,
+                    initialSchedule: arguments?.schedule,
+                    initialRoutes: arguments?.routes,
+                  );
+                },
               ),
             ],
           ),
@@ -103,6 +157,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/notifications',
             builder: (context, state) =>
                 NotificationsScreen(api: notificationApi),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => NotificationDetailScreen(
+                  api: notificationApi,
+                  notificationId: state.pathParameters['id']!,
+                  evaluationRepository:
+                      scheduleRepository is ScheduleEvaluationRepository
+                      ? scheduleRepository as ScheduleEvaluationRepository
+                      : null,
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/settings',
@@ -110,7 +177,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               repository: repository,
               userApi: userApi,
               authRepository: authRepository,
+              reportApi: reportApi,
             ),
+            routes: [
+              GoRoute(
+                path: 'places',
+                builder: (context, state) => SavedPlacesScreen(
+                  api: savedPlaceApi,
+                  searchService: placeSearchService,
+                ),
+              ),
+              GoRoute(
+                path: 'records',
+                builder: (context, state) =>
+                    TravelRecordsScreen(api: reportApi),
+              ),
+              GoRoute(
+                path: 'account',
+                builder: (context, state) => AccountManagementScreen(
+                  userApi: userApi,
+                  authRepository: authRepository,
+                  kakaoLoginService: kakaoLoginService,
+                  googleLoginService: googleLoginService,
+                ),
+              ),
+            ],
           ),
         ],
       ),

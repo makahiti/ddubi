@@ -39,7 +39,7 @@ def make_rows(n, version_tag="a", p50=300, p95=600):
 
 def test_upload_and_activate_happy_path(server, client):
     result = client.upload_and_activate("2026-09-01", make_rows(250))
-    assert result["activated"] == "2026-09-01"
+    assert result["activeVersion"] == "2026-09-01"
     state = server.state
     assert state.active_version == "2026-09-01"
     assert len(state.versions["2026-09-01"]) == 250
@@ -109,11 +109,41 @@ def test_row_count_drop_is_rejected(server, client):
     assert server.state.active_version == "v1"  # 이전 버전이 계속 서빙
 
 
+def test_shrink_allowed_with_reason(server, client):
+    client.upload_and_activate("v1", make_rows(100, "x"))
+    client.upload_rows("v2", make_rows(40, "y"))  # 절반 미만이지만 운영자가 허용
+    result = client.activate("v2", total_rows=40, allow_shrink=True, shrink_reason="노선 3개 폐지")
+    assert result["activeVersion"] == "v2" and result["rowCount"] == 40
+    assert server.state.last_shrink_reason == "노선 3개 폐지"
+
+
+def test_shrink_without_reason_is_refused_before_sending(server, client):
+    client.upload_rows("v-nr", make_rows(5, "z"))
+    with pytest.raises(ValueError):
+        client.activate("v-nr", total_rows=5, allow_shrink=True)
+
+
+def test_shrink_reason_over_100_chars_is_refused_before_sending(server, client):
+    client.upload_rows("v-long", make_rows(5, "z"))
+    with pytest.raises(ValueError):
+        client.activate("v-long", total_rows=5, allow_shrink=True, shrink_reason="사" * 101)
+    # 정확히 100자는 통과해야 한다 (서버 mock 도 같은 기준)
+    result = client.activate("v-long", total_rows=5, allow_shrink=True, shrink_reason="사" * 100)
+    assert result["activeVersion"] == "v-long"
+
+
+def test_shrink_options_from_env():
+    from common.baseline_upload import shrink_options_from_env
+    assert shrink_options_from_env({}) == {"allow_shrink": False, "shrink_reason": None}
+    opts = shrink_options_from_env({"BASELINE_ALLOW_SHRINK": "true", "BASELINE_SHRINK_REASON": " 폐지 "})
+    assert opts == {"allow_shrink": True, "shrink_reason": "폐지"}
+
+
 def test_version_protection_keeps_active_and_previous(server, client):
     client.upload_and_activate("v1", make_rows(100, "a"))
     client.upload_and_activate("v2", make_rows(90, "b"))
     result = client.upload_and_activate("v3", make_rows(80, "c"))
-    assert result["deletedVersions"] == ["v1"]  # 활성(v3)·직전(v2)만 보호
+    assert result["purgedVersions"] == ["v1"]  # 활성(v3)·직전(v2)만 보호
     assert set(server.state.versions) == {"v2", "v3"}
 
 
@@ -124,7 +154,7 @@ def test_duplicate_rows_are_upserted(server, client):
     assert len(server.state.versions["v-dup"]) == 30  # 중복 없이 30행 유지
     # 클라이언트가 센 총계(60)가 아니라 실제 고유 행 수(30)로 활성화해야 한다
     result = client.activate("v-dup", total_rows=30)
-    assert result["activated"] == "v-dup"
+    assert result["activeVersion"] == "v-dup"
 
 
 def test_empty_rows_raise(client):

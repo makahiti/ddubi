@@ -1,0 +1,565 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ddubi:schedule-evaluation-v2",
+  "title": "ApiResponse.data 평가 결과 및 대기 상태",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "userInputDepartAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "plannedDepartAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "effectiveDepartAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "arriveBy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "originalEstimatedArrivalAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "targetArriveAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "proposedDepartAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "estimatedArrivalAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "computedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "validUntil": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "nextEvaluationAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "scheduleId": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "inputVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selectedRouteId": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "proposedRouteId": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "durationSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "latenessSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "schemaVersion": {
+          "const": "schedule-evaluation-v2"
+        },
+        "variant": {
+          "enum": [
+            "SCHEDULE",
+            "READ_ONLY"
+          ]
+        },
+        "evaluationId": {
+          "type": "string"
+        },
+        "eventRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "READY",
+            "STALE"
+          ]
+        },
+        "decision": {
+          "enum": [
+            "KEEP_DEPARTURE",
+            "ADVANCE_DEPARTURE",
+            "DEPART_NOW",
+            "MARGIN_UNAVAILABLE",
+            "LATE_EXPECTED",
+            "DATA_INSUFFICIENT",
+            "ROUTE_UNAVAILABLE",
+            "SEARCH_INCOMPLETE"
+          ]
+        },
+        "triggerReason": {
+          "type": "string"
+        },
+        "appliedBufferSeconds": {
+          "enum": [
+            0,
+            600
+          ]
+        },
+        "arrivesBeforeSchedule": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "meetsAdjustedTarget": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "departureMissed": {
+          "type": "boolean"
+        },
+        "quality": {
+          "type": "object",
+          "properties": {
+            "preview": {
+              "type": "boolean"
+            },
+            "productionEligible": {
+              "type": "boolean"
+            },
+            "realtimeApplied": {
+              "type": "boolean"
+            },
+            "walkingApiApplied": {
+              "type": "boolean"
+            },
+            "walkingApiCoverage": {
+              "enum": [
+                "NONE",
+                "ACCESS_ONLY",
+                "EGRESS_ONLY",
+                "BOTH"
+              ]
+            },
+            "costCoverage": {
+              "enum": [
+                "COMPLETE",
+                "PARTIAL",
+                "UNKNOWN"
+              ]
+            },
+            "missingInputs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "fallbackReasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "preview",
+            "productionEligible",
+            "realtimeApplied",
+            "walkingApiApplied",
+            "walkingApiCoverage",
+            "costCoverage",
+            "missingInputs",
+            "fallbackReasons"
+          ],
+          "additionalProperties": false
+        },
+        "search": {
+          "type": "object",
+          "properties": {
+            "domain": {
+              "type": "string"
+            },
+            "evaluatedCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "gridSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxEvaluations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxComputeMillis": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limitations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "domain",
+            "evaluatedCount",
+            "complete",
+            "gridSeconds",
+            "maxEvaluations",
+            "maxComputeMillis",
+            "limitations"
+          ],
+          "additionalProperties": false
+        },
+        "bestKnownDecision": {
+          "enum": [
+            null,
+            "KEEP_DEPARTURE",
+            "ADVANCE_DEPARTURE",
+            "DEPART_NOW",
+            "MARGIN_UNAVAILABLE",
+            "LATE_EXPECTED",
+            "DATA_INSUFFICIENT",
+            "ROUTE_UNAVAILABLE",
+            "SEARCH_INCOMPLETE"
+          ]
+        },
+        "causes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "eventId": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "segmentIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "effect": {
+                "enum": [
+                  "BLOCKED",
+                  "POTENTIAL_IMPACT"
+                ]
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "eventId",
+              "source",
+              "segmentIds",
+              "effect",
+              "confirmed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "versions": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "const": "cdep-v1"
+            }
+          },
+          "required": [
+            "policy"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidateKey": {
+                "type": "string"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "legRole": {
+                "enum": [
+                  "ACCESS_WALK",
+                  "TRANSFER_WALK",
+                  "EGRESS_WALK",
+                  "RIDE"
+                ]
+              },
+              "durationSeconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "durationSource": {
+                "enum": [
+                  "KAKAO_WALKING_API",
+                  "PUBLIC_TRANSIT_STEP",
+                  "PROVIDER_TOTAL_FALLBACK",
+                  "ML_PREVIEW",
+                  "TIMETABLE"
+                ]
+              },
+              "endpointEvidence": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "verified": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "masterVersion": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "mappingVersion": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "policyVersion": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "coordinateType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "judgment": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "distanceMeters": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "verified",
+                  "source",
+                  "masterVersion",
+                  "mappingVersion",
+                  "policyVersion",
+                  "coordinateType",
+                  "judgment",
+                  "reason",
+                  "distanceMeters"
+                ],
+                "additionalProperties": false
+              },
+              "mode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fromName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "toName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "candidateKey",
+              "sequence",
+              "legRole",
+              "durationSeconds",
+              "durationSource",
+              "endpointEvidence",
+              "mode",
+              "fromName",
+              "toName"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "userInputDepartAt",
+        "plannedDepartAt",
+        "effectiveDepartAt",
+        "arriveBy",
+        "originalEstimatedArrivalAt",
+        "targetArriveAt",
+        "proposedDepartAt",
+        "estimatedArrivalAt",
+        "computedAt",
+        "asOf",
+        "validUntil",
+        "nextEvaluationAt",
+        "scheduleId",
+        "inputVersion",
+        "selectedRouteId",
+        "proposedRouteId",
+        "durationSeconds",
+        "latenessSeconds",
+        "schemaVersion",
+        "variant",
+        "evaluationId",
+        "eventRevision",
+        "state",
+        "decision",
+        "triggerReason",
+        "appliedBufferSeconds",
+        "arrivesBeforeSchedule",
+        "meetsAdjustedTarget",
+        "departureMissed",
+        "quality",
+        "search",
+        "bestKnownDecision",
+        "causes",
+        "versions",
+        "segments"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": "schedule-evaluation-v2"
+        },
+        "state": {
+          "enum": [
+            "PENDING",
+            "RUNNING",
+            "FAILED",
+            "STOPPED",
+            "DEPARTURE_REQUIRED"
+          ]
+        },
+        "lastError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "state"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

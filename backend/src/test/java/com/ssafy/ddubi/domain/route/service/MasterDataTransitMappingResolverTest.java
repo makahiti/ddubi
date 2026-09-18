@@ -1,303 +1,102 @@
 package com.ssafy.ddubi.domain.route.service;
 
-import com.ssafy.ddubi.domain.route.mapping.BusRouteMaster;
-import com.ssafy.ddubi.domain.route.mapping.BusStopMaster;
-import com.ssafy.ddubi.domain.route.mapping.SubwayLineMaster;
-import com.ssafy.ddubi.domain.route.mapping.SubwayStationMaster;
-import com.ssafy.ddubi.domain.route.mapping.TransitMappingResult;
-import com.ssafy.ddubi.domain.route.mapping.TransitMappingStatus;
-import com.ssafy.ddubi.domain.route.mapping.RealtimeMappingCoverage;
-import com.ssafy.ddubi.domain.route.mapping.CanonicalSegmentIdFactory;
-import com.ssafy.ddubi.domain.route.mapping.ProviderSegmentMappingStore;
-import com.ssafy.ddubi.domain.route.mapping.ProviderSegmentMappingLookup;
-import com.ssafy.ddubi.domain.route.mapping.ProviderSegmentSignatureFactory;
-import com.ssafy.ddubi.domain.route.mapping.SeoulTransitMasterDataProvider;
-import com.ssafy.ddubi.domain.route.mapping.TransitAliasSnapshot;
-import com.ssafy.ddubi.domain.route.model.Coordinate;
-import com.ssafy.ddubi.domain.route.model.TransportMode;
-import com.ssafy.ddubi.domain.route.model.VehicleInfo;
+import com.ssafy.ddubi.domain.route.mapping.*;
+import com.ssafy.ddubi.domain.route.model.*;
 import org.junit.jupiter.api.Test;
+import java.time.*;
+import java.util.*;
+import static com.ssafy.ddubi.domain.route.mapping.MetropolitanBusFixtures.*;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
+/** 운영 Resolver의 기본 BUS 분기, 독립 버전 캐시와 기존 지하철 경계를 검증한다. */
 class MasterDataTransitMappingResolverTest {
-
-    @Test
-    void reusesCachedResultWithinSameActiveMasterVersion() {
-        BusRouteMaster master = route("R1", "100", "A1", "A2");
-        InMemoryMappingStore store = new InMemoryMappingStore();
-        SeoulTransitMasterDataProvider provider = new SeoulTransitMasterDataProvider() {
-            @Override public Optional<String> activeVersion() { return Optional.of("V1"); }
-            @Override public List<BusRouteMaster> loadBusRoutes(String version) { return List.of(master); }
-            @Override public List<SubwayLineMaster> loadSubwayLines(String version) { return List.of(); }
-            @Override public TransitAliasSnapshot loadAliases(String version) { return TransitAliasSnapshot.empty(); }
-        };
-        MasterDataTransitMappingResolver resolver = new MasterDataTransitMappingResolver(
-                provider, store, new ProviderSegmentSignatureFactory(),
-                new CanonicalSegmentIdFactory(), 150.0);
-        SegmentResolveRequest request = new SegmentResolveRequest(
-                TransportMode.BUS, "100", "출발", "도착", List.of("출발", "도착"),
-                List.of(new VehicleInfo("100", "BUS")),
-                List.of(new Coordinate(127.0, 37.0), new Coordinate(127.01, 37.01)));
-
-        TransitMappingResult first = resolver.resolve(request);
-        TransitMappingResult second = resolver.resolve(request);
-
-        assertThat(first.status()).isEqualTo(TransitMappingStatus.EXACT);
-        assertThat(second).isEqualTo(first);
-        assertThat(store.saveCount).isEqualTo(1);
-        assertThat(store.findCount).isEqualTo(2);
+    final Clock date=Clock.fixed(Instant.parse("2026-09-10T00:00:00Z"),ZoneId.of("Asia/Seoul"));
+    SegmentResolveRequest bus(List<String> vehicles,List<Coordinate> points) {
+        return new SegmentResolveRequest(TransportMode.BUS,"100","출발","도착",List.of("출발","중간","도착"),
+                vehicles.stream().map(n->new VehicleInfo(n,"BUS")).toList(),points);
     }
-
-    @Test
-    void doesNotReuseExactCacheAfterBusEndpointThresholdChanges() {
-        BusRouteMaster master = route("R1", "100", "A1", "A2");
-        InMemoryMappingStore store = new InMemoryMappingStore();
-        SeoulTransitMasterDataProvider provider = new SeoulTransitMasterDataProvider() {
-            @Override public Optional<String> activeVersion() { return Optional.of("V1"); }
-            @Override public List<BusRouteMaster> loadBusRoutes(String version) { return List.of(master); }
-            @Override public List<SubwayLineMaster> loadSubwayLines(String version) { return List.of(); }
-            @Override public TransitAliasSnapshot loadAliases(String version) { return TransitAliasSnapshot.empty(); }
-        };
-        SegmentResolveRequest request = new SegmentResolveRequest(
-                TransportMode.BUS, "100", "출발", "도착", List.of("출발", "도착"),
-                List.of(new VehicleInfo("100", "BUS")),
-                // 첫 점은 승차 정류장에서 약 89m: 150m 정책은 통과하고 50m 정책은 실패한다.
-                List.of(new Coordinate(127.001, 37.0), new Coordinate(127.01, 37.01)));
-
-        MasterDataTransitMappingResolver radius150 = new MasterDataTransitMappingResolver(
-                provider, store, new ProviderSegmentSignatureFactory(),
-                new CanonicalSegmentIdFactory(), 150.0);
-        MasterDataTransitMappingResolver radius50 = new MasterDataTransitMappingResolver(
-                provider, store, new ProviderSegmentSignatureFactory(),
-                new CanonicalSegmentIdFactory(), 50.0);
-
-        TransitMappingResult first = radius150.resolve(request);
-        TransitMappingResult second = radius50.resolve(request);
-
-        assertThat(first.status()).isEqualTo(TransitMappingStatus.EXACT);
-        assertThat(second.status()).isEqualTo(TransitMappingStatus.PARTIAL);
-        assertThat(second.failureReason()).isEqualTo("GEOMETRY_ENDPOINT_TOO_FAR");
-        assertThat(second.mappingPolicyVersion()).isNotEqualTo(first.mappingPolicyVersion());
-        assertThat(store.saveCount).isEqualTo(2);
+    SegmentResolveRequest subway(String name) {
+        return new SegmentResolveRequest(TransportMode.SUBWAY,name,"강남역","역삼역",List.of("강남역","역삼역"),
+                List.of(new VehicleInfo(name,"SUBWAY")),List.of());
     }
-
-    @Test
-    void doesNotRecalculateOrServeMappingThatWasManuallyRejected() {
-        BusRouteMaster master = route("R1", "100", "A1", "A2");
-        InMemoryMappingStore store = new InMemoryMappingStore();
-        store.rejected = true;
-        SeoulTransitMasterDataProvider provider = new SeoulTransitMasterDataProvider() {
-            @Override public Optional<String> activeVersion() { return Optional.of("V1"); }
-            @Override public List<BusRouteMaster> loadBusRoutes(String version) { return List.of(master); }
-            @Override public List<SubwayLineMaster> loadSubwayLines(String version) { return List.of(); }
-            @Override public TransitAliasSnapshot loadAliases(String version) { return TransitAliasSnapshot.empty(); }
-        };
-        MasterDataTransitMappingResolver resolver = new MasterDataTransitMappingResolver(
-                provider, store, new ProviderSegmentSignatureFactory(),
-                new CanonicalSegmentIdFactory(), 150.0);
-
-        TransitMappingResult result = resolver.resolve(new SegmentResolveRequest(
-                TransportMode.BUS, "100", "출발", "도착", List.of("출발", "도착"),
-                List.of(new VehicleInfo("100", "BUS")),
-                List.of(new Coordinate(127.0, 37.0), new Coordinate(127.01, 37.01))));
-
-        assertThat(result.status()).isEqualTo(TransitMappingStatus.UNMAPPED);
-        assertThat(result.failureReason()).isEqualTo("MANUALLY_REJECTED");
-        assertThat(result.segments()).isEmpty();
-        assertThat(store.saveCount).isZero();
+    SeoulTransitMasterDataProvider provider() {
+        var provider=mock(SeoulTransitMasterDataProvider.class);
+        when(provider.activeVersion()).thenReturn(Optional.of("SUB1"));
+        when(provider.loadAliases(anyString())).thenReturn(TransitAliasSnapshot.empty());
+        when(provider.loadSubwayLines(anyString())).thenReturn(List.of(new SubwayLineMaster("2",null,"2호선","UP","MAIN",
+                List.of(new SubwayStationMaster("0222",null,"강남",1),new SubwayStationMaster("0223",null,"역삼",2)))));
+        return provider;
     }
-
-    @Test
-    void reloadsVerifiedAliasesEvenWhenActiveMasterVersionDoesNotChange() {
-        BusRouteMaster master = route("R1", "100", "A1", "A2");
-        class MutableAliasProvider implements SeoulTransitMasterDataProvider {
-            private TransitAliasSnapshot aliases = TransitAliasSnapshot.empty();
-            @Override public Optional<String> activeVersion() { return Optional.of("V1"); }
-            @Override public List<BusRouteMaster> loadBusRoutes(String version) { return List.of(master); }
-            @Override public List<SubwayLineMaster> loadSubwayLines(String version) { return List.of(); }
-            @Override public TransitAliasSnapshot loadAliases(String version) { return aliases; }
-        }
-        MutableAliasProvider provider = new MutableAliasProvider();
-        MasterDataTransitMappingResolver resolver = new MasterDataTransitMappingResolver(
-                provider, null, new ProviderSegmentSignatureFactory(),
-                new CanonicalSegmentIdFactory(), 150.0);
-        SegmentResolveRequest request = new SegmentResolveRequest(
-                TransportMode.BUS, "카카오100", "출발", "도착", List.of("출발", "도착"),
-                List.of(new VehicleInfo("카카오100", "BUS")),
-                List.of(new Coordinate(127.0, 37.0), new Coordinate(127.01, 37.01)));
-
-        TransitMappingResult beforeReview = resolver.resolve(request);
-        provider.aliases = new TransitAliasSnapshot(
-                java.util.Map.of("카카오100", Set.of("R1")),
-                java.util.Map.of(), java.util.Map.of(), java.util.Map.of());
-        resolver.reloadWhenActiveVersionChanges();
-        TransitMappingResult afterReview = resolver.resolve(request);
-
-        assertThat(beforeReview.status()).isEqualTo(TransitMappingStatus.UNMAPPED);
-        assertThat(afterReview.status()).isEqualTo(TransitMappingStatus.EXACT);
-        assertThat(afterReview.officialRouteId()).isEqualTo("R1");
-        assertThat(afterReview.mappingPolicyVersion())
-                .isNotEqualTo(beforeReview.mappingPolicyVersion());
+    MasterDataTransitMappingResolver resolver(SeoulTransitMasterDataProvider provider,ProviderSegmentMappingStore subwayCache,
+            MetropolitanBusCatalog catalog,MetropolitanBusMappingCache cache,Clock clock) {
+        return new MasterDataTransitMappingResolver(provider,subwayCache,new ProviderSegmentSignatureFactory(),
+                new CanonicalSegmentIdFactory(),catalog,cache,clock);
     }
-
-    @Test
-    void resolvesBusAndSubwayStepsIntoEveryOfficialAdjacentSection() {
-        // 실제 저장소 구현 대신 손계산 가능한 작은 공식 마스터를 주입해 통합 경계를 검증한다.
-        MasterDataTransitMappingResolver resolver = new MasterDataTransitMappingResolver(
-                List.of(new BusRouteMaster("BUS-3412", "3412", List.of(
-                        new BusStopMaster("B1", "잠실역", 10, 127.0, 37.0),
-                        new BusStopMaster("B2", "삼성역", 11, 127.1, 37.1),
-                        new BusStopMaster("B3", "강남역", 12, 127.2, 37.2)
-                ))),
-                List.of(new SubwayLineMaster("1002", "2호선", "INNER", List.of(
-                        new SubwayStationMaster("S1", "강남", 1),
-                        new SubwayStationMaster("S2", "선릉", 2),
-                        new SubwayStationMaster("S3", "잠실", 3)
-                )))
-        );
-
-        TransitMappingResult bus = resolver.resolve(new SegmentResolveRequest(
-                TransportMode.BUS,
-                "3412",
-                "잠실역",
-                "강남역",
-                List.of("잠실역", "삼성역", "강남역"),
-                List.of(new VehicleInfo("3412", "BUS")),
-                List.of(new Coordinate(127.0, 37.0), new Coordinate(127.2, 37.2))
-        ));
-        TransitMappingResult subway = resolver.resolve(new SegmentResolveRequest(
-                TransportMode.SUBWAY,
-                "2호선",
-                "강남역",
-                "잠실역",
-                List.of("강남역", "선릉역", "잠실역"),
-                List.of(new VehicleInfo("2호선", "SUBWAY")),
-                List.of()
-        ));
-
-        assertThat(bus.status()).isEqualTo(TransitMappingStatus.EXACT);
-        assertThat(bus.officialRouteId()).isEqualTo("BUS-3412");
-        assertThat(bus.segments()).extracting(segment -> segment.fromNodeId() + "->" + segment.toNodeId())
-                .containsExactly("B1->B2", "B2->B3");
-        assertThat(bus.segments()).extracting(segment -> segment.segmentId())
-                .containsExactly("BUS:BUS-3412:B1:B2", "BUS:BUS-3412:B2:B3");
-        assertThat(bus.realtimeCoverage()).isEqualTo(RealtimeMappingCoverage.FULL);
-
-        assertThat(subway.status()).isEqualTo(TransitMappingStatus.EXACT);
-        assertThat(subway.officialRouteId()).isEqualTo("1002");
-        assertThat(subway.direction()).isEqualTo("INNER");
-        assertThat(subway.segments()).extracting(segment -> segment.fromNodeId() + "->" + segment.toNodeId())
-                .containsExactly("S1->S2", "S2->S3");
-        assertThat(subway.segments()).extracting(segment -> segment.segmentId())
-                .containsExactly("SUB:1002:S1:S2", "SUB:1002:S2:S3");
-        assertThat(subway.realtimeCoverage()).isEqualTo(RealtimeMappingCoverage.FULL);
-    }
-
-    @Test
-    void keepsAmbiguousResultWithoutIssuingAnyAdjacentSection() {
-        MasterDataTransitMappingResolver resolver = new MasterDataTransitMappingResolver(
-                List.of(
-                        route("R1", "100", "A1", "A2"),
-                        route("R2", "100", "B1", "B2")
-                ),
-                List.of()
-        );
-
-        TransitMappingResult result = resolver.resolve(new SegmentResolveRequest(
-                TransportMode.BUS,
-                "100",
-                "출발",
-                "도착",
-                List.of("출발", "도착"),
-                List.of(new VehicleInfo("100", "BUS")),
-                List.of()
-        ));
-
-        assertThat(result.status()).isEqualTo(TransitMappingStatus.AMBIGUOUS);
-        assertThat(result.failureReason()).isEqualTo("ROUTE_NAME_AMBIGUOUS");
-        assertThat(result.officialRouteId()).isNull();
-        assertThat(result.segments()).isEmpty();
-    }
-
-    @Test
-    void separatesExactSubwayTopologyFromMissingRealtimeCrosswalk() {
-        MasterDataTransitMappingResolver resolver = new MasterDataTransitMappingResolver(
-                List.of(),
-                List.of(new SubwayLineMaster(
-                        "2", null, "2호선", "UP", "MAIN", List.of(
-                        new SubwayStationMaster("0222", null, "강남", 1),
-                        new SubwayStationMaster("0223", null, "역삼", 2))))
-        );
-
-        TransitMappingResult result = resolver.resolve(new SegmentResolveRequest(
-                TransportMode.SUBWAY, "2호선", "강남역", "역삼역",
-                List.of("강남역", "역삼역"),
-                List.of(new VehicleInfo("2호선", "SUBWAY")), List.of()));
-
+    MetropolitanBusCatalog catalog() {return new MetropolitanBusCatalog(master(List.of(regular())));}
+    @Test void busUsesMetropolitanByDefaultAndPreservesCanonicalEdges() {
+        var oldCache=mock(ProviderSegmentMappingStore.class);
+        var result=resolver(provider(),oldCache,catalog(),null,date).resolve(bus(List.of("100"),geometry()));
         assertThat(result.status()).isEqualTo(TransitMappingStatus.EXACT);
-        assertThat(result.segments()).extracting(segment -> segment.segmentId())
-                .containsExactly("SUB:2:0222:0223");
+        assertThat(result.masterDataVersion()).isEqualTo("TEST");
+        assertThat(result.busAlternatives()).hasSize(1);
+        assertThat(result.segments()).extracting(MappedTransitSegment::segmentId).containsExactly("BUS:R1:A:B","BUS:R1:B:C");
+        verifyNoInteractions(oldCache);
+    }
+    @Test void missingMetropolitanMasterCannotFallBackAndSubwayStillWorks() {
+        var resolver=resolver(provider(),null,mock(MetropolitanBusCatalog.class),null,date);
+        var result=resolver.resolve(bus(List.of("100"),geometry()));
+        assertThat(result.failureReason()).isEqualTo("MASTER_DATA_NOT_CONFIGURED");
+        assertThat(result.segments()).isEmpty();
+        assertThat(resolver.resolve(subway("2호선")).status()).isEqualTo(TransitMappingStatus.EXACT);
+        assertThat(resolver.resolve(new SegmentResolveRequest(TransportMode.WALK,null,null,null,List.of(),List.of(),List.of())).status()).isEqualTo(TransitMappingStatus.NOT_APPLICABLE);
+    }
+    @Test void missingSubwayMasterDoesNotDisableBus() {
+        var provider=provider();when(provider.activeVersion()).thenReturn(Optional.empty());
+        assertThat(resolver(provider,null,catalog(),null,date).resolve(bus(List.of("100"),geometry())).status()).isEqualTo(TransitMappingStatus.EXACT);
+    }
+    @Test void cacheHitAvoidsRewriteAndFullGeometryAndDateChangeKeys() {
+        var cache=mock(MetropolitanBusMappingCache.class);
+        when(cache.find(anyString(),anyString(),anyString())).thenReturn(ProviderSegmentMappingLookup.miss());
+        var resolver=resolver(provider(),null,catalog(),cache,date);
+        var result=resolver.resolve(bus(List.of("100"),geometry()));
+        var signature=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(cache).save(signature.capture(),eq("TEST"),eq("metro-id-v2-2026-09-10"),eq(result));
+        var original=signature.getValue();
+        when(cache.find(original,"TEST","metro-id-v2-2026-09-10")).thenReturn(ProviderSegmentMappingLookup.exact(result));
+        assertThat(resolver.resolve(bus(List.of("100"),geometry()))).isEqualTo(result);
+        verify(cache,times(1)).save(anyString(),anyString(),anyString(),any());
+        resolver.resolve(bus(List.of("100"),List.of(geometry().get(0),new Coordinate(128,38),geometry().get(2))));
+        verify(cache,times(2)).save(signature.capture(),anyString(),anyString(),any());
+        assertThat(signature.getValue()).isNotEqualTo(original);
+        resolver(provider(),null,catalog(),cache,Clock.offset(date,Duration.ofDays(1))).resolve(bus(List.of("100"),geometry()));
+        verify(cache).find(anyString(),eq("TEST"),eq("metro-id-v2-2026-09-11"));
+    }
+    @Test void multipleVerifiedVehiclesNeverConcatenateCanonicalEdges() {
+        var second=new MetropolitanBusMaster.Route("SEOUL_BUS","R2","200","서울",regular().stops(),Map.of());
+        var resolver=resolver(provider(),null,new MetropolitanBusCatalog(master(List.of(regular(),second))),null,date);
+        var result=resolver.resolve(bus(List.of("100","200"),geometry()));
+        assertThat(result.status()).isEqualTo(TransitMappingStatus.PARTIAL);
+        assertThat(result.busAlternatives()).hasSize(2);assertThat(result.segments()).isEmpty();
+    }
+    @Test void subwayRejectAndAliasRefreshRetainTheirOwnCachePolicy() {
+        var provider=provider();var cache=mock(ProviderSegmentMappingStore.class);
+        when(cache.find(anyString(),any(),anyString(),anyString(),anyString())).thenReturn(ProviderSegmentMappingLookup.rejected());
+        var resolver=resolver(provider,cache,catalog(),null,date);
+        assertThat(resolver.resolve(subway("2호선")).failureReason()).isEqualTo("MANUALLY_REJECTED");
+        verify(cache,never()).save(anyString(),anyString(),anyString(),anyString(),any(),any());
+        when(cache.find(anyString(),any(),anyString(),anyString(),anyString())).thenReturn(ProviderSegmentMappingLookup.miss());
+        var before=resolver.resolve(subway("카카오이호선"));
+        when(provider.loadAliases("SUB1")).thenReturn(new TransitAliasSnapshot(Map.of(),Map.of(),Map.of("카카오이호선",Set.of("2")),Map.of()));
+        resolver.reloadWhenActiveVersionChanges();var after=resolver.resolve(subway("카카오이호선"));
+        assertThat(before.status()).isEqualTo(TransitMappingStatus.UNMAPPED);
+        assertThat(after.status()).isEqualTo(TransitMappingStatus.EXACT);
+        assertThat(after.mappingPolicyVersion()).isNotEqualTo(before.mappingPolicyVersion());
+    }
+    @Test void subwayStaticIdsRemainSeparateFromMissingRealtimeCrosswalk() {
+        var result=resolver(provider(),null,catalog(),null,date).resolve(subway("2호선"));
+        assertThat(result.status()).isEqualTo(TransitMappingStatus.EXACT);
+        assertThat(result.segments()).extracting(MappedTransitSegment::segmentId).containsExactly("SUB:2:0222:0223");
         assertThat(result.realtimeCoverage()).isEqualTo(RealtimeMappingCoverage.NONE);
-        assertThat(result.segments().get(0).realtimeLookupReady()).isFalse();
-    }
-
-    private BusRouteMaster route(String routeId, String routeName, String startId, String endId) {
-        return new BusRouteMaster(routeId, routeName, List.of(
-                new BusStopMaster(startId, "출발", 1, 127.0, 37.0),
-                new BusStopMaster(endId, "도착", 2, 127.01, 37.01)
-        ));
-    }
-
-    /** DB 없이 캐시 hit/miss와 버전 키 사용을 검증하는 작은 테스트 저장소다. */
-    private static final class InMemoryMappingStore implements ProviderSegmentMappingStore {
-        private TransitMappingResult value;
-        private String savedSignature;
-        private String savedMappingVersion;
-        private String savedPolicyVersion;
-        private boolean rejected;
-        private int findCount;
-        private int saveCount;
-
-        @Override
-        public ProviderSegmentMappingLookup find(
-                String provider,
-                TransportMode mode,
-                String signature,
-                String mappingVersion,
-            String policyVersion) {
-            findCount++;
-            if (rejected) {
-                return ProviderSegmentMappingLookup.rejected();
-            }
-            if (!java.util.Objects.equals(signature, savedSignature)
-                    || !java.util.Objects.equals(mappingVersion, savedMappingVersion)
-                    || !java.util.Objects.equals(policyVersion, savedPolicyVersion)) {
-                return ProviderSegmentMappingLookup.miss();
-            }
-            return value == null || value.status() != TransitMappingStatus.EXACT
-                    ? ProviderSegmentMappingLookup.miss()
-                    : ProviderSegmentMappingLookup.exact(value);
-        }
-
-        @Override
-        public void save(
-                String provider,
-                String signature,
-                String mappingVersion,
-                String policyVersion,
-                SegmentResolveRequest request,
-                TransitMappingResult result
-        ) {
-            saveCount++;
-            savedSignature = signature;
-            savedMappingVersion = mappingVersion;
-            savedPolicyVersion = policyVersion;
-            value = result;
-        }
     }
 }

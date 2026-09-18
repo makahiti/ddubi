@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 
 from config import ConfigError, Settings
-from sources.base import Record, SourceSpec, now_kst
+from sources.base import PollBatch, Record, SourceSpec, now_kst
 
 log = logging.getLogger(__name__)
 
@@ -167,7 +167,14 @@ def fetch(settings: Settings, client: httpx.Client) -> list[Record]:
         raise RuntimeError(f"기상청 수집 전부 실패 ({failures}/{len(grids)} 격자)")
     if failures:
         log.warning("기상청 일부 실패 %d/%d 격자", failures, len(grids))
-    return records
+    return PollBatch(
+        records,
+        status="PARTIAL" if failures else "SUCCESS",
+        complete_snapshot=failures == 0,
+        page_count=len(grids),
+        scope_key="configured-weather-grids",
+        error_code="GRID_SCOPE_PARTIAL" if failures else None,
+    )
 
 
 SOURCE = SourceSpec(

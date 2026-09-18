@@ -1,0 +1,203 @@
+### 이동 기록·리포트 시나리오 (ARRIVAL-001 · HISTORY-001 · REPORT-001~002)
+#
+# IntelliJ 에서 이 파일을 열고 각 요청 왼쪽의 ▶ 를 누르면 실행된다.
+# 위에서 아래로 순서대로 실행하면 토큰과 id 가 자동으로 이어진다.
+#
+# 사전 준비
+#   1) docker compose -f backend/docker-compose.dev.yml up -d
+#   2) 앱 기동 (IntelliJ 실행 또는 backend 에서 ./mvnw spring-boot:run)
+#
+# 이 시나리오가 보여주는 것
+#   · 도착을 보고하면 일정이 DONE 이 되고 주간 리포트가 자동으로 생긴다
+#   · 같은 일정을 다시 보고해도 기록이 늘지 않는다 (⑥)
+#   · 이동기록 동의를 끄면 실측이 저장되지 않지만 요청은 성공한다 (⑦)
+#   · 추천 엔진(Phase 3) 전이라 plannedDepart·proxy* 는 항상 null 이다
+
+@host = http://localhost:8080
+@email = report-test@ddubi.com
+@password = password123
+@deviceId = device-report
+
+### ⓪-1 이메일 인증코드 발송 — 개발 환경에서는 콘솔 로그에 코드가 찍힌다
+POST {{host}}/api/v1/auth/email/verification
+Content-Type: application/json
+
+{ "email": "{{email}}" }
+
+### ⓪-2 인증코드 확인 — 위 로그에서 본 6자리를 code 에 넣는다
+POST {{host}}/api/v1/auth/email/verification/confirm
+Content-Type: application/json
+
+{ "email": "{{email}}", "code": "000000" }
+
+### ① 회원가입 — 이미 가입했으면 건너뛰고 ② 로 간다
+POST {{host}}/api/v1/auth/local/signup
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "nickname": "리포트",
+  "deviceId": "{{deviceId}}"
+}
+
+> {%
+    if (response.status === 201) {
+        client.global.set("accessToken", response.body.data.accessToken);
+    }
+%}
+
+### ② 로그인
+POST {{host}}/api/v1/auth/local/login
+Content-Type: application/json
+
+{ "email": "{{email}}", "password": "{{password}}", "deviceId": "{{deviceId}}" }
+
+> {%
+    client.test("200 이어야 한다", function () {
+        client.assert(response.status === 200, "status=" + response.status);
+    });
+    client.global.set("accessToken", response.body.data.accessToken);
+%}
+
+### ③ 이동기록 동의 켜기 — 이게 없으면 실측이 저장되지 않는다 (규칙 9)
+PATCH {{host}}/api/v1/users/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "historyConsent": true }
+
+> {%
+    client.test("동의 시각이 찍혀야 한다", function () {
+        client.assert(response.body.data.historyConsentedAt !== null,
+            "historyConsentedAt 이 null 이다 — 이 상태로는 ⑤ 가 실측을 저장하지 않는다");
+    });
+%}
+
+### ④ 일정 등록 — 도착 목표는 내일이어야 한다(과거 도착 시각은 400)
+# 주의: arriveBy 날짜를 오늘 이후로 직접 수정해서 쓴다.
+POST {{host}}/api/v1/schedules
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "리포트 확인용 회의",
+  "origin":      { "name": "강남역",  "lat": 37.4979526, "lng": 127.0276241 },
+  "destination": { "name": "광화문", "lat": 37.5716229, "lng": 126.9767879 },
+  "arriveBy": "2026-09-11T19:00:00"
+}
+
+> {%
+    client.global.set("scheduleId", response.body.data.id);
+    client.global.set("arriveBy", response.body.data.arriveBy);
+%}
+
+### ⑤ 도착 보고 — 목표 30분 전 도착 → ON_TIME
+# actualArrival 은 미래일 수 없다(400). 지금 시각 근처 값을 넣는다.
+POST {{host}}/api/v1/schedules/{{scheduleId}}/arrival
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "actualArrival": "2026-09-04T18:30:00",
+  "locationConsent": true
+}
+
+> {%
+    client.test("일정이 완료 처리된다", function () {
+        client.assert(response.body.data.status === "DONE", response.body.data.status);
+    });
+    client.test("추천 의존 필드는 Phase 3 까지 null 이다", function () {
+        const d = response.body.data;
+        client.assert(d.plannedDepart === null, "plannedDepart=" + d.plannedDepart);
+        client.assert(d.proxyDurationMin === null, "proxyDurationMin=" + d.proxyDurationMin);
+        client.assert(d.mainCause === null, "mainCause=" + d.mainCause);
+    });
+    client.global.set("reportDetailId", response.body.data.reportDetailId);
+%}
+
+### ⑥ 같은 일정 재보고 — 행이 늘지 않고 판정만 바뀐다 (멱등)
+# 이번엔 목표를 넘긴 시각으로 보고한다 → LATE_RISK
+POST {{host}}/api/v1/schedules/{{scheduleId}}/arrival
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "actualArrival": "2026-09-04T19:30:00",
+  "locationConsent": true
+}
+
+> {%
+    client.test("같은 reportDetailId 여야 한다 — 행이 늘면 집계가 2건이 된다", function () {
+        client.assert(response.body.data.reportDetailId === client.global.get("reportDetailId"),
+            "이전 " + client.global.get("reportDetailId") + " → 지금 " + response.body.data.reportDetailId);
+    });
+%}
+
+### ⑦ 이번 건만 위치 거부 — locationConsent=false 면 저장하지 않지만 200 이다
+POST {{host}}/api/v1/schedules/{{scheduleId}}/arrival
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "actualArrival": "2026-09-04T18:30:00",
+  "locationConsent": false
+}
+
+> {%
+    client.test("실측과 판정이 함께 비워진다", function () {
+        client.assert(response.status === 200, "status=" + response.status);
+        client.assert(response.body.data.actualArrival === null, "actualArrival 이 남았다");
+        client.assert(response.body.data.result === null, "result 가 남았다");
+    });
+%}
+
+### ⑧ 다시 보고해서 판정을 살려 둔다 (뒤 조회에서 볼 수 있게)
+POST {{host}}/api/v1/schedules/{{scheduleId}}/arrival
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "actualArrival": "2026-09-04T18:30:00", "locationConsent": true }
+
+### ⑨ 이동 기록 목록 — summary 는 페이지가 아니라 구간 전체 집계다
+GET {{host}}/api/v1/history?from=2026-09-01&to=2026-09-30&page=0&size=20
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.test("요약이 함께 온다", function () {
+        client.assert(response.body.data.summary !== undefined, "summary 가 없다");
+    });
+%}
+
+### ⑩ 리포트 목록 — 주간(월~일) 집계
+GET {{host}}/api/v1/reports?page=0&size=20
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.test("주간 리포트가 자동으로 생겨 있다", function () {
+        client.assert(response.body.data.content.length > 0, "리포트가 없다");
+    });
+    client.global.set("reportId", response.body.data.content[0].id);
+%}
+
+### ⑪ 리포트 상세 — 집계 + 그 주의 일정별 결과
+GET {{host}}/api/v1/reports/{{reportId}}
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.test("TIGHT 은 두 집계 어디에도 없다", function () {
+        const r = response.body.data.report;
+        client.assert(r.totalSchedules >= r.onTimeEstimated + r.delayedEstimated,
+            "합이 전체를 넘는다 — TIGHT 이 어딘가에 들어갔다");
+    });
+%}
+
+### ⑫ 없는 리포트 — 404
+GET {{host}}/api/v1/reports/999999
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.test("404 REPORT_NOT_FOUND", function () {
+        client.assert(response.status === 404, "status=" + response.status);
+    });
+%}

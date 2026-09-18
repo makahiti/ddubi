@@ -1,0 +1,53 @@
+package com.ssafy.ddubi.domain.recommendation.evaluation;
+
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.nio.file.*;
+import java.time.Instant;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.*;
+
+/** 고정시각 실제 DTO 직렬화 산출물을 FE용 JSON Schema 검증 단계에 전달한다. */
+class ScheduleEvaluationV2ContractTest {
+    @Test void allDecisionsProduceDeterministicConsumerFixtures() throws Exception {
+        var f=new ConditionalDepartureEvaluatorTest();
+        var scenarios=new LinkedHashMap<String,ConditionalDepartureEvaluator.Evaluation>();
+        scenarios.put("KEEP_DEPARTURE",f.engine(256).evaluate(1,f.now,f.p,f.d,List.of(),at->f.comparison(at,f.d.minusSeconds(1))));
+        scenarios.put("ADVANCE_DEPARTURE",f.engine(256).evaluate(1,f.now,f.p,f.d,List.of(),at->f.comparison(at,at.plusSeconds(1800))));
+        scenarios.put("MARGIN_UNAVAILABLE",f.engine(256).evaluate(1,f.now,f.p,f.d,List.of(),at->f.comparison(at,at.equals(f.p)?f.d:f.d.minusSeconds(1))));
+        scenarios.put("LATE_EXPECTED",f.engine(256).evaluate(1,f.now,f.p,f.d,List.of(),at->f.comparison(at,at.plusSeconds(4000))));
+        scenarios.put("DATA_INSUFFICIENT",f.engine(256).evaluate(1,f.now,f.p,f.d,List.of(),at->f.comparison(at,null)));
+        scenarios.put("SEARCH_INCOMPLETE",f.engine(2).evaluate(1,f.now,f.p,f.d,List.of(),at->f.comparison(at,f.d.plusSeconds(20))));
+        scenarios.put("DEPART_NOW",f.engine(256).evaluate(1,f.now,f.now.minusSeconds(60),f.d,List.of(),at->f.comparison(at,at.plusSeconds(600))));
+        scenarios.put("ROUTE_UNAVAILABLE",f.engine(256).evaluate(0,f.now,f.p,f.d,List.of(),at->new MlRoutePreview.Comparison("PREVIEW",false,null,List.of(),List.of(),false,List.of(),List.of())));
+        var json=new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        Path directory=Path.of("target/conditional-departure-fixtures");Files.createDirectories(directory);
+        for(var scenario:scenarios.entrySet()) {
+            assertThat(scenario.getValue().decision().name()).isEqualTo(scenario.getKey());
+            Instant planned=scenario.getKey().equals("DEPART_NOW")?f.now.minusSeconds(60):f.p;
+            var dto=ScheduleEvaluationV2.from(scenario.getValue(),"synthetic-"+scenario.getKey(),null,null,0,"READ_ONLY",planned,planned,f.d,
+                    f.now,f.now.plusSeconds(60),null,null,null,List.of("SYNTHETIC_FIXTURE"),null,List.of());
+            json.writerWithDefaultPrettyPrinter().writeValue(directory.resolve(scenario.getKey().toLowerCase()+".json").toFile(),dto);
+        }
+        for(String state:List.of("PENDING","RUNNING","FAILED","STOPPED","DEPARTURE_REQUIRED"))
+            json.writerWithDefaultPrettyPrinter().writeValue(directory.resolve(state.toLowerCase()+".json").toFile(),Map.of("schemaVersion","schedule-evaluation-v2","state",state));
+    }
+
+    @Test void readonlyVariantPreservesNullIdsAndNoBuffer() throws Exception {
+        var fixture=new ConditionalDepartureEvaluatorTest();
+        var result=fixture.engine(256).evaluate(1,fixture.now,fixture.p,fixture.d,List.of(),
+                at->fixture.comparison(at,fixture.d.minusSeconds(1)));
+        var dto=ScheduleEvaluationV2.from(result,"fixture-evaluation",null,null,0,"READ_ONLY",fixture.p,fixture.p,fixture.d,
+                fixture.now,fixture.now.plusSeconds(60),null,null,null,List.of("NO_VERIFIED_SEGMENT_MAPPING"),null,List.of());
+        ObjectMapper json=new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        var value=json.valueToTree(dto);
+        assertThat(value.path("schemaVersion").asText()).isEqualTo("schedule-evaluation-v2");
+        assertThat(value.path("decision").asText()).isEqualTo("KEEP_DEPARTURE");
+        assertThat(value.path("scheduleId").isNull()).isTrue();assertThat(value.path("inputVersion").isNull()).isTrue();
+        assertThat(value.path("targetArriveAt").asText()).isEqualTo(fixture.d.toString());assertThat(value.path("appliedBufferSeconds").asInt()).isZero();
+        assertThat(value.path("quality").path("productionEligible").asBoolean()).isFalse();
+        Path file=Path.of("target/conditional-departure-readonly.json");Files.createDirectories(file.getParent());
+        json.writerWithDefaultPrettyPrinter().writeValue(file.toFile(),dto);
+    }
+}

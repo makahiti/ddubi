@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,17 +27,28 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <h3>안전장치 두 가지</h3>
  * <ul>
- *   <li>{@code @Profile("dev")} — 운영 프로파일에서는 빈 자체가 만들어지지 않는다.
- *       경로를 막는 게 아니라 <b>존재하지 않게</b> 한다</li>
+ *   <li>설정으로 꺼져 있으면 빈 자체가 만들어지지 않는다. 경로를 막는 게 아니라
+ *       <b>존재하지 않게</b> 한다 — 꺼진 환경에서는 404 다</li>
  *   <li>대상이 항상 {@code @LoginUserId} 다 — 남에게 보낼 수 없다.
  *       userId 를 파라미터로 받으면 아무나 남의 폰에 푸시를 쏘는 구멍이 된다</li>
  * </ul>
  *
  * 억제도 그대로 적용된다. 같은 suppressKey 로 두 번 보내면 두 번째는 SUPPRESSED 다 —
  * 테스트용이라고 규칙을 우회하면 확인할 값어치가 없다.
+ *
+ * <h3>왜 {@code @Profile("dev")} 가 아닌가 (2026-09-14)</h3>
+ * 배포 서버(서버2)는 {@code local} 프로파일로 돈다. 프론트가 연동 테스트를 하려면 이 API 가
+ * 필요한데, 그렇다고 서버를 {@code dev} 로 바꾸면 {@code application-dev.yml} 이 통째로
+ * 딸려 온다 — {@code org.hibernate.orm.jdbc.bind: TRACE}(바인딩 값이 로그에 찍힌다.
+ * 이메일·좌표가 그대로 남는다)와 {@code management.endpoints.web.exposure.include: "*"}
+ * ({@code /actuator/env}·{@code /actuator/heapdump} 노출)까지 함께 켜진다.
+ *
+ * <p>필요한 건 이 엔드포인트 하나지 그 둘이 아니다. 그래서 프로파일이 아니라 <b>전용
+ * 스위치</b>로 분리했다. 기본값은 꺼짐이라 아무 설정도 안 하면 지금까지와 같고,
+ * 발표 전에 환경변수 한 줄로 되돌릴 수 있다.
  */
-@Profile("dev")
-@Tag(name = "개발용", description = "dev 프로파일 전용. 운영에는 없다")
+@ConditionalOnProperty(name = "ddubi.dev-endpoints.enabled", havingValue = "true")
+@Tag(name = "개발용", description = "ddubi.dev-endpoints.enabled=true 일 때만 존재한다")
 @RestController
 @RequestMapping("/api/v1/dev/notifications")
 public class DevNotificationController {
@@ -48,7 +59,7 @@ public class DevNotificationController {
         this.notificationService = notificationService;
     }
 
-    @Operation(summary = "테스트 알림 발송 (dev 전용)",
+    @Operation(summary = "테스트 알림 발송 (개발용)",
             description = "로그인한 본인에게 알림을 하나 만든다. 억제 규칙이 그대로 적용되므로 "
                     + "같은 suppressKey 를 두 번 보내면 두 번째는 SUPPRESSED 다. "
                     + "유효한 FCM 토큰이 등록돼 있으면 실제로 푸시가 간다.")

@@ -23,10 +23,17 @@ Authorization: Bearer {accessToken}
 }
 ```
 
-도메인 API이므로 인증 적용 대상이다. JWT 인증 필터가 완성되기 전에는 통합 실행 시 401이
-정상이며, Controller 단위 테스트나 Service 테스트로 경로 검색 흐름을 검증한다.
+도메인 API이므로 JWT 인증 적용 대상이다. 인증이 없는 요청은 401이며,
+인증된 사용자의 일정 등록·평가·조회는 `CapturedTransitFlowIntegrationTest`로 검증한다.
 
 ## 2026-08-31 실제 응답 분석
+
+2026-09-10 재검증: 보존된 응답 20개/후보 288개 중 287개에서 총시간이 step 합보다 컸다.
+차이는 0~1,809초였으며 대기·접근·환승을 각각 식별하는 필드는 없었다.
+[공식 문서](https://developers.kakao.com/docs/ko/kakaomap/rest-api)도 totalTime/time을 소요시간으로
+설명하므로 이 차이를 대기시간이라고 확정하거나 새 대기를 가산할 수 없다.
+두 `decomposition-verified` 설정은 false로 유지한다.
+재현 도구와 결과는 [실제 응답 검증](../../backend/tools/transit-timing/README.md)을 따른다.
 
 실제 성공 응답은 `status=OK`였고 후보 15개(`BUS` 9, `SUBWAY` 1,
 `BUS_AND_SUBWAY` 5), 이동 구간 38개(`BUS` 18, `SUBWAY` 10,
@@ -34,7 +41,7 @@ Authorization: Bearer {accessToken}
 
 - `route.properties.totalTime`: 후보 전체 시간(초). 구간 `time` 합으로 다시 계산하지 않는다.
 - `route.properties.totalDistance`: 후보 전체 거리(m). 구간 `distance` 합으로 다시 계산하지 않는다.
-- 전체값과 구간 합의 차이는 환승·대기·접근 시간 등 응답에 독립 step으로 표현되지 않은 값이다.
+- 전체값과 구간 합의 차이는 구성 요소를 확정할 수 없는 잔여값이다. 대기·접근·환승 중 무엇인지 단정하지 않는다.
   모델의 `unassignedDurationSeconds`, `unassignedDistanceMeters`에 보존한다.
 - `fare`는 단일 요금이면 `value`, 범위면 `min/max` 형태다. 내부에서는 둘 다 최소/최대 요금으로 정규화한다.
 - 카카오의 후보 배열 순서는 최단 시간순이 아니므로 `providerCandidateIndex`를 보존한다.
@@ -72,21 +79,28 @@ API/도메인 모델은 초와 m를 사용한다. 현재 DB의 `base_duration_mi
 이름 변경·동명이 정류장 때문에 파이프라인 키가 깨질 수 있다.
 
 1. `WALK`는 기존 계약대로 `segment_id=null`이며 서울 교통 마스터 매핑 대상이 아니다.
-2. `BUS`, `SUBWAY`는 이름과 통과 순서를 활성 서울 마스터 버전에 대조한다. BUS는 여기에
-   path 첫·끝과 공식 승·하차 정류장의 절대거리 및 승차→하차 방향 배정 검증까지 필수로 적용한다.
+2. `BUS`는 수도권 마스터, `SUBWAY`는 서울 지하철 마스터에 대조한다. 버스는 차량 대안별로 이름·순서·승하차 좌표·중간 정류장·공식 형상을 확인한다.
 3. 유일하게 확정된 `EXACT`만 승차~하차 사이의 공식 인접 정류장·역 구간을 반환한다.
 4. `PARTIAL`, `AMBIGUOUS`, `UNMAPPED`는 임의 후보를 고르지 않고 실패 이유를 보존한다.
 5. `EXACT`의 각 공식 인접 구간에는 `BUS:{routeId}:{fromStopId}:{toStopId}` 또는
    `SUB:{staticSubwayId}:{staticFromStationId}:{staticToStationId}` 형식의 ID를 만든다.
    지하철 실시간 `subwayId/statnId`는 canonical ID에 섞지 않고 별도 crosswalk로 제공한다.
-6. 실제 등장한 카카오 구간은 교통수단·이름·전체 통과 순서와 BUS path 양 끝 좌표의
-   SHA-256, 활성 마스터 버전, 좌표 허용 반경·별칭을 포함한 매핑 정책 fingerprint로
-   캐시한다. EXACT만 재사용하며 수동 `REJECTED`는 재계산하지 않고 차단한다.
-7. 별칭은 `transit_alias.verified=true`인 행만 적용하며, 문자열을 공식 이름으로 바꾸지 않고
-   `canonical_id` 후보 집합을 직접 제한한다. 환승역·동명 정류장처럼 같은 별칭이 여러
-   노선별 ID를 가리키면 현재 노선/호선 topology 안에서만 후보를 남긴다.
-8. BUS `vehicles[]`가 서로 다른 노선 대안을 뜻하면 단일 segment로 축소하지 않는다. 현재
-   MVP 응답 모델에서는 `AMBIGUOUS` 또는 마스터 일부 누락 시 `PARTIAL`로 남긴다.
+6. BUS 캐시는 전체 원문 차량명·정류장열·전체 경로 좌표와 마스터/정책/검토일을 전용 테이블에 저장한다. SUBWAY는 이름·역 순서·지하철 마스터/별칭 정책을 기존 캐시에 저장한다. EXACT만 재사용하고 수동 `REJECTED`는 차단한다.
+7. 지하철 별칭은 `transit_alias.verified=true`인 canonical ID 후보를 사용한다. 버스 수동 대응은 수도권 artifact의 검토일·전체 요청 해시·출처 경로 범위에 한정하며 과거 전역 BUS 별칭은 사용하지 않는다.
+8. BUS `vehicles[]`는 독립 `busAlternatives[]`로 보존한다. 여러 차량 또는 여러 출처 후보는 상위 PARTIAL로 남기고 선택한 VERIFIED 경로의 edge만 사용한다.
+
+## 접근·이탈 도보 API 보강 목표
+
+대중교통 응답 파싱과 BUS/SUBWAY 마스터 매핑 뒤 다음 두 구간은 카카오모빌리티 제휴용 도보 길찾기로 보강한다.
+
+- 사용자 출발 좌표 → 첫 BUS/SUBWAY의 검증된 승차 좌표: `ACCESS_WALK`.
+- 마지막 BUS/SUBWAY의 검증된 하차 좌표 → 사용자 목적지 좌표: `EGRESS_WALK`.
+
+공식 endpoint는 `GET https://apis-navi.kakaomobility.com/affiliate/walking/v1/directions`이고 `origin`, `destination`은 `경도,위도` 순서다. 이 API는 제휴 파트너 전용이므로 별도 계약·권한과 `service` 헤더가 필요하다. 현재 `KakaoPublicTransitClient`만 존재하며 도보 Client는 구현 전이다.
+
+현재 카카오 대중교통 stop DTO는 이름만 제공한다. 첫/마지막 transit step의 `path.points` endpoint를 후보로 추출하되 EXACT 마스터 정류장·역 좌표와 검증한다. 모호하거나 불일치하면 별도 도보 호출을 하지 않는다. 지하철 역 중심 좌표를 출입구 좌표라고 부르지 않는다.
+
+대중교통 사이 WALK는 `TRANSFER_WALK`이며 접근·이탈 도보 호출로 대체하지 않는다. 기존 응답 WALK와 별도 API 결과를 동시에 더하지 않고 역할별로 교체한다. step에 없는 접근·이탈 시간이 `totalTime-step합`에 포함됐을 가능성을 검증하기 전에는 별도 결과를 totalTime에 가산하지 않는다. 상세 계약은 [조건부 출발 데이터 가이드](arrival-deadline-data-guide.md)를 따른다.
 
 지하철은 하나의 호선·방향에도 본선, 지선, 단축운행이 존재하므로 현재 운행시각표의 일반 열차
 역 순서를 `service_pattern_id`별로 보존한다. 서로 다른 패턴이 동일한 승차~하차 역 경로를
@@ -94,11 +108,10 @@ API/도메인 모델은 초와 m를 사용한다. 현재 DB의 `base_duration_mi
 이어 붙이지 않는다. 단, 시간표는 물리 topology의 최종 진실이 아니므로 공식 노선-역순서
 자료 또는 수동 정답 corpus로 검증하기 전에는 운영 정확도가 입증된 것으로 보지 않는다.
 
-개발 초기 마이그레이션 정책에 따라 `V1__init.sql`에 기존 ODSAY 호환성과 KAKAO 기본값,
-서울 교통 마스터 테이블을 함께 정의한다. 기존 V1 적용 DB는 초기화한 뒤 다시 생성해야 한다.
+기존 마스터 스키마는 V1~V3를 유지하고 수도권 버스 저장소·캐시는 새 V4로 추가한다. 기존 DB를 초기화하거나 과거 마이그레이션을 변경하지 않는다.
 
 현재 `POST /api/v1/routes/search`는 사용자 경로 자체를 저장하지 않지만, 대중교통 step의
-매핑 판정은 `provider_segment_mapping`에 캐시한다. 일정·후보 저장은 별도 Repository 책임이다.
+지하철 판정은 `provider_segment_mapping`, 버스 판정은 `metropolitan_bus_mapping_cache`에 캐시한다. 일정·후보 저장은 별도 Repository 책임이다.
 향후 저장 시 provider step은 `route_segment`, 그 안의 모든 공식 인접 구간은
 `route_segment_edge`에 1:N으로 저장한다. 여러 정거장을 지나는 정상 step의 edge를 JSON에만
 남기거나 상위 `segment_id=NULL`만 저장하면 영향 일정 역조회에서 누락되므로 허용하지 않는다.
@@ -117,6 +130,18 @@ API/도메인 모델은 초와 m를 사용한다. 현재 DB의 `base_duration_mi
 - 지하철 topology EXACT와 실시간 crosswalk `NONE/PARTIAL/FULL` 비율
 
 또한 `provider_segment_mapping`은 카카오 요청 판정 캐시이지 Collector/Spark용 공용
-crosswalk 레지스트리가 아니다. Collector/Spark가 같은 버전의 canonical topology와 실시간
-provider ID 대응표를 받는 인증 API·versioned artifact·compacted topic 중 하나가 별도 확정되어야
-end-to-end 실시간 보정이 성립한다.
+crosswalk 레지스트리가 아니다. Collector/Spark는 같은 버전과 SHA의 별도 crosswalk artifact를
+기동 시 읽고 BUS 관측을 독립 검증한다. 대응표 배포와 실시간 소요시간 연산의 운영 검증은 별개다.
+# 수도권 버스 매핑 확장 (2026-09-10)
+
+BUS 매핑은 기본적으로 수도권 마스터만 사용한다. 활성 마스터가 없으면 명시적으로 미구성 상태를 반환한다.
+기존 `mapping` 결과에 `busAlternatives[]`를 추가하여 차량별 ID 확인과 공간 검증 상태를
+분리한다. 공식 출처 ID를 공용 `segment_id`로 임의 변환하지 않으며 여러 차량 대안의
+edge를 합치지 않는다. 단일 검증 대안/출처는 서울·경기·인천 모두 canonical-adjacent-v2의
+EXACT/segments를 발급한다. 지하철과 도보의 기존 의미는 유지한다.
+
+필드·캐시·검토일 정책은 [수도권 버스 매핑 계약](metropolitan-bus-mapping.md),
+적재·활성화 방법은 [마스터 적용 안내](../../backend/transit-master/README.md)를 따른다.
+
+응답의 `busEvaluations`와 추가 BUS 품질 집계, ML fallback, 선택 경로 저장의 내부 호출 계약은
+[수도권 구간 연결 계약](metropolitan-segment-integration.md)을 따른다.

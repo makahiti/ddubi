@@ -8,23 +8,14 @@ import java.util.Objects;
  * 외부 제공자와 공식 마스터의 표기 차이를 후보 검색용 문자열로 정규화한다.
  *
  * <p>정규화는 후보를 좁히는 수단일 뿐 같은 공식 ID라는 증명이 아니다. 최종 확정은
- * {@link BusSegmentMatcher}와 {@link SubwaySegmentMatcher}가 노선, 승·하차 순서,
- * 중간 정류장·역과 방향을 다시 검사한다.</p>
+ * {@link SubwaySegmentMatcher}가 노선, 승·하차 순서,
+ * 중간 역과 방향을 다시 검사한다. 수도권 버스는 별도의 운행 조건 보존 정규화를 사용한다.</p>
  *
  * <p>이 클래스는 의도적으로 별칭을 적용하지 않는다. 공식 마스터의 이름까지 외부 제공자
  * 별칭으로 다시 쓰면 서로 다른 공식 노선·정류장이 하나의 검색 키로 합쳐질 수 있기 때문이다.
  * 검증된 별칭은 Matcher가 {@code alias -> canonical ID}로 직접 해석한다.</p>
  */
 public class TransitNameNormalizer {
-
-    public String normalizeRouteName(String value) {
-        return normalizeRouteBase(value);
-    }
-
-    public String normalizeStopName(String value) {
-        // '역'은 실제 역명의 일부이므로 제거하지 않고, 의미 없는 '정류장' 접미사만 정리한다.
-        return normalizeStopBase(value);
-    }
 
     /**
      * 지하철 호선명을 비교 가능한 형태로 만든다.

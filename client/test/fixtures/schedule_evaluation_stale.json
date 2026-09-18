@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-stale",
+  "scheduleId": "schedule-1",
+  "state": "STALE",
+  "decision": "ADVANCE_DEPARTURE",
+  "proposedDepartAt": "2026-09-18T08:10:00+09:00",
+  "estimatedArrivalAt": "2026-09-18T08:49:00+09:00",
+  "quality": {"preview": false, "productionEligible": true, "realtimeApplied": true, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "COMPLETE", "missingInputs": [], "fallbackReasons": []},
+  "computedAt": "2026-09-17T23:00:00Z",
+  "validUntil": "2026-09-17T23:05:00Z"
+}

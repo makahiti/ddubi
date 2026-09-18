@@ -2,6 +2,7 @@ package com.ssafy.ddubi.global.config;
 
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.global.common.ApiResponse;
+import com.ssafy.ddubi.global.security.InternalApiKeyFilter;
 import com.ssafy.ddubi.global.security.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -39,7 +40,10 @@ public class SecurityConfig {
      * 인증 없이 열어두는 경로.
      *
      * /auth/** 를 통째로 열지 않는다 — logout 은 명세서상 "로그인 사용자" 전용이라
-     * 인증이 걸려야 한다. internal API 도 여기 넣지 않는다(서비스 계정 전용).
+     * 인증이 걸려야 한다. internal API 도 여기 넣지 않는다(서비스 계정 전용) —
+     * 대신 ROLE_INTERNAL 을 요구하고, 그 역할은 InternalApiKeyFilter 만 부여한다.
+     * permitAll 로 열지 않는 이유: 나중에 필터가 빠지거나 순서가 어긋났을 때
+     * 조용히 열리는 것이 아니라 403 으로 닫혀야 한다.
      */
     private static final String[] PUBLIC_PATHS = {
             "/api/v1/auth/email/verification",
@@ -49,6 +53,9 @@ public class SecurityConfig {
             "/api/v1/auth/oauth",
             "/api/v1/auth/oauth/token",
             "/api/v1/auth/oauth/id-token",
+            // 연동 확정은 로그인 전 단계다. 소셜 로그인이 ACCOUNT_LINK_REQUIRED 를 준
+            // 시점에는 아직 토큰이 없다. 인증은 linkToken + 기존 계정 비밀번호로 한다.
+            "/api/v1/auth/oauth/link",
             "/api/v1/auth/refresh",
             "/actuator/health",
             "/actuator/health/**",
@@ -59,9 +66,12 @@ public class SecurityConfig {
     };
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final InternalApiKeyFilter internalApiKeyFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+                          InternalApiKeyFilter internalApiKeyFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.internalApiKeyFilter = internalApiKeyFilter;
     }
 
     @Bean
@@ -74,9 +84,13 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
+                        // 파이프라인 전용. 역할은 InternalApiKeyFilter 만 부여한다.
+                        .requestMatchers("/internal/**").hasRole("INTERNAL")
                         .anyRequest().authenticated())
                 // 표준 폼 로그인 필터 자리에 JWT 해석을 끼운다.
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // /internal 은 JWT 가 아니라 API 키로 인증한다. JWT 필터보다 앞에 둔다.
+                .addFilterBefore(internalApiKeyFilter, JwtAuthenticationFilter.class)
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((req, res, e) ->
                                 write(res, objectMapper, ErrorCode.UNAUTHORIZED))

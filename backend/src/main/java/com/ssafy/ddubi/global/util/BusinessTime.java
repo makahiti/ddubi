@@ -30,6 +30,17 @@ public final class BusinessTime {
         return LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS);
     }
 
+    /**
+     * DATETIME(6) 컬럼에 직접 넣을 현재 시각.
+     *
+     * 감사 컬럼은 JpaConfig 가 알아서 잘라 주지만, pipeline_config.updated_at 처럼
+     * 감사 대상이 아닌 DATETIME(6) 컬럼을 코드에서 직접 채울 때 쓴다.
+     * 나노초를 그대로 넣으면 저장값과 읽은 값이 달라진다.
+     */
+    public static LocalDateTime nowMicros() {
+        return LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
+    }
+
     /** 외부에서 받은 시각을 DATETIME 정밀도로 맞춘다. null 은 그대로 통과시킨다. */
     public static LocalDateTime normalize(LocalDateTime time) {
         return time == null ? null : time.truncatedTo(ChronoUnit.SECONDS);

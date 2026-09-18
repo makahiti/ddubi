@@ -1,0 +1,254 @@
+{
+  "date": "2026-09-10",
+  "idPolicy": "canonical-adjacent-v2",
+  "crosswalk": {
+    "schemaVersion": 1,
+    "idPolicy": "canonical-adjacent-v2",
+    "masterVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+    "masterSha256": "e5762c5166b7177ffc13d9d39267ccd3e044b848b78a4d071341616d2553ba64",
+    "edgeCount": 105070,
+    "sequenceGaps": 2,
+    "sha256": "e7b8db4f3330d7275aa56b4674032d71aa6e34f99bec0c29cee9f7ce002676bd"
+  },
+  "java": {
+    "total": {
+      "tests": 81,
+      "passed": 79,
+      "skipped": 2,
+      "failures": 0,
+      "errors": 0
+    },
+    "suites": {
+      "CanonicalSegmentIdFactoryTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 5
+      },
+      "MetropolitanBusDatabaseTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1,
+        "passed": 0
+      },
+      "MetropolitanBusMatcherTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "MetropolitanBusRegressionTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 11
+      },
+      "MetropolitanBusServiceTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 5
+      },
+      "ProviderSegmentSignatureFactoryTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "SeoulTransitMasterImportServiceTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 11
+      },
+      "SubwaySegmentMatcherTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 9
+      },
+      "TransitContractSyntaxTest": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 3
+      },
+      "BusJourneyEvaluatorTest": {
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 5
+      },
+      "KakaoRouteMapperTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "MasterDataTransitMappingResolverTest": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 7
+      },
+      "RouteSearchServiceTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 1
+      },
+      "RouteSegmentEdgeDatabaseTest": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1,
+        "passed": 0
+      },
+      "RouteSegmentEdgeWriterTest": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 2
+      },
+      "MappingCorpusEvaluatorTest": {
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 9
+      }
+    }
+  },
+  "collector": {
+    "tests": 72,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 71
+  },
+  "sparkRelevant": {
+    "tests": 19,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 19
+  },
+  "sparkFullBeforeFinalArtifactTest": {
+    "tests": 44,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 42
+  },
+  "replay": {
+    "2026-09-09": {
+      "masterVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "policy": "metro-bus-v1",
+      "reviewAsOf": "2026-09-09",
+      "busSteps": 281,
+      "alternatives": 768,
+      "kakaoMapperResolverVerifiedSteps": 281,
+      "counts": {
+        "AMBIGUOUS/NOT_CHECKED": 3,
+        "CONFIRMED/CONFLICT": 8,
+        "CONFIRMED/VERIFIED": 757
+      },
+      "allAlternativesVerifiedSteps": 271,
+      "v6VerifiedPreservedWithSameIdsAndOrders": 757,
+      "inputSha256": {
+        "1.json": "f8626e547a74535b6538189df7ad28efe078753807ffdb38a1ccc4d2b8fc520a",
+        "10.json": "9319b9f455eda55c0a94fa143f89666c4223e2d37f9c2c0ae2df815286cbfa77",
+        "11.json": "4c62555ad57c2aa12ee6fd13ec9615c0c4a6e285706f70c82d36013916267810",
+        "12.json": "2fc6ab472f60e49cd3fbc3bd2be7b91026b6bc0ed49445c4fac357be10cff524",
+        "13.json": "602712905df0e2374d2b5660292c84f96ba8a4c483be2adb590fa11019600bdd",
+        "14.json": "9cc0d892e8ee88cd2e46767db11e8ea82dc1ca12a390c8c4f2b1d7b13d7a6259",
+        "15.json": "db5243134c2d383ebf51c2d7f3f6fd84ce3984158250d20682a76fb8e5dcbafb",
+        "16.json": "971fa191c172ebfba6a0ce06662fa9f5b3c2034e124b50ad5840325649313614",
+        "17.json": "bfa8bb8e71b26e46b8e5494030d3f21bb5bb562003b8f1bd73b7a44fa52a39cc",
+        "18.json": "9c60e1ad9e7ddf48fdf0d7970ec36fef13ffdf3259a3a2ae559ca364694ab1aa",
+        "19.json": "2112159b900ab966f00208d6c1c16f34c638b59f70d3b47b54e1d27a4746560a",
+        "2.json": "17405d5b10e2a416ec7a544a5483873c4a2d11fa52b56ca52102544238188bd2",
+        "20.json": "1b1aa59776df0ac855bca38330f0638262b474928959810893b9160e3088eeb8",
+        "3.json": "ff9bab50156a17d85ceca3034a0085ac04317ef071ac807ab1ee5a6bf21f5852",
+        "4.json": "3c8dfa1dcc7a0812cd89b072c4a1901b24bb589d5018e0324f495af95c89d1be",
+        "5.json": "a9efcaf32547bb1715fabbe7bff352b888366e671ce459103ffdeabeda7f16c3",
+        "6.json": "662509f409a0f020f80cafb04578028b5d7aae10736557e9bc200fc8048b8dbc",
+        "7.json": "d70a4e1db1ca8a7baeac8d98198152bfebd619e4fbb0bf4081525c9c1c811183",
+        "8.json": "ebddbed008ca870b74929bb56c8b4a0b87f05fe1d109d532ca3c73f5a85958d0",
+        "9.json": "746b1b50189e8c623f5f6e5809e36b66701f2f9ab3cc17e29741ee00bc624661"
+      },
+      "elapsedSeconds": 17.0332585,
+      "replayIdentical": true,
+      "negativeCases": 1405,
+      "unexpectedNegativeVerified": [],
+      "inputsUnchanged": true,
+      "changedV6VerifiedCount": 0
+    },
+    "2026-09-10": {
+      "masterVersion": "CSV-V5-34dc30aa763b-KAKAO-REVIEW-V6",
+      "policy": "metro-bus-v1",
+      "reviewAsOf": "2026-09-10",
+      "busSteps": 281,
+      "alternatives": 768,
+      "kakaoMapperResolverVerifiedSteps": 281,
+      "counts": {
+        "AMBIGUOUS/NOT_CHECKED": 4,
+        "CONFIRMED/CONFLICT": 8,
+        "CONFIRMED/VERIFIED": 730,
+        "UNRESOLVED/NOT_CHECKED": 26
+      },
+      "allAlternativesVerifiedSteps": 251,
+      "v6VerifiedPreservedWithSameIdsAndOrders": 730,
+      "inputSha256": {
+        "1.json": "f8626e547a74535b6538189df7ad28efe078753807ffdb38a1ccc4d2b8fc520a",
+        "10.json": "9319b9f455eda55c0a94fa143f89666c4223e2d37f9c2c0ae2df815286cbfa77",
+        "11.json": "4c62555ad57c2aa12ee6fd13ec9615c0c4a6e285706f70c82d36013916267810",
+        "12.json": "2fc6ab472f60e49cd3fbc3bd2be7b91026b6bc0ed49445c4fac357be10cff524",
+        "13.json": "602712905df0e2374d2b5660292c84f96ba8a4c483be2adb590fa11019600bdd",
+        "14.json": "9cc0d892e8ee88cd2e46767db11e8ea82dc1ca12a390c8c4f2b1d7b13d7a6259",
+        "15.json": "db5243134c2d383ebf51c2d7f3f6fd84ce3984158250d20682a76fb8e5dcbafb",
+        "16.json": "971fa191c172ebfba6a0ce06662fa9f5b3c2034e124b50ad5840325649313614",
+        "17.json": "bfa8bb8e71b26e46b8e5494030d3f21bb5bb562003b8f1bd73b7a44fa52a39cc",
+        "18.json": "9c60e1ad9e7ddf48fdf0d7970ec36fef13ffdf3259a3a2ae559ca364694ab1aa",
+        "19.json": "2112159b900ab966f00208d6c1c16f34c638b59f70d3b47b54e1d27a4746560a",
+        "2.json": "17405d5b10e2a416ec7a544a5483873c4a2d11fa52b56ca52102544238188bd2",
+        "20.json": "1b1aa59776df0ac855bca38330f0638262b474928959810893b9160e3088eeb8",
+        "3.json": "ff9bab50156a17d85ceca3034a0085ac04317ef071ac807ab1ee5a6bf21f5852",
+        "4.json": "3c8dfa1dcc7a0812cd89b072c4a1901b24bb589d5018e0324f495af95c89d1be",
+        "5.json": "a9efcaf32547bb1715fabbe7bff352b888366e671ce459103ffdeabeda7f16c3",
+        "6.json": "662509f409a0f020f80cafb04578028b5d7aae10736557e9bc200fc8048b8dbc",
+        "7.json": "d70a4e1db1ca8a7baeac8d98198152bfebd619e4fbb0bf4081525c9c1c811183",
+        "8.json": "ebddbed008ca870b74929bb56c8b4a0b87f05fe1d109d532ca3c73f5a85958d0",
+        "9.json": "746b1b50189e8c623f5f6e5809e36b66701f2f9ab3cc17e29741ee00bc624661"
+      },
+      "elapsedSeconds": 15.6523434,
+      "replayIdentical": true,
+      "negativeCases": 1405,
+      "unexpectedNegativeVerified": [],
+      "inputsUnchanged": true,
+      "changedV6VerifiedCount": 27
+    }
+  },
+  "python38Syntax": true,
+  "limitations": [
+    "MySQL integration tests skipped: Docker unavailable",
+    "Two existing weather Parquet tests failed: HADOOP_HOME/winutils unavailable on Windows",
+    "Actual GPU model adapter not registered; default Kakao fallback",
+    "V4/master import/crosswalk runtime deployment not executed",
+    "Parent route ownership/save service must invoke internal RouteSegmentEdgeWriter"
+  ]
+}

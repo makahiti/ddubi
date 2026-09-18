@@ -38,6 +38,10 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
     final provider = widget.provider;
     final isKakao = provider == '카카오';
     final isNaver = provider == '네이버';
+    final isGoogle = provider == 'Google';
+    if (isKakao) return _buildKakaoScreen(context);
+    if (isNaver) return _buildNaverScreen(context);
+    if (isGoogle) return _buildGoogleScreen(context);
     final buttonBackground = isKakao
         ? const Color(0xFFFFD600)
         : isNaver
@@ -116,6 +120,848 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
     );
   }
 
+  Widget _buildKakaoScreen(BuildContext context) {
+    const kakaoYellow = Color(0xFFFEE500);
+    const kakaoAccent = Color(0xFFF2B700);
+    const kakaoBrown = Color(0xFF3C1E1E);
+    const navy = Color(0xFF14213D);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: const BackButton(color: Color(0xFF202631)),
+        title: const Text(
+          '카카오 로그인',
+          style: TextStyle(
+            color: Color(0xFF202631),
+            fontSize: 23,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 700;
+            final heroHeight = (constraints.maxHeight * (compact ? .43 : .46))
+                .clamp(compact ? 220.0 : 290.0, compact ? 410.0 : 440.0);
+            final cardHeight = compact ? 218.0 : 280.0;
+
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: heroHeight + cardHeight - 14,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: heroHeight,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.asset(
+                                  'assets/images/auth/kakao_login_bg.png',
+                                  fit: BoxFit.cover,
+                                  alignment: Alignment.topCenter,
+                                ),
+                                const DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0x35FFFFFF),
+                                        Color(0x00FFFFFF),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 18,
+                                  bottom: compact ? 100 : 138,
+                                  child: Transform.rotate(
+                                    angle: -.06,
+                                    child: const Text(
+                                      '좋은 이야기가\n더 가까워져요!',
+                                      style: TextStyle(
+                                        color: Color(0xFF9A6200),
+                                        fontSize: 16,
+                                        height: 1.45,
+                                        fontWeight: FontWeight.w900,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.white,
+                                            blurRadius: 8,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: const Alignment(.10, .66),
+                                  child: Transform.translate(
+                                    offset: Offset(0, compact ? 7 : 12),
+                                    child: TtubeeEntrance(
+                                      asset:
+                                          'assets/images/auth/kakao_ttubee.png',
+                                      height: compact ? 160 : 220,
+                                      semanticLabel: '카카오 로그인을 안내하는 뚜비',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Positioned(
+                            top: heroHeight - 14,
+                            left: 24,
+                            right: 24,
+                            height: cardHeight,
+                            child: Container(
+                              padding: EdgeInsets.fromLTRB(
+                                20,
+                                compact ? 20 : 25,
+                                20,
+                                compact ? 17 : 22,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(30),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x1AC78C00),
+                                    blurRadius: 24,
+                                    offset: Offset(0, 9),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Text.rich(
+                                    const TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: '카카오',
+                                          style: TextStyle(color: kakaoAccent),
+                                        ),
+                                        TextSpan(
+                                          text: '로 간편하게 시작해요',
+                                          style: TextStyle(color: navy),
+                                        ),
+                                      ],
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: compact ? 21 : 24,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  SizedBox(height: compact ? 9 : 13),
+                                  Text(
+                                    '카카오 계정으로 본인 인증 후,\n뚜비 계정과 안전하게 연결돼요.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: const Color(0xFF667085),
+                                      fontSize: compact ? 13 : 14,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const Row(
+                                    children: [
+                                      Expanded(
+                                        child: _KakaoBenefit(
+                                          icon: Icons.bolt_rounded,
+                                          firstLine: '빠른',
+                                          secondLine: '로그인',
+                                        ),
+                                      ),
+                                      _KakaoBenefitDivider(),
+                                      Expanded(
+                                        child: _KakaoBenefit(
+                                          icon: Icons.link_rounded,
+                                          firstLine: '쉬운',
+                                          secondLine: '계정 연결',
+                                        ),
+                                      ),
+                                      _KakaoBenefitDivider(),
+                                      Expanded(
+                                        child: _KakaoBenefit(
+                                          icon:
+                                              Icons.sentiment_satisfied_rounded,
+                                          firstLine: '친숙한',
+                                          secondLine: '사용 경험',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: compact ? 18 : 60),
+                    if (_error != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: DdubiColors.red),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 60,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: kakaoYellow,
+                            foregroundColor: kakaoBrown,
+                            disabledBackgroundColor: const Color(0x99FEE500),
+                            shape: const StadiumBorder(),
+                            elevation: 2,
+                            shadowColor: const Color(0x33D9A400),
+                          ),
+                          onPressed: _loading ? null : _login,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.chat_bubble_rounded,
+                                color: kakaoBrown,
+                                size: 27,
+                              ),
+                              Container(
+                                width: 1,
+                                height: 24,
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 17,
+                                ),
+                                color: Color(0x553C1E1E),
+                              ),
+                              Text(
+                                _loading ? '로그인 중...' : '카카오 계정으로 계속하기',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 20),
+                      child: Text(
+                        '인증 정보는 백엔드에서 한 번 더 안전하게 확인해요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF7A8494),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNaverScreen(BuildContext context) {
+    const naverGreen = Color(0xFF03C75A);
+    const navy = Color(0xFF14213D);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: const BackButton(color: Color(0xFF202631)),
+        title: const Text(
+          '네이버 로그인',
+          style: TextStyle(
+            color: Color(0xFF202631),
+            fontSize: 23,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 700;
+            final heroHeight = (constraints.maxHeight * (compact ? .43 : .46))
+                .clamp(compact ? 220.0 : 290.0, compact ? 410.0 : 440.0);
+            final cardHeight = compact ? 218.0 : 280.0;
+
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: heroHeight + cardHeight - 14,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: heroHeight,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.asset(
+                                  'assets/images/auth/naver_login_bg.png',
+                                  fit: BoxFit.cover,
+                                  alignment: const Alignment(0, -.2),
+                                ),
+                                const DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0x52FFFFFF),
+                                        Color(0x00FFFFFF),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 18,
+                                  bottom: 159,
+                                  child: Transform.rotate(
+                                    angle: -.06,
+                                    child: const Text(
+                                      '좋은 하루,\n네이버에서\n시작해요!',
+                                      style: TextStyle(
+                                        color: naverGreen,
+                                        fontSize: 15,
+                                        height: 1.45,
+                                        fontWeight: FontWeight.w800,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.white,
+                                            blurRadius: 8,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: const Alignment(-.22, .62),
+                                  child: TtubeeEntrance(
+                                    asset: 'assets/images/ttubee-guide.png',
+                                    height: compact ? 160 : 220,
+                                    semanticLabel: '네이버 로그인을 안내하는 뚜비',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Positioned(
+                            top: heroHeight - 14,
+                            left: 24,
+                            right: 24,
+                            height: cardHeight,
+                            child: Container(
+                              padding: EdgeInsets.fromLTRB(
+                                20,
+                                compact ? 20 : 25,
+                                20,
+                                compact ? 17 : 22,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(30),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x14006D3A),
+                                    blurRadius: 24,
+                                    offset: Offset(0, 9),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Text.rich(
+                                    const TextSpan(
+                                      children: [
+                                        TextSpan(
+                                          text: '네이버',
+                                          style: TextStyle(color: naverGreen),
+                                        ),
+                                        TextSpan(text: '로 빠르게 시작해요'),
+                                      ],
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: navy,
+                                      fontSize: compact ? 22 : 25,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  SizedBox(height: compact ? 9 : 13),
+                                  Text(
+                                    '네이버 계정으로 본인 인증 후,\n뚜비 계정과 안전하게 연결돼요.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: const Color(0xFF667085),
+                                      fontSize: compact ? 13 : 14,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const Row(
+                                    children: [
+                                      Expanded(
+                                        child: _NaverBenefit(
+                                          icon: Icons.verified_user_rounded,
+                                          firstLine: '안전한',
+                                          secondLine: '본인 인증',
+                                        ),
+                                      ),
+                                      _NaverBenefitDivider(),
+                                      Expanded(
+                                        child: _NaverBenefit(
+                                          icon: Icons.person_rounded,
+                                          firstLine: '간편한',
+                                          secondLine: '계정 연결',
+                                        ),
+                                      ),
+                                      _NaverBenefitDivider(),
+                                      Expanded(
+                                        child: _NaverBenefit(
+                                          icon: Icons.eco_rounded,
+                                          firstLine: '더 편리한',
+                                          secondLine: '서비스 이용',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: compact ? 18 : 60),
+                    if (_error != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: DdubiColors.red),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 60,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: naverGreen,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: naverGreen.withValues(
+                              alpha: .55,
+                            ),
+                            shape: const StadiumBorder(),
+                            elevation: 2,
+                            shadowColor: const Color(0x3303C75A),
+                          ),
+                          onPressed: _loading ? null : _login,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'N',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1,
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 24,
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 17,
+                                ),
+                                color: Colors.white38,
+                              ),
+                              Text(
+                                _loading ? '로그인 중...' : '네이버 계정으로 계속하기',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 20),
+                      child: Text(
+                        '인증 정보는 백엔드에서 한 번 더 안전하게 확인해요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF7A8494),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGoogleScreen(BuildContext context) {
+    const navy = Color(0xFF14213D);
+    const googleBlue = Color(0xFF4285F4);
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: const BackButton(color: Color(0xFF202631)),
+        title: const Text(
+          'Google 로그인',
+          style: TextStyle(
+            color: Color(0xFF202631),
+            fontSize: 23,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 700;
+            final heroHeight = (constraints.maxHeight * (compact ? .43 : .46))
+                .clamp(compact ? 220.0 : 290.0, compact ? 410.0 : 440.0);
+            final cardHeight = compact ? 218.0 : 280.0;
+
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: heroHeight + cardHeight - 14,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: heroHeight,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.asset(
+                                  'assets/images/auth/google_login_bg.png',
+                                  fit: BoxFit.cover,
+                                  alignment: const Alignment(0, -.2),
+                                ),
+                                const DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0x42FFFFFF),
+                                        Color(0x00FFFFFF),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  left: 18,
+                                  bottom: compact ? 100 : 138,
+                                  child: Transform.rotate(
+                                    angle: -.06,
+                                    child: const Text(
+                                      '더 넓은 세상으로,\nGoogle과 함께\n시작해요!',
+                                      style: TextStyle(
+                                        color: googleBlue,
+                                        fontSize: 15,
+                                        height: 1.45,
+                                        fontWeight: FontWeight.w800,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.white,
+                                            blurRadius: 8,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Align(
+                                  alignment: const Alignment(.08, .62),
+                                  child: TtubeeEntrance(
+                                    asset: 'assets/images/ttubee-guide.png',
+                                    height: compact ? 160 : 220,
+                                    semanticLabel: 'Google 로그인을 안내하는 뚜비',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Positioned(
+                            top: heroHeight - 14,
+                            left: 24,
+                            right: 24,
+                            height: cardHeight,
+                            child: Container(
+                              padding: EdgeInsets.fromLTRB(
+                                20,
+                                compact ? 20 : 25,
+                                20,
+                                compact ? 17 : 22,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(30),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x142D68B8),
+                                    blurRadius: 24,
+                                    offset: Offset(0, 9),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Text.rich(
+                                    TextSpan(
+                                      children: [
+                                        const TextSpan(
+                                          text: 'G',
+                                          style: TextStyle(color: googleBlue),
+                                        ),
+                                        const TextSpan(
+                                          text: 'o',
+                                          style: TextStyle(
+                                            color: Color(0xFFEA4335),
+                                          ),
+                                        ),
+                                        const TextSpan(
+                                          text: 'o',
+                                          style: TextStyle(
+                                            color: Color(0xFFFBBC05),
+                                          ),
+                                        ),
+                                        const TextSpan(
+                                          text: 'g',
+                                          style: TextStyle(color: googleBlue),
+                                        ),
+                                        const TextSpan(
+                                          text: 'l',
+                                          style: TextStyle(
+                                            color: Color(0xFF34A853),
+                                          ),
+                                        ),
+                                        const TextSpan(
+                                          text: 'e',
+                                          style: TextStyle(
+                                            color: Color(0xFFEA4335),
+                                          ),
+                                        ),
+                                        const TextSpan(
+                                          text: '로 스마트하게 시작해요',
+                                          style: TextStyle(color: navy),
+                                        ),
+                                      ],
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: compact ? 21 : 24,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  SizedBox(height: compact ? 9 : 13),
+                                  Text(
+                                    'Google 계정으로 본인 인증 후,\n뚜비 계정과 안전하게 연결돼요.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: const Color(0xFF667085),
+                                      fontSize: compact ? 13 : 14,
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  const Row(
+                                    children: [
+                                      Expanded(
+                                        child: _GoogleBenefit(
+                                          icon: Icons.bolt_rounded,
+                                          color: Color(0xFF4285F4),
+                                          background: Color(0xFFEAF2FF),
+                                          firstLine: '간편한',
+                                          secondLine: '인증',
+                                        ),
+                                      ),
+                                      _GoogleBenefitDivider(),
+                                      Expanded(
+                                        child: _GoogleBenefit(
+                                          icon: Icons.link_rounded,
+                                          color: Color(0xFFFBBC05),
+                                          background: Color(0xFFFFF7DE),
+                                          firstLine: '빠른',
+                                          secondLine: '연동',
+                                        ),
+                                      ),
+                                      _GoogleBenefitDivider(),
+                                      Expanded(
+                                        child: _GoogleBenefit(
+                                          icon: Icons.verified_user_rounded,
+                                          color: Color(0xFF34A853),
+                                          background: Color(0xFFEAF8EF),
+                                          firstLine: '안전한',
+                                          secondLine: '로그인',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: compact ? 18 : 60),
+                    if (_error != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: DdubiColors.red),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 60,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: navy,
+                            disabledBackgroundColor: const Color(0xFFF2F4F7),
+                            shape: const StadiumBorder(
+                              side: BorderSide(color: Color(0xFFE4E9F0)),
+                            ),
+                            elevation: 2,
+                            shadowColor: const Color(0x222D68B8),
+                          ),
+                          onPressed: _loading ? null : _login,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'G',
+                                style: TextStyle(
+                                  color: googleBlue,
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1,
+                                ),
+                              ),
+                              Container(
+                                width: 1,
+                                height: 24,
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 17,
+                                ),
+                                color: Color(0xFFD7DDE5),
+                              ),
+                              Text(
+                                _loading ? '로그인 중...' : 'Google 계정으로 계속하기',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 20),
+                      child: Text(
+                        'ID 토큰은 백엔드에서 한 번 더 안전하게 검증해요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFF7A8494),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _login() async {
     setState(() {
       _loading = true;
@@ -150,10 +996,12 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
           if (service == null) {
             throw const NaverLoginException('네이버 로그인 설정을 확인해주세요.');
           }
-          final accessToken = await service.login(context);
-          await widget.repository.loginWithOAuthToken(
+          final authorization = await service.login(context);
+          await widget.repository.loginWithOAuthCode(
             provider: 'NAVER',
-            accessToken: accessToken,
+            authorizationCode: authorization.authorizationCode,
+            redirectUri: authorization.redirectUri,
+            state: authorization.state,
           );
           break;
         default:
@@ -163,6 +1011,19 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
           );
       }
       if (mounted) widget.onAuthenticated();
+    } on AccountLinkRequiredException catch (error) {
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AccountLinkPromptScreen(
+            provider: _providerLabel(error.provider),
+            email: error.email,
+            linkToken: error.linkToken,
+            repository: widget.repository,
+            onLinked: widget.onAuthenticated,
+          ),
+        ),
+      );
     } on KakaoLoginException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } on GoogleLoginException catch (error) {
@@ -177,6 +1038,152 @@ class _SocialAuthScreenState extends State<SocialAuthScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  String _providerLabel(String provider) => switch (provider.toUpperCase()) {
+    'KAKAO' => '카카오',
+    'NAVER' => '네이버',
+    'GOOGLE' => 'Google',
+    _ => provider,
+  };
+}
+
+class _KakaoBenefit extends StatelessWidget {
+  const _KakaoBenefit({
+    required this.icon,
+    required this.firstLine,
+    required this.secondLine,
+  });
+
+  final IconData icon;
+  final String firstLine;
+  final String secondLine;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 48,
+        height: 48,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFF8D6),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Color(0xFFFFBD00), size: 27),
+      ),
+      const SizedBox(height: 9),
+      Text(
+        '$firstLine\n$secondLine',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Color(0xFF263550),
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
+}
+
+class _KakaoBenefitDivider extends StatelessWidget {
+  const _KakaoBenefitDivider();
+
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 74, color: const Color(0xFFE9ECEF));
+}
+
+class _NaverBenefit extends StatelessWidget {
+  const _NaverBenefit({
+    required this.icon,
+    required this.firstLine,
+    required this.secondLine,
+  });
+
+  final IconData icon;
+  final String firstLine;
+  final String secondLine;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 48,
+        height: 48,
+        decoration: const BoxDecoration(
+          color: Color(0xFFE9FAF0),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Color(0xFF03C75A), size: 26),
+      ),
+      const SizedBox(height: 9),
+      Text(
+        '$firstLine\n$secondLine',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Color(0xFF263550),
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
+}
+
+class _NaverBenefitDivider extends StatelessWidget {
+  const _NaverBenefitDivider();
+
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 74, color: const Color(0xFFE9ECEF));
+}
+
+class _GoogleBenefit extends StatelessWidget {
+  const _GoogleBenefit({
+    required this.icon,
+    required this.color,
+    required this.background,
+    required this.firstLine,
+    required this.secondLine,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color background;
+  final String firstLine;
+  final String secondLine;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(color: background, shape: BoxShape.circle),
+        child: Icon(icon, color: color, size: 27),
+      ),
+      const SizedBox(height: 9),
+      Text(
+        '$firstLine\n$secondLine',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Color(0xFF263550),
+          fontSize: 12,
+          height: 1.35,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ],
+  );
+}
+
+class _GoogleBenefitDivider extends StatelessWidget {
+  const _GoogleBenefitDivider();
+
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 74, color: const Color(0xFFE9ECEF));
 }
 
 class AccountLinkPromptScreen extends StatelessWidget {
@@ -184,12 +1191,14 @@ class AccountLinkPromptScreen extends StatelessWidget {
     super.key,
     required this.provider,
     required this.email,
+    required this.linkToken,
     required this.repository,
     required this.onLinked,
   });
 
   final String provider;
   final String email;
+  final String linkToken;
   final AuthRepository repository;
   final VoidCallback onLinked;
 
@@ -245,6 +1254,7 @@ class AccountLinkPromptScreen extends StatelessWidget {
                     builder: (_) => EmailAccountLinkScreen(
                       provider: provider,
                       email: email,
+                      linkToken: linkToken,
                       repository: repository,
                       onLinked: onLinked,
                     ),
@@ -270,12 +1280,14 @@ class EmailAccountLinkScreen extends StatefulWidget {
     super.key,
     required this.provider,
     required this.email,
+    required this.linkToken,
     required this.repository,
     required this.onLinked,
   });
 
   final String provider;
   final String email;
+  final String linkToken;
   final AuthRepository repository;
   final VoidCallback onLinked;
 
@@ -373,8 +1385,8 @@ class _EmailAccountLinkScreenState extends State<EmailAccountLinkScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _loading = true);
     try {
-      await widget.repository.login(
-        email: widget.email,
+      await widget.repository.linkOAuthAccount(
+        linkToken: widget.linkToken,
         password: _password.text,
       );
       if (!mounted) return;
@@ -453,179 +1465,6 @@ class AccountLinkCompleteScreen extends StatelessWidget {
       ),
     ),
   );
-}
-
-class EmailLoginScreen extends StatefulWidget {
-  const EmailLoginScreen({
-    super.key,
-    required this.onAuthenticated,
-    required this.repository,
-  });
-  final VoidCallback onAuthenticated;
-  final AuthRepository repository;
-  @override
-  State<EmailLoginScreen> createState() => _EmailLoginScreenState();
-}
-
-class _EmailLoginScreenState extends State<EmailLoginScreen> {
-  final email = TextEditingController();
-  final password = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-  bool obscure = true;
-  bool loading = false;
-  String? serverError;
-  @override
-  void dispose() {
-    email.dispose();
-    password.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('이메일로 로그인')),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Form(
-            key: formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                Center(
-                  child: Image.asset(
-                    'assets/images/ttubee-guide.png',
-                    height: 130,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '다시 만나서 반가워요!',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 6),
-                const Text('가입한 이메일과 비밀번호를 입력해주세요.'),
-                const SizedBox(height: 24),
-                TextFormField(
-                  controller: email,
-                  validator: validateEmail,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
-                  decoration: const InputDecoration(
-                    labelText: '이메일',
-                    prefixIcon: Icon(Icons.email_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: password,
-                  validator: validatePassword,
-                  obscureText: obscure,
-                  autofillHints: const [AutofillHints.password],
-                  decoration: InputDecoration(
-                    labelText: '비밀번호',
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(() => obscure = !obscure),
-                      icon: Icon(
-                        obscure
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                      ),
-                    ),
-                  ),
-                ),
-                if (serverError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Text(
-                      serverError!,
-                      style: const TextStyle(color: DdubiColors.red),
-                    ),
-                  ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const AccountRecoveryScreen(initialIndex: 0),
-                        ),
-                      ),
-                      child: const Text('이메일을 잊으셨나요?'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const AccountRecoveryScreen(initialIndex: 1),
-                        ),
-                      ),
-                      child: const Text('비밀번호를 잊으셨나요?'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 50,
-                  child: FilledButton(
-                    onPressed: loading ? null : _submit,
-                    child: loading
-                        ? const SizedBox.square(
-                            dimension: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text(
-                            '로그인',
-                            style: TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () async {
-                    final registeredEmail = await Navigator.push<String>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            SignUpScreen(repository: widget.repository),
-                      ),
-                    );
-                    if (registeredEmail != null) email.text = registeredEmail;
-                  },
-                  child: const Text('처음이신가요? 회원가입'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-
-  Future<void> _submit() async {
-    setState(() => serverError = null);
-    if (!(formKey.currentState?.validate() ?? false)) return;
-    setState(() => loading = true);
-    try {
-      await widget.repository.login(
-        email: email.text.trim(),
-        password: password.text,
-      );
-      if (mounted) widget.onAuthenticated();
-    } on AuthException catch (error) {
-      if (mounted) {
-        setState(() => serverError = error.message ?? '이메일 또는 비밀번호를 확인해주세요.');
-      }
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
 }
 
 class SignUpScreen extends StatefulWidget {

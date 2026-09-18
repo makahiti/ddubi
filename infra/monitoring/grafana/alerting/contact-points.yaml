@@ -1,0 +1,28 @@
+# 알림을 받을 곳 (contact point) 과 알림 정책. Mattermost 수신 웹훅은 Slack 형식을 그대로 받으므로 type: slack 으로 보낸다.
+# 웹훅 URL 은 비밀값 — 파일에 쓰지 않고 grafana 컨테이너 환경변수 GF_ALERT_WEBHOOK_URL 로 받는다
+# (compose 가 서버 .env 의 GRAFANA_ALERT_WEBHOOK_URL 을 넘김). Grafana 프로비저닝 파일은 ${VAR} 를 환경변수로 치환한다.
+# 로컬처럼 값이 없으면 compose 기본값(example.invalid)이 들어가 전송만 실패하고 Grafana 는 정상 기동한다.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: ddubi-team
+    receivers:
+      - uid: ddubi-team-webhook
+        type: slack
+        settings:
+          url: ${GF_ALERT_WEBHOOK_URL}
+          title: '[뚜비 인프라] {{ .CommonLabels.alertname }}'
+          text: |
+            {{ range .Alerts }}{{ .Annotations.summary }}
+            상태: {{ .Status }} / 심각도: {{ .Labels.severity }}
+            절차서: {{ .Annotations.runbook }}
+            {{ end }}
+
+# 알림 정책: 모든 알림을 위 contact point 로. 같은 알림은 4시간마다 한 번만 다시 보낸다.
+policies:
+  - orgId: 1
+    receiver: ddubi-team
+    group_by: [alertname]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-preview",
+  "scheduleId": "schedule-1",
+  "state": "READY",
+  "decision": "ADVANCE_DEPARTURE",
+  "plannedDepartAt": "2026-09-18T08:30:00+09:00",
+  "proposedDepartAt": "2026-09-18T08:10:00+09:00",
+  "estimatedArrivalAt": "2026-09-18T08:49:00+09:00",
+  "quality": {"preview": true, "productionEligible": false, "realtimeApplied": true, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "COMPLETE", "missingInputs": [], "fallbackReasons": ["MODEL_VALIDATION_ONLY"]},
+  "validUntil": "2099-09-18T00:05:00Z"
+}

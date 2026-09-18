@@ -1,0 +1,13 @@
+{
+  "pollId": "00000000-0000-4000-8000-000000000002",
+  "source": "seoul.bus_arrival",
+  "scopeKey": "configured-routes",
+  "startedAt": "2026-09-16T08:10:00+09:00",
+  "finishedAt": "2026-09-16T08:10:12+09:00",
+  "status": "PARTIAL",
+  "completeSnapshot": false,
+  "pageCount": 37,
+  "rowCount": 2140,
+  "errorCode": "ROUTE_SCOPE_PARTIAL",
+  "contentHash": "0000000000000000000000000000000000000000000000000000000000000002"
+}

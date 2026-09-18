@@ -1,0 +1,1 @@
+{"requestId": "fixture-review-only", "asOf": "2026-09-11T10:01:00+09:00", "maxObservationAgeSeconds": 600, "segments": [{"edge": {"namespace": "SEOUL_BUS", "routeId": "r", "fromStopId": "a", "toStopId": "b", "fromOrder": 1, "toOrder": 2, "direction": null, "segmentId": "BUS:r:a:b"}, "passageStart": "2026-09-11T10:05:00+09:00", "passageEnd": "2026-09-11T10:06:00+09:00"}]}

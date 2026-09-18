@@ -26,7 +26,7 @@ class ApiAuthRepository implements AuthRepository {
   Future<void> login({required String email, required String password}) async {
     try {
       final response = await _api.login(email: email, password: password);
-      _saveSession(response.data);
+      await _saveSession(response.data);
     } on DioException catch (error) {
       throw _mapDioException(error);
     } on AuthException {
@@ -49,8 +49,10 @@ class ApiAuthRepository implements AuthRepository {
         provider: provider,
         accessToken: accessToken,
       );
-      _saveSession(response.data);
+      await _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
+      final linkRequired = _accountLinkRequired(error, provider);
+      if (linkRequired != null) throw linkRequired;
       throw _mapDioException(error);
     } on AuthException {
       rethrow;
@@ -63,17 +65,23 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> loginWithOAuthIdToken({
+  Future<void> loginWithOAuthCode({
     required String provider,
-    required String idToken,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
   }) async {
     try {
-      final response = await _api.loginWithOAuthIdToken(
+      final response = await _api.loginWithOAuthCode(
         provider: provider,
-        idToken: idToken,
+        authorizationCode: authorizationCode,
+        redirectUri: redirectUri,
+        state: state,
       );
-      _saveSession(response.data);
+      await _handleOAuthResponse(response.data, provider);
     } on DioException catch (error) {
+      final linkRequired = _accountLinkRequired(error, provider);
+      if (linkRequired != null) throw linkRequired;
       throw _mapDioException(error);
     } on AuthException {
       rethrow;
@@ -85,7 +93,98 @@ class ApiAuthRepository implements AuthRepository {
     }
   }
 
-  void _saveSession(Map<String, dynamic>? body) {
+  @override
+  Future<void> linkOAuthAccount({
+    required String linkToken,
+    required String password,
+  }) async {
+    try {
+      final response = await _api.linkOAuthAccount(
+        linkToken: linkToken,
+        password: password,
+      );
+      await _saveSession(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    } on AuthException {
+      rethrow;
+    } on Object {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '계정 연동 처리 중 문제가 발생했습니다.',
+      );
+    }
+  }
+
+  @override
+  Future<List<String>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  }) async {
+    try {
+      final response = await _api.linkSocialAccount(
+        provider: provider,
+        accessToken: accessToken,
+        idToken: idToken,
+      );
+      return _socialProviders(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<List<String>> unlinkSocialAccount(String provider) async {
+    try {
+      final response = await _api.unlinkSocialAccount(provider);
+      return _socialProviders(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  List<String> _socialProviders(Map<String, dynamic>? body) {
+    final rawData = body?['data'];
+    final data = rawData is Map
+        ? rawData.map((key, value) => MapEntry(key.toString(), value))
+        : const <String, dynamic>{};
+    final providers = data['providers'];
+    if (body?['success'] != true || providers is! List) {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '소셜 계정 연결 응답을 확인할 수 없습니다.',
+      );
+    }
+    return providers.map((item) => item.toString()).toList(growable: false);
+  }
+
+  @override
+  Future<void> loginWithOAuthIdToken({
+    required String provider,
+    required String idToken,
+  }) async {
+    try {
+      final response = await _api.loginWithOAuthIdToken(
+        provider: provider,
+        idToken: idToken,
+      );
+      await _handleOAuthResponse(response.data, provider);
+    } on DioException catch (error) {
+      final linkRequired = _accountLinkRequired(error, provider);
+      if (linkRequired != null) throw linkRequired;
+      throw _mapDioException(error);
+    } on AuthException {
+      rethrow;
+    } on Object {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '소셜 로그인 처리 중 문제가 발생했습니다.',
+      );
+    }
+  }
+
+  Future<void> _saveSession(Map<String, dynamic>? body) async {
     final data = body?['data'];
     if (body?['success'] != true || data is! Map<String, dynamic>) {
       throw const AuthException(
@@ -93,8 +192,53 @@ class ApiAuthRepository implements AuthRepository {
         message: '로그인 응답 형식을 확인할 수 없습니다.',
       );
     }
-    _sessionStore.save(AuthSession.fromJson(data));
+    final tokens = data['tokens'];
+    final sessionData = tokens is Map
+        ? tokens.map((key, value) => MapEntry(key.toString(), value))
+        : data;
+    try {
+      await _sessionStore.save(AuthSession.fromJson(sessionData));
+    } on Object {
+      await _sessionStore.clear();
+      rethrow;
+    }
     _deviceTokenService.registerAfterAuthentication();
+  }
+
+  Future<void> _handleOAuthResponse(
+    Map<String, dynamic>? body,
+    String fallbackProvider,
+  ) async {
+    final rawData = body?['data'];
+    if (body?['success'] != true || rawData is! Map) {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '로그인 응답 형식을 확인할 수 없습니다.',
+      );
+    }
+    final data = rawData.map((key, value) => MapEntry(key.toString(), value));
+    final status = data['status']?.toString();
+    if (status == 'ACCOUNT_LINK_REQUIRED') {
+      final linkToken = data['linkToken']?.toString() ?? '';
+      if (linkToken.isEmpty) {
+        throw const AuthException(
+          AuthErrorCode.serverError,
+          message: '계정 연동 정보를 확인할 수 없습니다.',
+        );
+      }
+      throw AccountLinkRequiredException(
+        linkToken: linkToken,
+        provider: data['provider']?.toString() ?? fallbackProvider,
+        email: data['email']?.toString() ?? '',
+      );
+    }
+    if (status != null && status != 'AUTHENTICATED') {
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '지원하지 않는 로그인 상태입니다.',
+      );
+    }
+    await _saveSession(body);
   }
 
   @override
@@ -130,7 +274,7 @@ class ApiAuthRepository implements AuthRepository {
         password: password,
         nickname: nickname,
       );
-      _saveSession(response.data);
+      await _saveSession(response.data);
     } on DioException catch (error) {
       throw _mapDioException(error);
     }
@@ -141,14 +285,18 @@ class ApiAuthRepository implements AuthRepository {
     final session = _sessionStore.session;
     if (session == null) return;
     try {
-      await _api.logout(
-        refreshToken: session.refreshToken,
-        deviceId: session.deviceId,
-      );
+      try {
+        await _deviceTokenService.unregisterBeforeLogout();
+      } finally {
+        await _api.logout(
+          refreshToken: session.refreshToken,
+          deviceId: session.deviceId,
+        );
+      }
     } on DioException catch (error) {
       throw _mapDioException(error);
     } finally {
-      _sessionStore.clear();
+      await _sessionStore.clear();
     }
   }
 
@@ -183,13 +331,39 @@ class ApiAuthRepository implements AuthRepository {
         error.type == DioExceptionType.sendTimeout) {
       return const AuthException(
         AuthErrorCode.connectionFailed,
-        message: '로컬 백엔드 서버에 연결할 수 없습니다.',
+        message: '서버에 연결할 수 없습니다.',
       );
     }
 
     return AuthException(
       AuthErrorCode.serverError,
       message: apiError?.message ?? '잠시 후 다시 시도해주세요.',
+    );
+  }
+
+  AccountLinkRequiredException? _accountLinkRequired(
+    DioException error,
+    String fallbackProvider,
+  ) {
+    final raw = error.response?.data;
+    if (raw is! Map) return null;
+    final body = raw.map((key, value) => MapEntry(key.toString(), value));
+    final rawError = body['error'];
+    final errorBody = rawError is Map
+        ? rawError.map((key, value) => MapEntry(key.toString(), value))
+        : const <String, dynamic>{};
+    final code = errorBody['code']?.toString() ?? body['code']?.toString();
+    if (code != 'ACCOUNT_LINK_REQUIRED') return null;
+
+    final rawData = body['data'] ?? errorBody['data'];
+    if (rawData is! Map) return null;
+    final data = rawData.map((key, value) => MapEntry(key.toString(), value));
+    final linkToken = data['linkToken']?.toString() ?? '';
+    if (linkToken.isEmpty) return null;
+    return AccountLinkRequiredException(
+      linkToken: linkToken,
+      provider: data['provider']?.toString() ?? fallbackProvider,
+      email: data['email']?.toString() ?? '',
     );
   }
 }

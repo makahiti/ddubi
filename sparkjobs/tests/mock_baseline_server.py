@@ -34,6 +34,7 @@ class MockState:
         self.active_version = None
         self.previous_version = None
         self.last_activated_at = None
+        self.last_shrink_reason = None
         self.min_row_ratio = min_row_ratio
         self.request_count = 0      # 테스트에서 재시도 횟수 검증용
         self.fail_next = 0          # n>0 이면 다음 n개 요청을 500 으로 응답 (재시도 테스트용)
@@ -139,10 +140,16 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
             for row in rows:  # upsert: 같은 키 재전송은 덮어쓴다 → 청크 재시도 안전
                 key = tuple(row[f] for f in ROW_KEY_FIELDS)
                 bucket[key] = row
-        return self._send(200, True, data={"accepted": len(rows), "dataVersion": version})
+        return self._send(200, True, data={"dataVersion": version, "received": len(rows), "versionTotal": len(bucket)})
 
     def _handle_activate(self, state, version, payload):
         total = payload.get("totalRows")
+        allow_shrink = payload.get("allowShrink") is True
+        shrink_reason = (payload.get("shrinkReason") or "").strip()
+        if allow_shrink and not shrink_reason:
+            return self._send(400, False, code="INVALID_REQUEST", message="allowShrink=true 이면 shrinkReason 이 필요함")
+        if allow_shrink and len(shrink_reason) > 100:   # 계약 maxLength 100 (VARCHAR(100))
+            return self._send(400, False, code="INVALID_REQUEST", message="shrinkReason 은 100자 이내")
         with state.lock:
             stored = len(state.versions.get(version, {}))
             if stored == 0:
@@ -151,7 +158,7 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
             if total != stored:
                 return self._send(409, False, code="ROW_COUNT_MISMATCH",
                                   message="totalRows={} 이지만 저장된 행은 {}".format(total, stored))
-            if state.active_version:
+            if state.active_version and not allow_shrink:
                 active_rows = len(state.versions.get(state.active_version, {}))
                 if active_rows and stored < active_rows * state.min_row_ratio:
                     return self._send(409, False, code="ROW_COUNT_DROPPED",
@@ -161,12 +168,15 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
             state.previous_version = state.active_version
             state.active_version = version
             state.last_activated_at = datetime.now(KST).isoformat()
+            state.last_shrink_reason = shrink_reason if allow_shrink else None
             keep = {state.active_version, state.previous_version}
             deleted = [v for v in list(state.versions) if v not in keep]
             for v in deleted:
                 del state.versions[v]
+        # 응답 필드는 backend 구현(2026-09-08)과 같게: activeVersion / previousVersion / rowCount / activatedAt / purgedVersions
         return self._send(200, True, data={
-            "activated": version, "previous": state.previous_version, "deletedVersions": deleted})
+            "activeVersion": version, "previousVersion": state.previous_version, "rowCount": stored,
+            "activatedAt": state.last_activated_at, "purgedVersions": deleted})
 
 
 def make_server(port=0, api_key="test-key", min_row_ratio=0.5):

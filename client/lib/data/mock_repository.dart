@@ -171,6 +171,21 @@ class MockDdubiRepository implements DdubiRepository {
     }
   }
 
+  @override
+  Future<List<RepeatScheduleRule>> repeatSchedules({
+    bool activeOnly = false,
+  }) async => const [];
+
+  @override
+  Future<RepeatScheduleRule> repeatScheduleById(String id) async =>
+      throw StateError('반복 일정을 찾을 수 없습니다.');
+
+  @override
+  Future<void> updateRepeatSchedule(RepeatScheduleRule rule) async {}
+
+  @override
+  Future<void> deactivateRepeatSchedule(String id) async {}
+
   static String _repeatLabel(Set<int> weekdays) {
     if (weekdays.length == 7) return '매일';
     if (weekdays.length == 5 && weekdays.containsAll({1, 2, 3, 4, 5})) {

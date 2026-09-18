@@ -11,6 +11,8 @@ COPY backend/pom.xml ./pom.xml
 RUN mvn -q -B dependency:go-offline
 
 COPY backend/src ./src
+# 공통 폴더의 지하철 원본을 Maven 리소스 경로에 제공한다. JAR에는 transit/로 포함된다.
+COPY backend/transit-master/subway ./transit-master/subway
 RUN mvn -q -B package -DskipTests
 
 # --- 2단계: 실행 ---------------------------------------------------------

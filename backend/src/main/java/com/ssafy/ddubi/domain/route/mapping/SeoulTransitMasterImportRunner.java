@@ -12,10 +12,10 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 
 /**
- * 명시적으로 활성화한 관리 실행에서만 서울 교통 마스터를 적재한다.
+ * 명시적으로 활성화한 관리 실행에서만 서울 지하철 마스터를 적재한다.
  *
  * <p>일반 Backend 기동에서는 절대 원본 파일을 읽거나 DB를 변경하지 않는다. 운영자가
- * {@code DDUBI_TRANSIT_MASTER_IMPORT_ENABLED=true}와 버전·두 파일 경로를 제공한 경우에만
+ * {@code DDUBI_TRANSIT_MASTER_IMPORT_ENABLED=true}와 버전·지하철 시간표 경로를 제공한 경우에만
  * 한 번 적재하고, 커밋 후 Resolver 인덱스를 새 활성 버전으로 다시 구성한다.</p>
  */
 @Component
@@ -31,7 +31,6 @@ public class SeoulTransitMasterImportRunner implements ApplicationRunner {
     private final SeoulTransitMasterImportService importService;
     private final MasterDataTransitMappingResolver mappingResolver;
     private final String dataVersion;
-    private final String busWorkbook;
     private final String subwayTimetable;
     private final String subwayRealtimeStations;
     private final String transitAliases;
@@ -41,7 +40,6 @@ public class SeoulTransitMasterImportRunner implements ApplicationRunner {
             SeoulTransitMasterImportService importService,
             MasterDataTransitMappingResolver mappingResolver,
             @Value("${ddubi.transit-master-import.data-version:}") String dataVersion,
-            @Value("${ddubi.transit-master-import.bus-workbook:}") String busWorkbook,
             @Value("${ddubi.transit-master-import.subway-timetable:}") String subwayTimetable,
             @Value("${ddubi.transit-master-import.subway-realtime-stations:}") String subwayRealtimeStations,
             @Value("${ddubi.transit-master-import.aliases:}") String transitAliases
@@ -49,7 +47,6 @@ public class SeoulTransitMasterImportRunner implements ApplicationRunner {
         this.importService = importService;
         this.mappingResolver = mappingResolver;
         this.dataVersion = dataVersion;
-        this.busWorkbook = busWorkbook;
         this.subwayTimetable = subwayTimetable;
         this.subwayRealtimeStations = subwayRealtimeStations;
         this.transitAliases = transitAliases;
@@ -62,20 +59,19 @@ public class SeoulTransitMasterImportRunner implements ApplicationRunner {
         // 단, 현재는 원본 digest를 비교하지 않으므로 같은 version의 다른 파일 검증은 manifest 후속 과제다.
         if (dataVersion != null && dataVersion.equals(mappingResolver.loadedMasterVersion())) {
             // 관리 환경변수가 배포에 남아 있어도 이미 ACTIVE인 같은 버전을 재적재해 기동을 막지 않는다.
-            log.info("서울 교통 마스터 {} 버전이 이미 ACTIVE이므로 재적재를 건너뜁니다.", dataVersion);
+            log.info("서울 지하철 마스터 {} 버전이 이미 ACTIVE이므로 재적재를 건너뜁니다.", dataVersion);
             return;
         }
         // 서비스가 파일 전체를 하나의 트랜잭션으로 적재·활성화한다. 여기서는 DB 세부 작업을 나누지 않는다.
         SeoulTransitMasterImportService.ImportSummary summary = importService.importAndActivate(
                 dataVersion,
-                requiredPath(busWorkbook, "bus-workbook"),
                 requiredPath(subwayTimetable, "subway-timetable"),
                 optionalPath(subwayRealtimeStations),
                 optionalPath(transitAliases)
         );
         // importAndActivate 트랜잭션이 커밋된 다음 호출되므로 새 활성 버전만 읽는다.
         mappingResolver.reload();
-        log.info("서울 교통 마스터 적재 완료: {}", summary);
+        log.info("서울 지하철 마스터 적재 완료: {}", summary);
     }
 
     private Path requiredPath(String value, String property) {

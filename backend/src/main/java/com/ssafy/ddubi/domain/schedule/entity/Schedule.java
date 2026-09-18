@@ -75,6 +75,37 @@ public class Schedule extends BaseTimeEntity {
     @Column(name = "arrive_by", nullable = false)
     private LocalDateTime arriveBy;
 
+    /** 사용자 입력 출발시각(KST). 추천 depart_at으로 자동 덮어쓰지 않는다. 기존 null은 감시 대기다. */
+    @Column(name = "planned_depart_at")
+    private LocalDateTime plannedDepartAt;
+
+    /** 사용자 등록/수정 또는 명시적 제안 수락에서만 변경한다. 추천 계산 자체는 호출하지 않는다. */
+    public void changePlannedDepartAt(LocalDateTime value) {
+        this.plannedDepartAt = value; this.userInputDepartAt = value; this.planSource = "USER_INPUT"; inputRevision++;
+    }
+
+    @Column(name="user_input_depart_at")
+    private LocalDateTime userInputDepartAt;
+    @Column(name="plan_source", nullable=false)
+    private String planSource = "LEGACY_UNKNOWN";
+    @Column(name="actual_depart_at")
+    private LocalDateTime actualDepartAt;
+    @Column(name="journey_state", nullable=false)
+    private String journeyState = "NOT_STARTED";
+    /** 입력 수정의 논리 버전. 동일 DB 시각 안의 변경도 반드시 구분한다. */
+    @Column(name="input_revision", nullable=false)
+    private long inputRevision;
+
+    /** 추천 수락은 최초 사용자 P를 보존하고 실행 계획만 바꾼다. */
+    public void acceptDeparture(LocalDateTime value) {
+        plannedDepartAt=value; planSource="ACCEPTED_RECOMMENDATION"; inputRevision++;
+    }
+    /** 최초 출발 사실만 보존한다. 동일 출발 요청의 재전송은 멱등이다. */
+    public void depart(LocalDateTime now) {
+        if (actualDepartAt!=null) return;
+        requireEditable(); actualDepartAt=now; journeyState="IN_PROGRESS"; inputRevision++;
+    }
+
     @Enumerated(EnumType.STRING)
     @Column(name = "importance", nullable = false)
     private Importance importance;
@@ -124,7 +155,21 @@ public class Schedule extends BaseTimeEntity {
         if (status == ScheduleStatus.DONE) {
             throw new BusinessException(ErrorCode.INVALID_STATE, "이미 완료된 일정은 취소할 수 없습니다.");
         }
-        this.status = ScheduleStatus.CANCELED;
+        this.status = ScheduleStatus.CANCELED; this.journeyState="CANCELED"; inputRevision++;
+    }
+
+    /**
+     * 도착 보고가 들어오면 완료 처리한다 (ARRIVAL-001).
+     *
+     * 이미 DONE 이어도 예외를 던지지 않는다 — 같은 일정을 두 번 보고하는 일은
+     * 앱 재시도로 실제로 생기고, 여기서 막으면 클라이언트가 재시도할 방법이 없다.
+     * 취소한 일정에 도착이 있을 수는 없으므로 그때만 거부한다.
+     */
+    public void markDone() {
+        if (status == ScheduleStatus.CANCELED) {
+            throw new BusinessException(ErrorCode.INVALID_STATE, "취소된 일정은 도착을 기록할 수 없습니다.");
+        }
+        this.status = ScheduleStatus.DONE; this.journeyState="ARRIVED"; inputRevision++;
     }
 
     /** UPCOMING 이 아니면 수정을 거부한다 — 끝난·취소된 일정의 수정은 의미가 없다. */
@@ -143,26 +188,26 @@ public class Schedule extends BaseTimeEntity {
     }
 
     public void changeTitle(String title) {
-        this.title = title;
+        this.title = title; inputRevision++;
     }
 
     public void changeOrigin(LocationSnapshot origin) {
-        this.origin = origin;
+        this.origin = origin; inputRevision++;
     }
 
     public void changeDestination(LocationSnapshot destination) {
-        this.destination = destination;
+        this.destination = destination; inputRevision++;
     }
 
     public void changeArriveBy(LocalDateTime arriveBy) {
-        this.arriveBy = arriveBy;
+        this.arriveBy = arriveBy; inputRevision++;
     }
 
     public void changeImportance(Importance importance) {
-        this.importance = importance;
+        this.importance = importance; inputRevision++;
     }
 
     public void changeConsiderLastTrip(boolean considerLastTrip) {
-        this.considerLastTrip = considerLastTrip;
+        this.considerLastTrip = considerLastTrip; inputRevision++;
     }
 }

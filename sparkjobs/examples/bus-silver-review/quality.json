@@ -1,0 +1,43 @@
+{
+  "inputRows": 8,
+  "acceptedRows": 4,
+  "rejectedRows": 2,
+  "duplicateRows": 1,
+  "ignoredRows": 1,
+  "missingFields": {
+    "observedAt": 3,
+    "sectionDistanceMeters": 3,
+    "fullSectionDistanceMeters": 3,
+    "providerStateCode": 3,
+    "directionCode": 3,
+    "longitude": 2,
+    "latitude": 2,
+    "sectionOrder": 2,
+    "congestionCode": 2,
+    "stopFlag": 2,
+    "firstRemainingStops": 2,
+    "firstVehicleSectionOrder": 2,
+    "firstTerminalArrivalCode": 2,
+    "firstArrivalMessage": 2,
+    "secondTravelTimeMinutes": 2,
+    "secondRemainingStops": 2,
+    "secondVehicleSectionOrder": 2,
+    "secondTerminalArrivalCode": 2,
+    "secondArrivalMessage": 2,
+    "detourCode": 1,
+    "firstTravelTimeMinutes": 1,
+    "firstFullCode": 1,
+    "secondVehicleId": 1,
+    "secondArrivalSeconds": 1,
+    "secondFullCode": 1,
+    "providerVehicleId": 1,
+    "providerStopOrder": 1
+  },
+  "qualityFlags": {
+    "SOURCE_TIME_UNAVAILABLE": 3,
+    "longitude:INVALID_NUMBER_OR_RANGE": 1,
+    "COORDINATE_PAIR_UNAVAILABLE": 2,
+    "secondArrivalSeconds:INVALID_NUMBER_OR_RANGE": 1
+  },
+  "inputVerification": "UNVERIFIED_BY_EXPORTER"
+}

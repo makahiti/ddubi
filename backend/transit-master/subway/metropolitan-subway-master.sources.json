@@ -1,0 +1,53 @@
+{
+  "dataVersion": "metro-20260910-b192e5734f46814a",
+  "sources": [
+    {
+      "file": "seoul-timetable-20260616.csv",
+      "url": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003657575&fileDetailSn=1&insertDataPrcus=N",
+      "bytes": 32806139,
+      "sha256": "405d0cc2957ad0d66d3b7fbce8b1d570e90f29e002de10569f4b578178736404",
+      "content_type": "application/octet-stream; charset=UTF-8"
+    },
+    {
+      "file": "seoul-stations.json",
+      "url": "https://data.seoul.go.kr/dataList/dataView.do?onepagerow=1000&srvType=S&infId=OA-21232&serviceKind=1&pageNo=1&ssUserId=SAMPLE_VIEW&strWhere=&strOrderby=BLDN_ID%20DESC",
+      "bytes": 79812,
+      "sha256": "7a0ae1b4d4e52d166892aefa178353f47c6b300398751b288028d7e3d63c1b9e",
+      "content_type": "text/html;charset=UTF-8"
+    },
+    {
+      "file": "kric-stations-20260630.xlsx",
+      "url": "https://data.kric.go.kr/rips/dataset/download.file?type=filedata&id=32&operation=1",
+      "bytes": 313132,
+      "sha256": "cdf1d84a7e5c898b2aacd622783ba8ba9af35c40bee0561dc97d55ce8e063f94",
+      "content_type": "application/octet-stream;charset=UTF-8"
+    },
+    {
+      "file": "kric-operations-20260630.xlsx",
+      "url": "https://data.kric.go.kr/rips/dataset/download.file?type=filedata&id=900&operation=1",
+      "bytes": 17949564,
+      "sha256": "218f76dd53c4b9e1f248a8e07ab6879763495958714ee377761944e40cd94bc4",
+      "content_type": "application/octet-stream;charset=UTF-8"
+    },
+    {
+      "file": "gtxa-main.html",
+      "url": "https://www.gtx-a.com/main.do",
+      "bytes": 378247,
+      "sha256": "88eea6c96be5adc87d77d76368be57a9c1beea586f8826726bcf684c2cd57ea3",
+      "content_type": "text/html; charset=UTF-8"
+    },
+    {
+      "file": "incheon-station-210.html",
+      "url": "https://www.ictr.or.kr/main/subway/subwayStation.do?line_no=2&station_no=210",
+      "bytes": 71217,
+      "sha256": "5253ff6f0b89a9791898642fa0ebbbf08e14b0c3e97f65bd3347ab5bf9be9436",
+      "content_type": "text/html;charset=UTF-8"
+    },
+    {
+      "file": "실시간도착_역정보(20260902).xlsx",
+      "url": "https://data.seoul.go.kr/dataList/OA-12764/A/1/datasetView.do",
+      "sha256": "537c1ab9f58b9b4d9bf35c34ac5d9de2e8b24bc25e3058d726f4a5bbae787da8"
+    }
+  ],
+  "artifactSha256": "f90444ef16df7a1658388d4cdd3946776df9df759cbf760e36369a5057fd7433"
+}

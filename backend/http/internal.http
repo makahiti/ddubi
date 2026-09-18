@@ -1,0 +1,160 @@
+### 기준선 적재 internal API (서버1 Spark 전용)
+#
+# 계약: docs/contracts/internal-api.yaml
+# 운영에서는 서버1 이 http://172.26.6.220/internal/... 로 부른다(nginx 가 서버1 IP 만 허용).
+# 로컬에서는 nginx 없이 8080 으로 직접 친다.
+#
+# 사전 준비: backend/.env 에 INTERNAL_API_KEY 를 넣고 앱 재시작.
+#   키가 비어 있으면 아래 요청이 전부 503 이다(의도된 동작 — 열어두지 않는다).
+#
+# !! 주의 !! 이 API 만 /api/v1 을 붙이지 않는다.
+#   O  http://localhost:8080/internal/baselines/...
+#   X  http://localhost:8080/api/v1/internal/baselines/...
+#      -> 401 "인증이 필요합니다" 가 나온다. 키 문제가 아니라 경로 문제다.
+#   nginx 가 location /internal/ 을 서버1 IP 로 제한하고 URI 를 그대로 넘기기 때문이다.
+
+@host = http://localhost:8080
+@key = local-dev-internal-key
+@version = 2026-09-01
+
+### ① 키 없이 호출 — 401 이어야 한다
+POST {{host}}/internal/baselines/segment/versions/{{version}}/rows
+Content-Type: application/json
+
+{ "rows": [] }
+
+### ② 행 업로드 — 200
+POST {{host}}/internal/baselines/segment/versions/{{version}}/rows
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{
+  "rows": [
+    { "segmentId": "BUS:100100609:123456:123789", "dow": 3, "hourSlot": 8,
+      "weatherBucket": "DRY",  "p50": 1200, "p80": 1380, "p95": 1620, "sampleCount": 142 },
+    { "segmentId": "BUS:100100609:123456:123789", "dow": 3, "hourSlot": 8,
+      "weatherBucket": "RAIN", "p50": 1500, "p80": 1740, "p95": 2100, "sampleCount": 38 },
+    { "segmentId": "SUB:2:0222:0223", "dow": 3, "hourSlot": 8,
+      "weatherBucket": "DRY",  "p50": 180,  "p80": 195,  "p95": 210,  "sampleCount": 260 }
+  ]
+}
+
+> {%
+    client.test("적재된다", function () {
+        client.assert(response.status === 200, "status=" + response.status);
+        client.assert(response.body.data.received === 3, "received=" + response.body.data.received);
+    });
+%}
+
+### ③ 같은 청크 재전송 — 행이 늘지 않아야 한다 (업서트)
+POST {{host}}/internal/baselines/segment/versions/{{version}}/rows
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{
+  "rows": [
+    { "segmentId": "BUS:100100609:123456:123789", "dow": 3, "hourSlot": 8,
+      "weatherBucket": "DRY", "p50": 1250, "p80": 1400, "p95": 1650, "sampleCount": 150 }
+  ]
+}
+
+> {%
+    client.test("versionTotal 이 3 그대로여야 한다", function () {
+        client.assert(response.body.data.versionTotal === 3,
+            "versionTotal=" + response.body.data.versionTotal + " — 재전송이 행을 늘렸다");
+    });
+%}
+
+### ④ 백분위 역전 — 400
+POST {{host}}/internal/baselines/segment/versions/{{version}}/rows
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{
+  "rows": [
+    { "segmentId": "SUB:2:0222:0223", "dow": 3, "hourSlot": 9,
+      "weatherBucket": "DRY", "p50": 900, "p80": 600, "p95": 1200, "sampleCount": 10 }
+  ]
+}
+
+### ⑤-a 행 수를 틀리게 보내면 409 — 청크 유실을 잡는 체크섬
+POST {{host}}/internal/baselines/segment/versions/{{version}}/activate
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{ "totalRows": 99 }
+
+### ⑤ 활성화 — 여기까지 와야 추천이 새 값을 본다
+# totalRows 는 ②③ 에서 실제로 들어간 행 수(3)와 같아야 한다.
+POST {{host}}/internal/baselines/segment/versions/{{version}}/activate
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{ "totalRows": 3 }
+
+> {%
+    client.test("활성 버전이 바뀐다", function () {
+        client.assert(response.body.data.activeVersion === "2026-09-01");
+    });
+%}
+
+### ⑥ 서빙 중인 버전에 덮어쓰기 — 409 성격의 오류
+POST {{host}}/internal/baselines/segment/versions/{{version}}/rows
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{
+  "rows": [
+    { "segmentId": "SUB:2:0222:0223", "dow": 3, "hourSlot": 10,
+      "weatherBucket": "DRY", "p50": 200, "p80": 220, "p95": 240, "sampleCount": 5 }
+  ]
+}
+
+### ⑦ 행 0건 버전 활성화 — 거절되어야 한다
+POST {{host}}/internal/baselines/segment/versions/2099-01-01/activate
+X-DDUBI-API-KEY: {{key}}
+Content-Type: application/json
+
+{ "totalRows": 0 }
+
+### ⑧ allowShrink 없이 급감 — 409 (직전 활성 버전의 절반 미만)
+# ⑤ 로 3행짜리 2026-09-01 을 활성화한 뒤 실행한다.
+# 1행짜리 새 버전은 3행의 절반 미만이라 막힌다.
+POST {{host}}/internal/baselines/segment/versions/2026-09-02/rows
+X-Internal-Api-Key: {{apiKey}}
+Content-Type: application/json
+
+{ "rows": [ { "segmentId": "BUS:100100609:123456:123789", "dayType": 3, "hourSlot": 8,
+              "weatherBucket": "DRY", "p50": 1200, "p80": 1260, "p95": 1320, "sampleCount": 42 } ] }
+
+###
+POST {{host}}/internal/baselines/segment/versions/2026-09-02/activate
+X-Internal-Api-Key: {{apiKey}}
+Content-Type: application/json
+
+{ "totalRows": 1 }
+
+### ⑨ allowShrink=true 인데 사유 없음 — 400
+POST {{host}}/internal/baselines/segment/versions/2026-09-02/activate
+X-Internal-Api-Key: {{apiKey}}
+Content-Type: application/json
+
+{ "totalRows": 1, "allowShrink": true }
+
+### ⑩ allowShrink=true + 사유 — 200, 급감 검사만 건너뛴다
+# 사유는 로그와 pipeline_config.baseline_last_shrink_reason 에 남는다.
+# 사유 형식은 "짧은 사유 + 이슈 번호"(분산팀 합의). 100자를 넘으면 400.
+# 확인: select * from pipeline_config where config_key = 'baseline_last_shrink_reason';
+POST {{host}}/internal/baselines/segment/versions/2026-09-02/activate
+X-Internal-Api-Key: {{apiKey}}
+Content-Type: application/json
+
+{ "totalRows": 1, "allowShrink": true, "shrinkReason": "9월 개편으로 간선 노선 12개 폐지 S15P21E202-64" }
+
+### ⑪ allowShrink 여도 행 수 대조는 그대로 — 409
+# 급감 검사를 끄는 것이지 체크섬을 끄는 것이 아니다.
+POST {{host}}/internal/baselines/segment/versions/2026-09-02/activate
+X-Internal-Api-Key: {{apiKey}}
+Content-Type: application/json
+
+{ "totalRows": 99, "allowShrink": true, "shrinkReason": "정상 축소" }

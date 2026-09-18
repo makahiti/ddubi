@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-unknown",
+  "scheduleId": "schedule-1",
+  "state": "QUEUED_BY_NEW_SERVER",
+  "decision": "NEW_DECISION",
+  "proposedDepartAt": "2026-09-18T08:00:00+09:00",
+  "quality": {"preview": false, "productionEligible": true, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "COMPLETE", "missingInputs": [], "fallbackReasons": []},
+  "legs": [{"sequence": 1, "mode": "WALK", "legRole": "NEW_WALK_ROLE", "durationSource": "NEW_SOURCE"}],
+  "validUntil": "2099-09-18T00:05:00Z"
+}

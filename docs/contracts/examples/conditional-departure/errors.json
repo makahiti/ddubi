@@ -1,0 +1,106 @@
+[
+  {
+    "httpStatus": 400,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "INVALID_REQUEST",
+        "message": "출발시각은 일정 시작시각보다 앞서야 합니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 401,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "인증이 필요합니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 403,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "FORBIDDEN_RESOURCE",
+        "message": "접근 권한이 없습니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 404,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "SCHEDULE_NOT_FOUND",
+        "message": "일정을 찾을 수 없습니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 409,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "STALE_RECOMMENDATION",
+        "message": "추천 결과가 최신이 아닙니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 422,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "OUT_OF_SERVICE_AREA",
+        "message": "서비스 지역이 아닙니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 429,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "RATE_LIMITED",
+        "message": "요청이 너무 많습니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  },
+  {
+    "httpStatus": 503,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "ROUTE_PROVIDER_UNAVAILABLE",
+        "message": "외부 길찾기 서비스를 사용할 수 없습니다.",
+        "fieldErrors": []
+      },
+      "timestamp": "2026-09-17T08:00:00+09:00",
+      "requestId": "contract-fixture"
+    }
+  }
+]

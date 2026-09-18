@@ -1,0 +1,20 @@
+{
+  "sourceFile": "서울시 표준링크 매핑정보_2026년3월 기준.xlsx",
+  "sourceSha256": "7118fb1ed85bcc78a4ad01466cfcb18817fcd1589c3411165673d3e7bcf0fece",
+  "candidateFileSha256": "d9a8caee6b5897bf8bf7cc87bb1e3736159436cb1f7b59f5ea05f11fb7e26fd3",
+  "sourceReference": "filename: 2026-03; publication validity unverified",
+  "pairCount": 11572,
+  "standardLinks": 11572,
+  "ambiguousStandardLinks": 0,
+  "counts": {
+    "completeUniqueIdBridge": 13606,
+    "missingOrAmbiguousIdBridge": 10446
+  },
+  "operationalMappings": 0,
+  "status": "REVIEW_REQUIRED",
+  "missingEvidence": [
+    "current directed bus path validity",
+    "AccInfo link namespace equivalence",
+    "full closure vs partial restriction with effective interval"
+  ]
+}

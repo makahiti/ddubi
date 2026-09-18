@@ -1,0 +1,34 @@
+{
+  "requestId": "fixture-review-only",
+  "productionReady": false,
+  "segments": [
+    {
+      "policyVersion": "road-impact-review-v1",
+      "masterVersion": "test",
+      "busCrosswalkSha256": "2694bde136addc7a19831d65bee4d7af3b433409240b85341fdf05c57c4645fa",
+      "roadCrosswalkVersion": "test-road",
+      "roadCrosswalkSha256": "c9e8ad3cd51d15d227d9b56155abe35cdb06d224e2644f0e3ebb11bc0fd57735",
+      "segmentId": "BUS:r:a:b",
+      "fromOrder": 1,
+      "asOf": "2026-09-11T10:01:00+09:00",
+      "passageStart": "2026-09-11T10:05:00+09:00",
+      "passageEnd": "2026-09-11T10:06:00+09:00",
+      "state": "POTENTIAL_IMPACT",
+      "reasons": [],
+      "causes": [
+        {
+          "eventId": "e1",
+          "providerIncidentId": "i1",
+          "linkNamespace": "SEOUL_ACCINFO_LINK",
+          "linkId": "east",
+          "collectedAt": "2026-09-11T10:00:00+09:00",
+          "incidentTypeCode": null,
+          "expectedClearAt": "2026-09-11T11:00:00+09:00",
+          "evidenceRef": "fixture-only"
+        }
+      ],
+      "blocked": null,
+      "delaySeconds": null
+    }
+  ]
+}

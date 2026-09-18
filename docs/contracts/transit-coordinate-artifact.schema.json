@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ddubi.local/schemas/transit-coordinate-artifact.schema.json",
+  "title": "TransitCoordinateArtifact",
+  "type": "object",
+  "required": ["schemaVersion", "artifactVersion", "masterVersion", "coordinateSystem", "generatedAt", "records"],
+  "properties": {
+    "schemaVersion": {"const": "transit-coordinate-v1"},
+    "artifactVersion": {"type": "string", "minLength": 1},
+    "masterVersion": {"type": "string", "minLength": 1},
+    "coordinateSystem": {"const": "WGS84"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["mode", "providerNamespace", "providerStopId", "canonicalNodeId", "occurrence", "direction", "longitude", "latitude", "coordinateType", "source", "sourceRef", "masterVersion", "validFrom", "validUntil", "mappingStatus", "evidence"],
+        "properties": {
+          "mode": {"enum": ["BUS", "SUBWAY"]},
+          "providerNamespace": {"type": "string", "minLength": 1},
+          "providerRouteId": {"type": ["string", "null"]},
+          "providerLineId": {"type": ["string", "null"]},
+          "providerStopId": {"type": "string", "minLength": 1},
+          "canonicalNodeId": {"type": "string", "minLength": 1},
+          "occurrence": {"type": "integer", "minimum": 1},
+          "direction": {"type": ["string", "null"]},
+          "longitude": {"type": ["number", "null"], "minimum": -180, "maximum": 180},
+          "latitude": {"type": ["number", "null"], "minimum": -90, "maximum": 90},
+          "coordinateType": {"enum": ["STOP_POINT", "PLATFORM", "ENTRANCE", "STATION_CENTER", "UNKNOWN"]},
+          "source": {"type": "string", "minLength": 1},
+          "sourceRef": {"type": "string", "minLength": 1},
+          "masterVersion": {"type": "string", "minLength": 1},
+          "validFrom": {"type": ["string", "null"], "format": "date-time"},
+          "validUntil": {"type": ["string", "null"], "format": "date-time"},
+          "mappingStatus": {"enum": ["EXACT", "PARTIAL", "AMBIGUOUS", "UNMAPPED"]},
+          "evidence": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

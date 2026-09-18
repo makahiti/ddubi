@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterable, List, Literal
 
 import httpx
 
@@ -36,7 +36,30 @@ class Record:
     segment_ids: list[str] | None = None  # 영향받는 뚜비 내부 구간 ID. 수집기가 알 수 있을 때만 채운다
 
 
-FetchFn = Callable[[Settings, httpx.Client], list[Record]]
+class PollBatch(list):
+    """레코드 목록과 poll 완전성 근거를 함께 전달하는 하위 호환 list."""
+
+    def __init__(
+        self,
+        records: Iterable[Record] = (),
+        *,
+        status: str = "SUCCESS",
+        complete_snapshot: bool = False,
+        page_count: int = 0,
+        scope_key: str = "configured-scope",
+        error_code: str | None = None,
+    ) -> None:
+        super().__init__(records)
+        self.status = status
+        self.complete_snapshot = complete_snapshot
+        self.page_count = page_count
+        self.scope_key = scope_key
+        self.error_code = error_code
+
+
+# Collector 이미지는 Python 3.8도 지원하므로 런타임에 평가되는 타입 별칭은
+# PEP 585의 list[...] 대신 typing.List를 사용한다.
+FetchFn = Callable[[Settings, httpx.Client], List[Record]]
 
 
 @dataclass(frozen=True)

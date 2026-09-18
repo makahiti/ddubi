@@ -77,6 +77,18 @@ public class Notification extends BaseTimeEntity {
     @Column(name = "status", nullable = false)
     private NotificationStatus status;
 
+    /**
+     * 보내지 않은 이유. {@link NotificationStatus#SUPPRESSED} 일 때만 채워진다.
+     *
+     * <p>발송을 시도하는 행은 먼저 SUPPRESSED 로 저장됐다가 결과에 따라 SENT/FAILED 로
+     * 올라간다(푸시 payload 에 넣을 id 가 먼저 있어야 한다). 그 사이 상태에서는 사유가
+     * 없으므로 null 이다. <b>SUPPRESSED 인데 사유가 null 이면</b> 발송 도중 트랜잭션이
+     * 끊긴 것이거나 이 컬럼이 생기기 전(2026-09-14 이전)에 쌓인 행이다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suppress_reason")
+    private SuppressReason suppressReason;
+
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
 
@@ -87,7 +99,8 @@ public class Notification extends BaseTimeEntity {
     @Builder
     private Notification(User user, Schedule schedule, Long recommendationId,
                          NotificationType type, String title, String body,
-                         String suppressKey, NotificationStatus status, LocalDateTime sentAt) {
+                         String suppressKey, NotificationStatus status,
+                         SuppressReason suppressReason, LocalDateTime sentAt) {
         this.user = user;
         this.schedule = schedule;
         this.recommendationId = recommendationId;
@@ -96,6 +109,7 @@ public class Notification extends BaseTimeEntity {
         this.body = body;
         this.suppressKey = suppressKey;
         this.status = status;
+        this.suppressReason = suppressReason;
         this.sentAt = sentAt;
     }
 
@@ -111,6 +125,20 @@ public class Notification extends BaseTimeEntity {
         return readAt != null;
     }
 
+    /**
+     * 아직 발송하지 못한 outbox가 새 평가로 교체되면 인앱 이력도 같은 내용으로 맞춘다.
+     * notificationId와 읽음 시각은 보존하고 이미 발송된 이력은 변경하지 않는다.
+     * 소유권 확인과 DB 트랜잭션은 NotificationService가 담당한다.
+     */
+    public void refreshPendingContent(NotificationType type, String title, String body, Long recommendationId) {
+        if (status == NotificationStatus.SENT) return;
+        this.type = type;
+        this.title = title;
+        this.body = body;
+        this.recommendationId = recommendationId;
+        this.suppressReason = null;
+    }
+
     /** 발송 성공. 억제 상태로 만들어 둔 행을 SENT 로 올린다. */
     public void markSent(LocalDateTime sentAt) {
         this.status = NotificationStatus.SENT;
@@ -120,6 +148,12 @@ public class Notification extends BaseTimeEntity {
     /** 발송 시도했으나 전부 실패. 억제(보내지 않음)와 구분해야 원인 추적이 된다. */
     public void markFailed() {
         this.status = NotificationStatus.FAILED;
+    }
+
+    /** 재시도 사이 알림 설정/기기 상태가 바뀌면 기존 notificationId를 유지하면서 발송을 종료한다. */
+    public void markSuppressed(SuppressReason reason) {
+        this.status = NotificationStatus.SUPPRESSED;
+        this.suppressReason = reason;
     }
 
     /**

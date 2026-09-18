@@ -1,0 +1,17 @@
+{
+  "packageVersion": "conditional-departure-dt-v1",
+  "schemaVersions": {
+    "sourcePollStatus": "source-poll-status-v1",
+    "transitCoordinate": "transit-coordinate-v1",
+    "busSilver": "bus-silver-v1"
+  },
+  "synthetic": true,
+  "files": [
+    {"path": "bus-arrival-normal.json", "sha256": "8209857fb62267da33c6b1cf1822a6d04944ef7898b25f84f0d1c940daf61064"},
+    {"path": "redis-bus-arrival.json", "sha256": "2194cb1c21f540494117e42a22e47b019d119b10f75fd759994c1bcb9c424bbd"},
+    {"path": "source-poll-status-empty.json", "sha256": "e0bf089668b077e1c66a98b2e684c8416a0d5e608479f03647862b6a93c33c2c"},
+    {"path": "source-poll-status-failed.json", "sha256": "a975fd3d4f120d150c4772532d27772bbce156caf0fe9ff03f8c100298eb5d44"},
+    {"path": "source-poll-status-partial.json", "sha256": "82492c5befc3be99caca832ddbe289f8612d0f384e6f4337ce8caadd3bc9eefb"},
+    {"path": "transit-coordinates.json", "sha256": "6115dfa7651f319bb439dc3f641dcb03eadd8afc8f5d2aa18196be4d90afe35e"}
+  ]
+}

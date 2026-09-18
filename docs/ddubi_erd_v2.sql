@@ -292,6 +292,8 @@ CREATE TABLE notification (
     body              VARCHAR(500) NOT NULL,
     suppress_key      VARCHAR(64)  NULL COMMENT '일정·이유·행동 조합 해시 — 재발송 방지 (REQ-NTF-002)',
     status            ENUM('SENT','FAILED','SUPPRESSED') NOT NULL,
+    suppress_reason   ENUM('DUPLICATE','ALARM_OFF','NO_VALID_DEVICE') NULL
+                      COMMENT '보내지 않은 이유. SENT/FAILED 와 도입(V6) 이전 행은 NULL',
     sent_at           DATETIME     NULL,
     read_at           DATETIME     NULL COMMENT 'NULL 개수 = 안읽음 뱃지',
     created_at        DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -340,6 +342,7 @@ CREATE TABLE report_detail (
     created_at         DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at         DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
+    UNIQUE KEY UK_RDETAIL_SCHEDULE (schedule_id) COMMENT '일정 하나의 이동 결과는 하나. 재보고는 갱신',
     CONSTRAINT FK_RDETAIL_REPORT   FOREIGN KEY (report_id)   REFERENCES report (id)   ON DELETE CASCADE,
     CONSTRAINT FK_RDETAIL_SCHEDULE FOREIGN KEY (schedule_id) REFERENCES schedule (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '일정별 이동 결과 (P3)';
@@ -371,7 +374,8 @@ CREATE TABLE baseline_serving (
     created_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (id),
-    UNIQUE KEY UK_BASELINE_KEY (segment_id, dow, hour_slot, weather_bucket, data_version)
+    UNIQUE KEY UK_BASELINE_KEY (segment_id, dow, hour_slot, weather_bucket, data_version),
+    KEY IX_BASELINE_VERSION (data_version) COMMENT '버전 단위 집계·삭제·정리용. UK 에서는 data_version 이 마지막이라 단독 조회에 못 쓴다'
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '평소 이동시간 baseline (소유: 백엔드 — Spark 가 internal API 로 업로드)';
 
 -- ---------------------------------------------------------------------
@@ -580,3 +584,41 @@ CREATE TABLE provider_segment_mapping (
     CONSTRAINT FK_PROVIDER_SEGMENT_VERSION FOREIGN KEY (mapping_version)
         REFERENCES seoul_transit_master_version (data_version) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '외부 경로 구간 매핑 캐시';
+
+-- 수도권 버스 artifact는 기존 서울·지하철 버전과 독립적으로 보관한다.
+-- Spring 관리 적재만 쓰며 수집기/Spark는 이 테이블에 직접 쓰지 않는다.
+CREATE TABLE metropolitan_bus_master (
+    data_version VARCHAR(50) NOT NULL,
+    artifact_sha256 CHAR(64) NOT NULL,
+    artifact_gzip LONGBLOB NOT NULL,
+    route_count INT NOT NULL,
+    stop_count INT NOT NULL,
+    loaded_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (data_version),
+    CONSTRAINT CK_METRO_ROUTE_COUNT CHECK (route_count > 0),
+    CONSTRAINT CK_METRO_STOP_COUNT CHECK (stop_count > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- singleton 행을 FOR UPDATE로 잠가 동시 적재의 활성 전환을 직렬화한다.
+CREATE TABLE metropolitan_bus_master_active (
+    singleton_id TINYINT NOT NULL,
+    data_version VARCHAR(50) NULL,
+    activated_at DATETIME(6) NULL,
+    PRIMARY KEY (singleton_id),
+    CONSTRAINT CK_METRO_SINGLETON CHECK (singleton_id = 1),
+    CONSTRAINT FK_METRO_ACTIVE_VERSION FOREIGN KEY (data_version)
+        REFERENCES metropolitan_bus_master(data_version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+INSERT INTO metropolitan_bus_master_active(singleton_id) VALUES (1);
+
+CREATE TABLE metropolitan_bus_mapping_cache (
+    data_version VARCHAR(50) NOT NULL,
+    policy_version VARCHAR(50) NOT NULL,
+    provider_signature CHAR(64) NOT NULL,
+    result_json JSON NOT NULL,
+    review_status ENUM('UNREVIEWED','APPROVED','REJECTED') NOT NULL DEFAULT 'UNREVIEWED',
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY(data_version,policy_version,provider_signature),
+    CONSTRAINT FK_METRO_CACHE_VERSION FOREIGN KEY(data_version)
+        REFERENCES metropolitan_bus_master(data_version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

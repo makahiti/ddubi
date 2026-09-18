@@ -1,0 +1,46 @@
+[
+  {
+    "id": "T01",
+    "initialEtaOffsetFromDSeconds": -1,
+    "expected": "KEEP_DEPARTURE",
+    "bufferSeconds": 0
+  },
+  {
+    "id": "T02",
+    "initialEtaOffsetFromDSeconds": 0,
+    "expectedSearch": true,
+    "bufferSeconds": 600
+  },
+  {
+    "id": "T03",
+    "searchEtaOffsetFromTSeconds": 0,
+    "expected": "ADVANCE_DEPARTURE"
+  },
+  {
+    "id": "T04",
+    "targetFeasible": false,
+    "scheduleStrictlyFeasible": true,
+    "expected": "MARGIN_UNAVAILABLE"
+  },
+  {
+    "id": "T05",
+    "plannedInPast": true,
+    "scheduleStrictlyFeasible": true,
+    "expected": "DEPART_NOW"
+  },
+  {
+    "id": "T06",
+    "eta": null,
+    "expected": "DATA_INSUFFICIENT"
+  },
+  {
+    "id": "T07",
+    "maxEvaluations": 2,
+    "expected": "SEARCH_INCOMPLETE"
+  },
+  {
+    "id": "T08",
+    "candidateCount": 0,
+    "expected": "ROUTE_UNAVAILABLE"
+  }
+]

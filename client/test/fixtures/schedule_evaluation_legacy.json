@@ -1,0 +1,10 @@
+{
+  "state": "READY",
+  "result": {
+    "recommendationId": 31,
+    "scheduleId": 12,
+    "plannedDepartAt": "2026-09-18T08:10:00+09:00",
+    "preview": {"fastest": {"departureAt": "2026-09-18T08:10:00+09:00", "estimatedArrivalAt": "2026-09-18T08:42:00+09:00"}},
+    "persistence": {"preview": true, "reasons": ["VALIDATION_ONLY"]}
+  }
+}

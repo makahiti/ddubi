@@ -40,7 +40,7 @@ class Settings:
                 raise ConfigError("ARCHIVE_URI 또는 ARCHIVE_LOCAL_DIR 가 필요합니다")
             uri = f"file://{local_dir}"
 
-        topics = tuple(t.strip() for t in (_env("ARCHIVE_TOPICS", "transport.raw,city.raw") or "").split(",") if t.strip())
+        topics = tuple(t.strip() for t in (_env("ARCHIVE_TOPICS", "transport.raw,city.raw,source.poll-status") or "").split(",") if t.strip())
         if not topics:
             raise ConfigError("ARCHIVE_TOPICS 가 비어 있습니다")
 

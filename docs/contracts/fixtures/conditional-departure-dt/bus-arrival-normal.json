@@ -1,0 +1,31 @@
+{
+  "fixtureType": "RAW_PROVIDER_RESPONSE",
+  "synthetic": true,
+  "source": "seoul.bus_arrival",
+  "response": {
+    "msgHeader": {"headerCd": "0", "itemCount": 1},
+    "msgBody": {
+      "itemList": [{
+        "busRouteId": "100100118",
+        "stId": "102000001",
+        "staOrd": "12",
+        "mkTm": "2026-09-16 08:10:00.000",
+        "exps1": "180",
+        "traTime1": "3",
+        "vehId1": "111111111",
+        "sectOrd1": "11",
+        "isArrive1": "0",
+        "full1": "0",
+        "deTourAt": "00",
+        "arrmsg1": "3분 후",
+        "exps2": "540",
+        "traTime2": "9",
+        "vehId2": "222222222",
+        "sectOrd2": "8",
+        "isArrive2": "0",
+        "full2": "0",
+        "arrmsg2": "9분 후"
+      }]
+    }
+  }
+}

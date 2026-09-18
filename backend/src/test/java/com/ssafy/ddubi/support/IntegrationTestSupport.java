@@ -52,6 +52,9 @@ public abstract class IntegrationTestSupport {
                     .withUsername("ddubi")
                     .withPassword("ddubi")
                     .withCommand(
+                            // 실제 수도권 마스터의 압축 BLOB 전송이 약 20 MiB다. 테스트 이미지 기본 1 MiB로는
+                            // 관리 적재 경계를 검증할 수 없다. 격리 컨테이너만 조정하며 운영/CI 서비스 설정은 바꾸지 않는다.
+                            "--max-allowed-packet=64M",
                             "--character-set-server=utf8mb4",
                             "--collation-server=utf8mb4_0900_ai_ci",
                             "--default-time-zone=+09:00")

@@ -2,30 +2,91 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ddubi.local/schemas/transport-event.schema.json",
   "title": "TransportEvent",
-  "description": "버스·지하철·도로 교통 이벤트. payload 안의 provider ID(노선·역·링크)는 MySQL 매핑으로 segment_id로 번역된다. 수집기가 번역할 수 있으면 segmentIds를 채운다",
+  "description": "버스·지하철·도로 이벤트. BUS provider ID는 버전 고정 crosswalk artifact로 검증한다. canonicalMapping은 payload에 상태·범위·버전·SHA·사유를 보존한다. 도착 대상 진입 edge는 차량 현재 위치나 구간 운행시간 정답이 아니다. 기타 모드 대응은 별도 계약을 따른다.",
   "type": "object",
-  "required": ["eventId", "eventType", "source", "occurredAt", "collectedAt", "payload"],
+  "required": [
+    "eventId",
+    "eventType",
+    "source",
+    "occurredAt",
+    "collectedAt",
+    "payload"
+  ],
   "properties": {
-    "eventId": { "type": "string", "format": "uuid" },
-    "eventType": { "type": "string", "minLength": 1 },
-    "source": { "type": "string", "minLength": 1 },
-    "region": { "type": "string" },
-    "occurredAt": { "type": "string", "format": "date-time" },
-    "collectedAt": { "type": "string", "format": "date-time" },
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "region": {
+      "type": "string"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "collectedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceGeneratedAt": {"type": "string", "format": "date-time"},
+    "timestampBasis": {"enum": ["PROVIDER_GENERATED", "PROVIDER_OCCURRED", "RECEIVED_ONLY"]},
+    "providerNamespace": {"type": "string", "minLength": 1},
+    "providerIds": {"type": "object", "additionalProperties": {"type": "string"}},
+    "mappingVersion": {"type": "string", "minLength": 1},
+    "masterVersion": {"type": "string", "minLength": 1},
+    "validUntil": {"type": "string", "format": "date-time"},
+    "contentHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "qualityFlags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "missingFields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "rejectionReasons": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
     "location": {
       "type": "object",
       "properties": {
-        "latitude": { "type": "number" },
-        "longitude": { "type": "number" }
+        "latitude": {
+          "type": "number"
+        },
+        "longitude": {
+          "type": "number"
+        }
       }
     },
     "segmentIds": {
       "type": "array",
       "description": "영향을 받는 뚜비 내부 구간 ID 목록. 전처리 후 채워진다",
-      "items": { "type": "string", "minLength": 9, "maxLength": 180, "pattern": "^(BUS|SUB):[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$" },
+      "items": {
+        "type": "string",
+        "minLength": 9,
+        "maxLength": 180,
+        "pattern": "^(BUS|SUB):[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$"
+      },
       "uniqueItems": true
     },
-    "payload": { "type": "object" }
+    "payload": {
+      "type": "object",
+      "properties": {
+        "canonicalMapping": {
+          "type": "object",
+          "required": ["state", "scope", "reason", "masterVersion", "idPolicy", "crosswalkSha256"],
+          "properties": {
+            "state": {"enum": ["CONFIRMED", "AMBIGUOUS", "UNRESOLVED"]},
+            "scope": {"enum": ["NONE", "ARRIVAL_TARGET_INCOMING_EDGE", "EXPLICIT_ADJACENT_STOP_PAIR"]},
+            "reason": {"type": "string", "minLength": 1},
+            "masterVersion": {"type": ["string", "null"]},
+            "idPolicy": {"const": "canonical-adjacent-v2"},
+            "crosswalkSha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+          },
+          "additionalProperties": false
+        }
+      }
+    }
   },
   "additionalProperties": false
 }

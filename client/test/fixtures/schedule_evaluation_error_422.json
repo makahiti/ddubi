@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "error": {"code": "INVALID_SCHEDULE_TIME", "message": "출발 예정시간을 확인해 주세요.", "fieldErrors": [{"field": "plannedDepartAt", "reason": "arriveBy보다 앞서야 합니다.", "rejectedValue": null}]},
+  "requestId": "redacted-request-id",
+  "timestamp": "2026-09-18T00:00:00Z"
+}

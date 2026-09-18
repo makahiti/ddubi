@@ -28,7 +28,6 @@
           Testcontainers 를 올려 해결한다.
         -->
         <testcontainers.version>1.21.4</testcontainers.version>
-        <apache-poi.version>5.5.1</apache-poi.version>
     </properties>
 
     <dependencies>
@@ -53,12 +52,6 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- 서울 버스 공식 XLSX 마스터를 관리 명령으로 적재할 때만 사용한다. -->
-        <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi-ooxml</artifactId>
-            <version>${apache-poi.version}</version>
-        </dependency>
 
         <!-- 스키마 마이그레이션: Flyway (docs/ddubi_erd_v2.sql 이 원천) -->
         <dependency>
@@ -78,6 +71,12 @@
         </dependency>
 
         <!-- FCM 푸시 발송. 자격증명이 없으면 로그 발송기로 대체된다(PushConfig) -->
+        <!-- segment.status 수신은 명시적 설정 시 활성화한다. 데이터 파이프라인과 같은 토픽 계약을 사용한다. -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.google.firebase</groupId>
             <artifactId>firebase-admin</artifactId>
@@ -166,6 +165,16 @@
     </dependencies>
 
     <build>
+        <!-- 공통 마스터 원본을 기존 classpath:transit/ 경로에 포함한다.
+             Backend 내부 transit-master/subway를 빌드 작업 공간에 제공해야 한다. -->
+        <resources>
+            <resource><directory>src/main/resources</directory></resource>
+            <resource>
+                <directory>${project.basedir}/transit-master/subway</directory>
+                <targetPath>transit</targetPath>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -177,6 +186,42 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <!-- 코드 컨벤션(2026-09-18). 규칙 문서 대신 도구가 맞춘다.
+                 - spotless: google-java-format(AOSP, 4칸)과 미사용 import 제거. develop 기준으로 바뀐 파일만 검사(ratchet)해
+                   기존 코드를 한 번에 재포맷하지 않아도 새 코드부터 강제된다. 전체 정리는 `spotless:apply` 로 별도 커밋한다.
+                 - checkstyle: 와일드카드 import 금지. 기존 위반(44파일)이 정리되기 전까지 CI 에서는 경고로 둔다. -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>2.44.3</version>
+                <configuration>
+                    <ratchetFrom>origin/develop</ratchetFrom>
+                    <java>
+                        <includes>
+                            <include>src/main/java/**/*.java</include>
+                            <include>src/test/java/**/*.java</include>
+                        </includes>
+                        <googleJavaFormat>
+                            <version>1.24.0</version>
+                            <style>AOSP</style>
+                        </googleJavaFormat>
+                        <removeUnusedImports/>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <configLocation>config/checkstyle.xml</configLocation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
                 </configuration>
             </plugin>
         </plugins>

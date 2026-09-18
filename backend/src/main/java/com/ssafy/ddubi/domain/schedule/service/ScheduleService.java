@@ -28,23 +28,24 @@ import java.time.LocalDateTime;
  *  - 규칙 1 소유권 / 규칙 2 장소 스냅샷 / 규칙 5 개별수정 표시 /
  *    규칙 11 soft 취소 / 규칙 12 updated_at 낙관적 잠금
  *
- * recommendationStatus 는 Phase 3(추천 엔진) 전까지 PENDING 고정이다 —
- * 등록·수정이 재계산을 일으키는 구조가 거기서 붙는다.
+ * 등록·수정은 PENDING을 반환한다. DB 감시기가 변경된 입력 버전을 찾아 별도 평가하며
+ * 최신 결과는 recommendations/latest에서 조회한다.
  */
 @Service
 public class ScheduleService {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduleService.class);
 
-    /** Phase 3 에서 추천 트리거가 붙기 전까지의 자리값. */
+    /** 일정 저장과 외부 경로 계산을 분리하기 위한 초기 상태. */
     static final String RECOMMENDATION_PENDING = "PENDING";
 
     private final ScheduleRepository scheduleRepository;
     private final UserRepository userRepository;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
-    public ScheduleService(ScheduleRepository scheduleRepository, UserRepository userRepository) {
+    public ScheduleService(ScheduleRepository scheduleRepository, UserRepository userRepository, org.springframework.context.ApplicationEventPublisher events) {
         this.scheduleRepository = scheduleRepository;
-        this.userRepository = userRepository;
+        this.userRepository = userRepository; this.events=events;
     }
 
     // ------------------------------------------------------------------
@@ -75,6 +76,7 @@ public class ScheduleService {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, "도착 목표 시각은 미래여야 합니다.");
         }
 
+        validateDeparture(request.plannedDepartAt(), request.arriveBy());
         Schedule schedule = scheduleRepository.save(Schedule.builder()
                 .user(userRepository.getReferenceById(userId))
                 .title(request.title())
@@ -84,6 +86,9 @@ public class ScheduleService {
                 .importance(request.importance())
                 .considerLastTrip(Boolean.TRUE.equals(request.considerLastTrip()))
                 .build());
+        schedule.changePlannedDepartAt(BusinessTime.normalize(request.plannedDepartAt()));
+        scheduleRepository.flush();
+        events.publishEvent(new com.ssafy.ddubi.domain.recommendation.service.ScheduleInputChanged(schedule.getId()));
         return ScheduleResponse.of(schedule, LocalDateTime.now(), RECOMMENDATION_PENDING);
     }
 
@@ -93,7 +98,7 @@ public class ScheduleService {
 
     @Transactional(readOnly = true)
     public ScheduleResponse get(Long userId, Long scheduleId) {
-        // 최신 추천·선택 경로 요약은 Phase 3 에서 이 응답에 합류한다.
+        // 일정 원본 조회. 최신 추천·선택 경로는 recommendations/latest가 별도로 제공한다.
         return ScheduleResponse.from(findOwned(userId, scheduleId), LocalDateTime.now());
     }
 
@@ -106,7 +111,7 @@ public class ScheduleService {
         if (request.hasNoChanges()) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, "수정할 필드가 없습니다.");
         }
-        Schedule schedule = findOwned(userId, scheduleId);
+        Schedule schedule = findOwnedForUpdate(userId, scheduleId);
         schedule.requireEditable();
 
         // 규칙 12: 조회 시점의 updatedAt 과 다르면 그 사이 다른 기기가 수정한 것이다.
@@ -149,6 +154,14 @@ public class ScheduleService {
         // 규칙 5: 반복 인스턴스를 개별 수정하면 반복 전체 수정에서 제외된다.
         schedule.markCustomizedIfRepeatInstance();
 
+        if (request.isPlannedDepartAtPresent()) {
+            requireNotNull(request.getPlannedDepartAt(), "plannedDepartAt");
+            schedule.changePlannedDepartAt(BusinessTime.normalize(request.getPlannedDepartAt()));
+        }
+        validateDeparture(schedule.getPlannedDepartAt(), schedule.getArriveBy());
+
+        scheduleRepository.flush();
+        events.publishEvent(new com.ssafy.ddubi.domain.recommendation.service.ScheduleInputChanged(schedule.getId()));
         return ScheduleResponse.of(schedule, LocalDateTime.now(), RECOMMENDATION_PENDING);
     }
 
@@ -158,8 +171,10 @@ public class ScheduleService {
 
     @Transactional
     public void cancel(Long userId, Long scheduleId) {
-        Schedule schedule = findOwned(userId, scheduleId);
+        Schedule schedule = findOwnedForUpdate(userId, scheduleId);
         schedule.cancel();
+        scheduleRepository.flush();
+        events.publishEvent(new com.ssafy.ddubi.domain.recommendation.service.ScheduleInputChanged(scheduleId));
         log.info("일정 취소 — scheduleId={}", scheduleId);
     }
 
@@ -171,6 +186,13 @@ public class ScheduleService {
         if (!schedule.isOwnedBy(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_RESOURCE);
         }
+        return schedule;
+    }
+
+    /** 일정 행을 먼저 잠그는 순서를 evaluation claim/complete와 맞춰 입력 변경 사이 덮어쓰기를 막는다. */
+    private Schedule findOwnedForUpdate(Long userId,Long scheduleId) {
+        Schedule schedule=scheduleRepository.findForUpdate(scheduleId).orElseThrow(()->new BusinessException(ErrorCode.SCHEDULE_NOT_FOUND));
+        if(!schedule.isOwnedBy(userId)) throw new BusinessException(ErrorCode.FORBIDDEN_RESOURCE);
         return schedule;
     }
 
@@ -189,6 +211,13 @@ public class ScheduleService {
     private void requireNotNull(Object value, String field) {
         if (value == null) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, field + " 는 null 일 수 없습니다.");
+        }
+    }
+
+    /** 기존 출발 미입력은 허용하되 출발/도착 순서를 검증한다. 이미 지난 출발은 재평가 때 현재시각으로 평가한다. */
+    private void validateDeparture(LocalDateTime departure, LocalDateTime arrival) {
+        if (departure != null && !departure.isBefore(arrival)) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, "출발시각은 도착 목표시각보다 앞서야 합니다.");
         }
     }
 }

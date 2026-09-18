@@ -4,7 +4,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
-import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -18,12 +17,12 @@ import java.util.Set;
 /**
  * MySQL의 활성 서울 교통 마스터를 매칭기가 사용하는 노선별 읽기 모델로 변환한다.
  *
- * <p>입력은 V1의 {@code seoul_*} 마스터 테이블이며 버스 순번과 지하철 방향별 순번을
+ * <p>입력은 V1의 {@code seoul_*} 마스터 테이블이며 지하철 방향별 순번을
  * 반드시 보존한다. 활성 버전은 {@code pipeline_config}의
  * {@code seoul_transit_master_active_version} 값으로 선택한다. 포인터가 없으면 아직
  * 적재가 완료되지 않은 것으로 보고 빈 스냅샷을 반환하며, 다른 버전의 행을 섞지 않는다.</p>
  *
- * <p>출력은 {@link BusRouteMaster}와 {@link SubwayLineMaster} 목록이다. 이 Provider는
+ * <p>출력은 {@link SubwayLineMaster} 목록이다. 이 Provider는
  * 애플리케이션 시작과 활성 버전 변경 시 호출되어 Matcher의 메모리 인덱스를 구성하므로
  * 카카오 요청마다 수만 행을 DB에서 읽지 않는다. Resolver의 주기 확인은 작은 활성 포인터와
  * 별칭만 읽고, 버전이 달라진 경우에만 이 전체 조회를 다시 실행한다.</p>
@@ -38,39 +37,6 @@ public class JdbcSeoulTransitMasterDataProvider implements SeoulTransitMasterDat
     /** Backend 공용 DataSource의 JdbcTemplate을 사용하며 별도 연결이나 트랜잭션을 만들지 않는다. */
     public JdbcSeoulTransitMasterDataProvider(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-    }
-
-    /** 활성 버전의 노선·정류장 조인을 노선별 정류장 순서로 묶는다. */
-    @Override
-    public List<BusRouteMaster> loadBusRoutes(String dataVersion) {
-        if (dataVersion == null || dataVersion.isBlank()) {
-            return List.of();
-        }
-
-        // SQL 정렬과 LinkedHashMap을 함께 사용해 DB 실행계획과 무관하게 동일한 읽기 모델 순서를 만든다.
-        Map<String, BusRouteBuilder> routes = new LinkedHashMap<>();
-        jdbcTemplate.query("""
-                        SELECT r.route_id,
-                               r.route_name,
-                               rs.stop_sequence,
-                               s.stop_id,
-                               s.stop_name,
-                               s.longitude,
-                               s.latitude
-                          FROM seoul_bus_route r
-                          JOIN seoul_bus_route_stop rs
-                            ON rs.data_version = r.data_version
-                           AND rs.route_id = r.route_id
-                          JOIN seoul_bus_stop s
-                            ON s.data_version = rs.data_version
-                           AND s.stop_id = rs.stop_id
-                         WHERE r.data_version = ?
-                         ORDER BY r.route_id, rs.stop_sequence
-                        """,
-                (RowCallbackHandler) resultSet -> appendBusStop(routes, resultSet),
-                dataVersion);
-
-        return routes.values().stream().map(BusRouteBuilder::build).toList();
     }
 
     /** 활성 버전의 호선·방향별 역 순서를 각각 독립된 읽기 모델로 묶는다. */
@@ -116,26 +82,20 @@ public class JdbcSeoulTransitMasterDataProvider implements SeoulTransitMasterDat
         if (dataVersion == null || dataVersion.isBlank()) {
             return TransitAliasSnapshot.empty();
         }
-        Map<String, Set<String>> busRouteAliasIds = new LinkedHashMap<>();
-        Map<String, Set<String>> busStopAliasIds = new LinkedHashMap<>();
         Map<String, Set<String>> subwayLineAliasIds = new LinkedHashMap<>();
         Map<String, Set<String>> subwayStationAliasIds = new LinkedHashMap<>();
         jdbcTemplate.query("""
                         SELECT mode, alias_type, normalized_name, canonical_id
                           FROM transit_alias
                          WHERE data_version=? AND provider='KAKAO'
-                           AND verified=TRUE AND active=TRUE
+                           AND mode='SUBWAY' AND verified=TRUE AND active=TRUE
                          ORDER BY id
                         """,
                 (RowCallbackHandler) resultSet -> {
                     String mode = resultSet.getString("mode");
                     String type = resultSet.getString("alias_type");
                     Map<String, Set<String>> target;
-                    if ("BUS".equals(mode) && "ROUTE".equals(type)) {
-                        target = busRouteAliasIds;
-                    } else if ("BUS".equals(mode) && "STOP".equals(type)) {
-                        target = busStopAliasIds;
-                    } else if ("SUBWAY".equals(mode) && "LINE".equals(type)) {
+                    if ("SUBWAY".equals(mode) && "LINE".equals(type)) {
                         target = subwayLineAliasIds;
                     } else if ("SUBWAY".equals(mode) && "STATION".equals(type)) {
                         target = subwayStationAliasIds;
@@ -150,7 +110,7 @@ public class JdbcSeoulTransitMasterDataProvider implements SeoulTransitMasterDat
                 },
                 dataVersion);
         return new TransitAliasSnapshot(
-                busRouteAliasIds, busStopAliasIds, subwayLineAliasIds, subwayStationAliasIds);
+                Map.of(), Map.of(), subwayLineAliasIds, subwayStationAliasIds);
     }
 
     /**
@@ -171,23 +131,6 @@ public class JdbcSeoulTransitMasterDataProvider implements SeoulTransitMasterDat
                 (resultSet, rowNumber) -> resultSet.getString("data_version"),
                 ACTIVE_VERSION_KEY);
         return versions.stream().findFirst();
-    }
-
-    /** JOIN 한 행을 routeId별 builder에 추가하며 좌표 SQL NULL을 Java null로 보존한다. */
-    private void appendBusStop(Map<String, BusRouteBuilder> routes, ResultSet resultSet)
-            throws SQLException {
-        String routeId = resultSet.getString("route_id");
-        BusRouteBuilder route = routes.computeIfAbsent(routeId, ignored -> new BusRouteBuilder(
-                routeId,
-                resultSetString(resultSet, "route_name")
-        ));
-        route.stops().add(new BusStopMaster(
-                resultSet.getString("stop_id"),
-                resultSet.getString("stop_name"),
-                resultSet.getInt("stop_sequence"),
-                decimalAsDouble(resultSet, "longitude"),
-                decimalAsDouble(resultSet, "latitude")
-        ));
     }
 
     /** 호선·방향·패턴 복합키별 builder에 정적/실시간 역 ID를 분리해 추가한다. */
@@ -214,29 +157,12 @@ public class JdbcSeoulTransitMasterDataProvider implements SeoulTransitMasterDat
         ));
     }
 
-    /** SQL DECIMAL의 null 여부를 잃지 않고 좌표용 Double로 변환한다. */
-    private Double decimalAsDouble(ResultSet resultSet, String column) throws SQLException {
-        BigDecimal value = resultSet.getBigDecimal(column);
-        return value == null ? null : value.doubleValue();
-    }
-
     /** computeIfAbsent 내부의 checked SQLException을 피하면서 필수 문자열을 읽는다. */
     private String resultSetString(ResultSet resultSet, String column) {
         try {
             return resultSet.getString(column);
         } catch (SQLException exception) {
             throw new IllegalStateException("서울 교통 마스터 필드를 읽을 수 없습니다: " + column, exception);
-        }
-    }
-
-    /** RowCallbackHandler가 같은 노선의 여러 JOIN 행을 누적하기 위한 내부 가변 버퍼다. */
-    private record BusRouteBuilder(String routeId, String routeName, List<BusStopMaster> stops) {
-        private BusRouteBuilder(String routeId, String routeName) {
-            this(routeId, routeName, new ArrayList<>());
-        }
-
-        private BusRouteMaster build() {
-            return new BusRouteMaster(routeId, routeName, stops);
         }
     }
 

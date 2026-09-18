@@ -3,7 +3,8 @@ spring:
     name: ddubi
 
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    # 지정이 없으면 운영(prod)으로 뜬다. 개발 설정은 SPRING_PROFILES_ACTIVE=dev 를 명시해야만 켜진다(2026-09-18).
+    active: ${SPRING_PROFILES_ACTIVE:prod}
 
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ddubi}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
@@ -119,10 +120,31 @@ ddubi:
     # 같은 suppress_key 재발송 차단 시간. 상황이 실제로 바뀌면 키가 달라지므로
     # 이 값이 길어도 새 정보는 막히지 않는다.
     suppress-ttl: 10m
+  briefing:
+    # 아침 브리핑(REQ-NTF-003). 끄면 스케줄러 빈 자체가 만들어지지 않는다.
+    enabled: ${DDUBI_BRIEFING_ENABLED:true}
+    # 사용자가 정한 시각은 분 단위다. 더 드물게 돌면 07:00 으로 맞춘 사람이 07:05 에 받는다.
+    scheduler-delay-ms: 60000
+    # 브리핑 시각이 이만큼 지나면 그날은 건너뛴다. 서버가 아침 내내 죽어 있다가 저녁에
+    # 올라왔다고 "아침 브리핑" 을 보내면 안 된다.
+    max-lateness: 2h
   push:
     # 둘 다 비우면 로그 발송기로 대체된다(PushConfig). 키 없이도 개발이 된다.
     credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
     credentials-base64: ${FIREBASE_CREDENTIALS_BASE64:}
+  internal:
+    # 서버1(Spark) 전용 API 키. 비어 있으면 /internal 전체를 503 으로 닫는다.
+    # 메일·FCM 과 달리 "없으면 로그로 대체"가 아니다 —
+    # 열어두면 네트워크 안에 들어온 누구나 기준선을 통째로 갈아치울 수 있다.
+    api-key: ${INTERNAL_API_KEY:}
+  pipeline:
+    # 기준선 업서트를 몇 행씩 끊어 보낼지. 크면 메모리·패킷이, 작으면 왕복이 늘어난다.
+    baseline-batch-size: 1000
+  report:
+    # 목표 시각 대비 이만큼 이상 일찍 도착해야 ON_TIME, 그 안쪽은 TIGHT.
+    # 배차 간격을 생각하면 여유가 이보다 적을 때는 한 대만 놓쳐도 지각이다.
+    # 데이터가 쌓인 뒤 조정할 값이라 코드에 박지 않는다.
+    on-time-margin: 10m
   baseline:
     # 마지막 기준선 활성화가 이보다 오래되면 HOME dataState=STALE.
     stale-threshold: 48h
@@ -136,6 +158,17 @@ ddubi:
       verified-ttl: 30m
   recommendation:
     policy-version: v1.0
+    # 평가 결과로 자동 FCM 발송 (프론트 연동 질의 1번).
+    #
+    # ⚠️ 기본값 false 다. 지금 나가는 숫자는 미승인 모델이 계산한 것이라(production_ready=false)
+    #    켜면 검증 안 된 값으로 사용자 폰이 울린다. 개발·테스트에서만 켜고 발표 전에 되돌린다
+    #    (2026-09-15 프론트 확인).
+    #
+    # 추천 수락(사용자 출발 시각 실제 변경)은 이 설정과 무관하게 계속 막혀 있다.
+    auto-notify-enabled: ${DDUBI_AUTO_NOTIFY_ENABLED:false}
+    # 다른 후보가 이만큼 빨라야 "경로 변경" 을 알린다. 1~2분 차이로 알리면 갈아타는 품이
+    # 이득보다 크고, 후보 순위가 평가마다 흔들리면 알림이 쏟아진다.
+    notify-route-gain: 5m
     # 중요도 → 백분위 (도메인 규칙 7)
     percentile:
       normal: 50
@@ -143,6 +176,16 @@ ddubi:
       critical: 95
     # 이 시간을 넘기면 202 + jobId 비동기로 전환 (성능 목표)
     sync-timeout: 2s
+  walking:
+    # 공식 카카오맵 도보 조회. 검증된 좌표 artifact와 거리 정책이 있을 때만 사용한다.
+    enabled: ${DDUBI_WALKING_ENABLED:false}
+    base-url: https://dapi.kakao.com
+    path: /v2/routing/walk
+    timeout-millis: 1500
+    cache-seconds: 60
+    max-calls: 4
+    endpoint-max-meters: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:0}
+    master-coordinate-path: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:}
   external:
     kakao:
       # 장소 검색과 대중교통 길찾기에 사용하는 카카오맵 REST API 주소
@@ -178,19 +221,20 @@ ddubi:
         # 네이버 개발자센터 > 애플리케이션 > 내 애플리케이션.
         client-id: ${NAVER_CLIENT_ID:}
         client-secret: ${NAVER_CLIENT_SECRET:}
+  metropolitan-bus:
+    # BUS는 항상 수도권 마스터를 사용한다. 이 플래그는 관리 파일 적재에만 적용한다.
+    import-enabled: ${DDUBI_METROPOLITAN_BUS_IMPORT_ENABLED:false}
+    artifact: ${DDUBI_METROPOLITAN_BUS_ARTIFACT:}
+    sha256: ${DDUBI_METROPOLITAN_BUS_SHA256:}
   transit-master-import:
     # 평상시 기동에는 반드시 false다. 관리자가 공식 파일을 새 버전으로 적재할 때만 true로 실행한다.
     enabled: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:false}
     data-version: ${DDUBI_TRANSIT_MASTER_DATA_VERSION:}
-    bus-workbook: ${DDUBI_TRANSIT_MASTER_BUS_WORKBOOK:}
     subway-timetable: ${DDUBI_TRANSIT_MASTER_SUBWAY_TIMETABLE:}
     # [{"lineNumber":"2","subwayId":"1002","staticStationCode":"0222","externalCode":"222","realtimeStationId":"1002000222"}] 형식
     subway-realtime-stations: ${DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS:}
-    # 검증된 카카오 별칭 배열 JSON. verified=true인 행만 Matcher가 사용한다.
+    # 검증된 지하철 카카오 별칭 배열 JSON. verified=true인 행만 Matcher가 사용한다.
     aliases: ${DDUBI_TRANSIT_MASTER_ALIASES:}
   transit-mapping:
     # 다른 Backend replica가 새 ACTIVE 마스터 버전을 발견하는 최대 주기(ms)
     refresh-interval-ms: ${DDUBI_TRANSIT_MAPPING_REFRESH_INTERVAL_MS:60000}
-    bus:
-      # BUS EXACT 품질 게이트(m). golden corpus의 endpoint 거리 분포로 조정하며 소요시간 가중치가 아니다.
-      max-endpoint-distance-meters: ${DDUBI_BUS_MAPPING_MAX_ENDPOINT_DISTANCE_METERS:150}

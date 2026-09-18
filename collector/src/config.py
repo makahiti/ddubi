@@ -28,27 +28,42 @@ class Settings:
     api_keys: dict[str, str] = field(default_factory=dict)
     extra: dict[str, str] = field(default_factory=dict)  # 소스별 추가 설정 (예: WEATHER_GRID_POINTS)
 
-    API_KEY_NAMES = ("KAKAO_REST_API_KEY", "SEOUL_API_KEY", "DATA_GO_KR_API_KEY", "KMA_API_KEY")
+    # 키 변수 이름은 <소스명>_API_KEY 로 통일한다 (2026-09-10). 같은 실제 키를 여러 변수에 넣어도 되며,
+    # 호출 예산(request_budget)은 실제 키 값 기준으로 합산한다.
+    API_KEY_NAMES = (
+        "GBIS_API_KEY",
+        "INCHEON_API_KEY",
+        "KMA_API_KEY",                # weather (우선)
+        "DATA_GO_KR_API_KEY",         # weather (KMA 없을 때)
+        "BUS_ARRIVAL_API_KEY",        # bus_arrival
+        "BUS_LOCATION_API_KEY",       # bus_location
+        "SUBWAY_API_KEY",             # subway_arrival, subway_location
+        "SUBWAY_ALERT_API_KEY",       # subway_alert
+        "CITY_REALTIME_API_KEY",      # city_realtime
+        "TOPIS_NOTICE_API_KEY",       # topis_notice
+        "TRAFFIC_INCIDENT_API_KEY",   # traffic_incident
+    )
     # 수집 범위는 코드에 박지 않는다. 운영 환경마다 대상 노선·역·도로 링크와 호출 한도가
     # 다르므로 쉼표 구분 환경변수로 주입하고, 비밀값은 위 API_KEY_NAMES에만 둔다.
+    # 소스 코드가 실제로 읽는 것만 남긴다 (2026-09-10 정리: SUBWAY_STATIONS·TRAFFIC_LINK_IDS·CITY_AREA_CODES·SDOT_*·
+    # SUBWAY_ALERT_API_URL/SERVICE_NAME·TRAFFIC_INCIDENT_SERVICE_NAME·SEOUL_API_PAGE_SIZE 는 어느 소스도 읽지 않아 제거)
     EXTRA_NAMES = (
+        "TOPIS_NOTICE_DEDUP_PATH",
+        "REGIONAL_BUS_TARGET_IDS",
+        "BUS_CROSSWALK_PATH",
+        "BUS_CROSSWALK_SHA256",
+        "API_BUDGET_PATH",
+        "API_DAILY_LIMIT",
         "WEATHER_GRID_POINTS",
         "BUS_ROUTE_IDS",
+        "BUS_ROUTE_LIMIT",
         "SUBWAY_LINES",
-        "SUBWAY_STATIONS",
-        "TRAFFIC_LINK_IDS",
+        "SUBWAY_SKIP_ENABLED",
+        "SUBWAY_SKIP_START",
+        "SUBWAY_SKIP_END",
+        "SUBWAY_SKIP_OVERRIDE_DATES",
         "CITY_AREA_IDENTIFIERS",
         "CITY_AREA_REGISTRY_PATH",
-        # 기존 배포 설정과의 하위 호환용이다. 신규 설정은 CITY_AREA_IDENTIFIERS를 사용한다.
-        "CITY_AREA_CODES",
-        "SDOT_DISTRICTS",
-        "SDOT_SERVICE_NAME",
-        "SDOT_MAX_PAGES",
-        "SDOT_EXPECTED_SENSOR_COUNT",
-        "SUBWAY_ALERT_API_URL",
-        "SUBWAY_ALERT_SERVICE_NAME",
-        "TRAFFIC_INCIDENT_SERVICE_NAME",
-        "SEOUL_API_PAGE_SIZE",
     )
 
     @classmethod

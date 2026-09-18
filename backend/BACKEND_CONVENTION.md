@@ -41,7 +41,7 @@ Flutter(Android·Web) → Nginx(443) → Spring Boot API ─┬→ MySQL 8 (진�
 | 인증 | Spring Security + JWT (Access 60분 / Refresh 14일, Redis 회전) |
 | 문서화 | springdoc-openapi(Swagger UI). API 변경 시 반드시 갱신 |
 | 테스트 | JUnit 5 + Testcontainers(MySQL·Redis), 도메인 규칙(4장)은 필수 테스트 대상 |
-| 마이그레이션 | Flyway. `V1__init.sql`은 `docs/ddubi_erd_v2.sql` 기반. **스키마 변경은 ERD 문서와 마이그레이션에 동시 반영 + 팀 합의 필요**. 운영 방식은 3.2장 |
+| 마이그레이션 | Flyway. 스키마 변경은 **새 `V2__`,`V3__` 파일로 쌓는다**(V1 은 고치지 않음). **ERD 문서에도 동시 반영 + 팀 합의 필요**. 운영 방식은 3.2장 |
 | 환경변수 | 실제 값은 `.env`(git 제외), `.env.example`에 변수명만 |
 | 레포 구조 | 모노레포: `client/ backend/ collector/ sparkjobs/ notification/ infra/ docs/` — 백엔드 작업은 `backend/`에서만 |
 | 브랜치 | `feature/backend/{작업명}` → MR → **`be/dev`** (백엔드 트랙). PM이 확인 후 `develop`(서버가 바라보는 테스트 브랜치)로 반영하고 최종적으로 `master`. **`develop`·`master`를 직접 건드리지 않는다.** 다른 트랙은 `fe/dev`·`fe/main`·`infra` |
@@ -86,19 +86,40 @@ com.ssafy.ddubi
 
 ## 3.2 마이그레이션 운영 방식 (팀 합의)
 
-스키마 파일은 **두 개가 항상 동일**해야 한다.
-
+스키마는 **원천(ERD) 하나와 그것을 만들어 가는 마이그레이션들**로 관리한다.
 | 파일 | 역할 |
 | --- | --- |
-| `docs/ddubi_erd_v2.sql` | 원천(source of truth). 팀·분산 담당과 공유하는 ERD_master의 코드판 |
-| `backend/src/main/resources/db/migration/V1__init.sql` | Flyway 적용본. 위 파일의 복사본 |
+| `docs/ddubi_erd_v2.sql` | 원천(source of truth). 팀·분산 담당과 공유하는 ERD_master의 코드판. **최종 목표 스키마**를 담는다 |
+| `backend/src/main/resources/db/migration/V1__init.sql` | 최초 스키마. **더 이상 고치지 않는다** |
+| `V2__`, `V3__`, ... | 이후 변경은 전부 여기에 쌓는다 |
 
-### Phase 3까지 — V1 하나로 버틴다
+### 스키마를 바꿀 때 — 새 마이그레이션을 쌓는다 (2026-09-08 변경)
 
-개발 초기엔 스키마가 자주 바뀐다. `V2__`, `V3__`를 쌓지 말고 **`V1__init.sql`을 직접 고치고 DB를 날린다.**
+**`V1__init.sql` 을 직접 고치지 않는다.** 새 파일을 만든다.
+
+```
+V4__add_something.sql
+ALTER TABLE ... ADD ...;
+```
+
+그리고 **`docs/ddubi_erd_v2.sql` 도 함께 고친다** — 최종 목표 스키마를 담는 문서이므로,
+새 인덱스·제약이 거기에도 반영돼야 한다. 두 파일이 **글자 단위로 같지는 않지만**
+(V1 은 초기 상태, ERD 는 최종 상태), **ERD 에 있는 것은 마이그레이션 어딘가에 반드시 있어야 한다.**
+
+> **왜 바뀌었나**: 예전에는 "V1 을 직접 고치고 DB 를 날린다" 였다. 그러면 스키마를 고칠
+> 때마다 **팀 전원이 로컬 DB 를 날려야** 하고(2026-09-08 하루에만 두 번 발생), 서버에
+> 데이터가 쌓이기 시작하면 아예 쓸 수 없다.
+>
+> 실제로 이 규약을 그대로 따라 V1 을 고쳤다가, PM 이 V2·V3 로 옮겨 놓은 것을 모르고
+> 되돌리려다 `Duplicate key name` 으로 마이그레이션을 깨뜨릴 뻔했다. 규약이 현실보다
+> 뒤처지면 그걸 믿은 사람이 사고를 낸다.
+
+`FlywayValidateException`(checksum mismatch)이 나면 **이미 적용된 마이그레이션 파일을
+고친 것**이다. 그 파일을 되돌리고 새 버전으로 만든다.
+
+로컬 DB 를 새로 만들어야 할 때:
 
 ```bash
-# 1) 두 파일을 함께 수정  2) DB 폐기 후 재생성
 docker compose -f backend/docker-compose.dev.yml down -v
 docker compose -f backend/docker-compose.dev.yml up -d
 ```
@@ -117,11 +138,23 @@ docker compose -f backend/docker-compose.dev.yml up -d
 
 1. **소유권 검사**: 모든 사용자 소유 리소스는 조회·변경 전 `user_id == 인증 사용자` 확인. 아니면 `403 FORBIDDEN_RESOURCE`.
 2. **장소 스냅샷**: schedule은 place를 FK 참조하지 않고 이름·좌표를 **값 복사**한다. 장소 수정이 기존 일정을 바꾸면 안 된다(REQ-SCH-006).
-3. **계정 통합**: 이메일이 계정 키. 소셜 로그인 시 이메일이 기존 user와 일치하면 새 계정을 만들지 않고 `user_auth`에 provider 행만 추가 후 로그인. 카카오 이메일 미동의(email=null)면 통합 불가 → 별도 계정. 로컬 가입 시 이미 소셜 계정에 쓰인 이메일이면 `409` + "카카오로 로그인" 안내.
+3. **계정 연동**: 이메일이 계정 키. 소셜 로그인 시 **검증된** 이메일이 기존 user와 일치하면 새 계정을 만들지 않지만 **자동으로 붙이지도 않는다**(2026-09-10 개정). `ACCOUNT_LINK_REQUIRED` 와 일회용 `linkToken`(5분)을 주고, `POST /auth/oauth/link` 에서 **기존 계정 비밀번호로 소유를 증명**해야 `user_auth` 행이 추가된다. 티켓은 성공·실패와 무관하게 한 번 쓰면 폐기 — 살려 두면 비밀번호 대입 창구가 된다.
+   - 이유: 자동 통합은 제공자가 이메일 소유를 **잘못 확인한 순간 남의 계정으로 들어가는 경로**다. 이제 비밀번호를 모르면 붙일 수 없다.
+   - 이메일 미제공·미검증이면 연동 판단을 하지 않고 별도 계정. **미검증 이메일은 새 계정에도 저장하지 않는다** — 저장하면 `UK_USER_EMAIL` 을 차지해 진짜 주인이 가입하지 못한다.
+   - 네이버는 프로필 API 에 검증 플래그가 없어 **검증된 것으로 본다**. 비밀번호 확인이 앞을 막으므로 탈취 위험은 없다.
+   - 기존 계정에 LOCAL 인증수단이 없으면(소셜로만 가입) `409 ACCOUNT_LINK_UNAVAILABLE` 로 **거절하고 쓰던 소셜을 안내**한다. `UK_USER_EMAIL` 때문에 새 계정을 만들 수 없고, 이메일 없이 만들면 사용자는 자기 일정이 사라진 빈 계정을 본다.
+   - 로컬 가입 시 이미 소셜 계정에 쓰인 이메일이면 `409` + 실제 붙어 있는 제공자 안내.
 4. **탈퇴 = 하드 삭제**: `DELETE user` 1건 → FK CASCADE로 전체 삭제. 보관·마스킹 없음. Redis 세션도 전부 폐기. 탈퇴자 관련 추적은 불가(팀 합의).
 5. **반복 일정 2단 구조**: `schedule_repeat`(규칙) → `schedule`(인스턴스, `UNIQUE(repeat_id, arrive_by)`). 인스턴스를 개별 수정하면 `is_customized=true`로 세팅하고, 반복 전체 수정(REPEAT-004)은 `is_customized=true` 행을 건너뛴다. 반복 중지는 `is_active=false`(행 삭제 아님), 기존 인스턴스는 유지.
 6. **경로 선택 단일성**: 한 schedule에 `route.is_selected=true`는 최대 1건. `PUT .../selection` 트랜잭션에서 나머지를 false로.
-7. **추천은 불변 INSERT**: `recommendation`은 절대 UPDATE하지 않는다. 계산 계기는 `trigger_type`, 중요도→백분위 정책은 NORMAL=p50 / HIGH=p80 / CRITICAL=p95, `reasons` JSON에 후보 비교 요약 포함, `data_checked_at` 필수.
+7. **추천은 불변 INSERT**: `recommendation`은 절대 UPDATE하지 않는다. 계산 계기는 `trigger_type`, `reasons` JSON에 후보 비교 요약 포함, `data_checked_at` 필수.
+   - ~~중요도→백분위 정책 NORMAL=p50 / HIGH=p80 / CRITICAL=p95~~ → **보류** (2026-09-08 ML 연동안 결정).
+     여유시간은 중요도와 무관하게 **검증된 공통 안전 여유** 하나를 쓴다. 중요도는 백분위가 아니라
+     **감시·재계산·알림 빈도**에만 쓴다(CRITICAL 일수록 자주 다시 계산하고 더 민감하게 알린다).
+     이유: ML(`traffic_t03`)이 p50/p80/p95 를 아직 `null` 로 준다. **커버리지 검증 전의 "p95" 는
+     이름만 p95** 라, 그 값으로 CRITICAL 일정의 출발 시각을 정하면 정확히 늦으면 안 되는 사람이 늦는다.
+   - `baseline_serving` 의 p50/p80/p95 자체는 계속 쓴다 — ML 실패 시 fallback 3단계(구간 기준선)다.
+   - ML 백분위 커버리지 검증이 끝나면 이 항목을 되살릴 수 있다. 그래서 지우지 않고 보류로 남긴다.
 8. **폴백**: 실시간(Redis) 데이터가 없거나 stale이면 `baseline_serving`으로 계산하고 `confidence=LOW`, 응답에 `fallbackUsed=true`. 아예 계산 불가일 때만 `503 REALTIME_DATA_UNAVAILABLE`.
 9. **알림은 무조건 행 생성**: 발송 억제(알림 끔, 중복)여도 `notification` 행은 만들고 `status=SUPPRESSED`. 재발송 방지는 `suppress_key`(일정·이유·행동 해시) + Redis TTL. `read_at IS NULL` 개수 = 안읽음 뱃지. 알림 on/off 는 사용자 토글(`PATCH /users/me` 의 `alarmEnabled`)이며 **서버가 시간대를 정해 자동 억제하는 DND 는 두지 않는다**(2026-09-03 확정) — 껐다 켜는 것은 사용자가 정하고, 서버가 임의로 막으면 새벽 일정의 출발 알림이 조용히 사라진다.
 10. **영향 일정 역조회 경로 (F-05)**: 변경 `segment_id` → `route_segment_edge(IX_RSEG_EDGE_SEGMENT)` → `route_segment` → `route(is_selected=true)` → `schedule(status=UPCOMING)`. 별도 schedule_segment 테이블 없음(합의됨).
@@ -201,8 +234,10 @@ BASE-001/002 `/internal/baselines`(조회/일괄 적재 — 적재 주체는 Spa
 5. `PATCH /users/me` 지원 필드 확장: nickname, notifyLeadMin(0~180), alarmEnabled, historyConsent, **briefingTime(HH:mm:ss|null), mobilityNote(≤100자), transportPrefs([{mode,preference}])**.
 6. 알림 type에 `SCHEDULE_CONFLICT` 포함.
 7. FCM 등록은 `UK_DEVICE_FCM` 기반 `INSERT ... ON DUPLICATE KEY UPDATE` upsert.
-8. AUTH-003에 계정 통합 분기 추가: 기존 이메일 일치 → user_auth 행 추가 + 200 / 완전 신규 → 201.
-9. ARRIVAL-001의 locationConsent 요청 필드는 쓰지 않는다 — 서버가 `user.history_consented_at`으로 판단.
+8. AUTH-003 응답이 두 갈래다: `data.status` = `AUTHENTICATED`(200, 신규 201) 또는 `ACCOUNT_LINK_REQUIRED`(200, linkToken·마스킹 이메일). 연동 확정은 `POST /auth/oauth/link`.
+9. ARRIVAL-001의 `actual_arrival` 은 **`user.history_consented_at` 과 요청의 `locationConsent` 가 둘 다 있어야** 저장한다.
+   요청 필드는 권한을 주는 스위치가 아니라 이번 건에 대한 거부권이다. 미저장이어도 200 이고 `result` 도 함께 null 이다.
+   *(2026-09-04 수정. 이전 문구 "요청 필드는 쓰지 않는다" 는 명세서에 있는 입력을 사문화시켰다 — docs/contracts/api-spec-arrival-report-amendment.md C)*
 10. 문서의 "Flink" 표기는 전부 Spark 오기.
 
 ## 7. Redis 키 계약 (docs/contracts/redis-keys.yaml로 관리, 분산 담당과 공유)

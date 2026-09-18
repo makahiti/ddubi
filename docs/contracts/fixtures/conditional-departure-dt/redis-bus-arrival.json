@@ -1,0 +1,30 @@
+{
+  "key": "transit:latest:bus-arrival:100100118:102000001",
+  "ttlSeconds": 86400,
+  "consumerFreshnessSeconds": 120,
+  "value": {
+    "silverVersion": "bus-silver-v1",
+    "eventId": "00000000-0000-4000-8000-000000000010",
+    "eventType": "bus.arrival",
+    "source": "seoul.bus_arrival",
+    "providerNamespace": "SEOUL_BUS",
+    "providerRouteId": "100100118",
+    "providerStopId": "102000001",
+    "observedAt": "2026-09-16T08:10:00+09:00",
+    "collectedAt": "2026-09-16T08:10:05+09:00",
+    "validUntil": "2026-09-16T08:12:00+09:00",
+    "timestampBasis": "provider",
+    "sourceGeneratedAt": "2026-09-16T08:10:00+09:00",
+    "masterVersion": "fixture-master-v1",
+    "mappingStatus": "EXACT",
+    "arrivalTimeBasis": "SEOUL_EXPS_SECONDS_V1",
+    "firstVehicleId": "111111111",
+    "firstArrivalSeconds": 180,
+    "firstFullCode": "0",
+    "firstTerminalArrivalCode": "0",
+    "detourCode": "00",
+    "missingFields": [],
+    "qualityFlags": [],
+    "rejectionReasons": []
+  }
+}

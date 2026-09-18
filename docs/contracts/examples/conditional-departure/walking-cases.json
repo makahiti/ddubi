@@ -1,0 +1,95 @@
+{
+  "description": "실제 제휴 응답이 아닌 WalkingRouteClient 내부 port의 합성 fixture. HTTP adapter 필드를 의미하지 않는다.",
+  "masterPoints": [
+    {
+      "nodeId": "2",
+      "masterVersion": "master",
+      "coordinate": {
+        "longitude": 127.001,
+        "latitude": 37.501
+      },
+      "meaning": "BUS_STOP",
+      "source": "OFFICIAL_FIXTURE"
+    },
+    {
+      "nodeId": "3",
+      "masterVersion": "master",
+      "coordinate": {
+        "longitude": 127.002,
+        "latitude": 37.502
+      },
+      "meaning": "BUS_STOP",
+      "source": "OFFICIAL_FIXTURE"
+    }
+  ],
+  "cases": [
+    {
+      "id": "T27",
+      "role": "ACCESS_WALK",
+      "origin": {
+        "longitude": 127,
+        "latitude": 37.5
+      },
+      "destination": {
+        "longitude": 127.001,
+        "latitude": 37.501
+      },
+      "originalSeconds": 60,
+      "portSeconds": 120,
+      "expectedReplacementSeconds": 120
+    },
+    {
+      "id": "T28",
+      "role": "EGRESS_WALK",
+      "origin": {
+        "longitude": 127.002,
+        "latitude": 37.502
+      },
+      "destination": {
+        "longitude": 127.003,
+        "latitude": 37.503
+      },
+      "originalSeconds": 60,
+      "portSeconds": 120,
+      "expectedReplacementSeconds": 120
+    },
+    {
+      "id": "T29",
+      "role": "TRANSFER_WALK",
+      "providerCalls": 0,
+      "expectedSeconds": 60
+    },
+    {
+      "id": "T30",
+      "input": "path/EXACT coordinate conflict",
+      "providerCalls": 0,
+      "fallbackReason": "WALK_ENDPOINT_UNVERIFIED"
+    },
+    {
+      "id": "T31",
+      "input": "WALK_HTTP_403 / WALK_HTTP_429 / WALK_TIMEOUT",
+      "expectedRouteSeconds": 720,
+      "result": "original WALK fallback"
+    },
+    {
+      "id": "T32",
+      "input": "60 WALK + 600 BUS + 60 WALK; two replacements of 120",
+      "expectedRouteSeconds": 840
+    },
+    {
+      "id": "T33",
+      "input": "unassignedDurationSeconds=30",
+      "providerCalls": 0,
+      "expectedRouteSeconds": 750,
+      "fallbackReason": "WALK_COST_COVERAGE_UNRESOLVED"
+    },
+    {
+      "id": "T34",
+      "input": "STATION_CENTER",
+      "providerCalls": 0,
+      "fallbackReason": "STATION_CENTER_ONLY"
+    }
+  ],
+  "api": "kakaomap-walk-v2",
+  "endpointPolicy": "walk-endpoint-v2"
+}

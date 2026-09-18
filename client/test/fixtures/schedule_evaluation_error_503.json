@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "error": {"code": "ROUTE_PROVIDER_UNAVAILABLE", "message": "교통 데이터를 불러오지 못했습니다.", "fieldErrors": []},
+  "requestId": "redacted-request-id",
+  "timestamp": "2026-09-18T00:00:00Z"
+}

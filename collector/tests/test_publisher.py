@@ -17,7 +17,7 @@ class FakeMessage:
 
 
 class FakeProducer:
-    """produce 는 큐에 쌓기만 하고, flush 때 broker_up 이면 성공 콜백을 부르고 아니면 그대로 남긴다."""
+    """produce 는 큐에 쌓고, flush 때 broker_up 이면 성공 콜백을 호출한다."""
 
     def __init__(self, broker_up: bool = True, list_topics_failures: int = 0) -> None:
         self.broker_up = broker_up
@@ -34,8 +34,8 @@ class FakeProducer:
     def flush(self, timeout):
         if not self.broker_up:
             return len(self.queue)
-        for topic, key, cb in self.queue:
-            cb(None, FakeMessage(topic, key))
+        for topic, key, callback in self.queue:
+            callback(None, FakeMessage(topic, key))
         self.queue.clear()
         return 0
 
@@ -48,37 +48,41 @@ class FakeProducer:
 
 def test_flush_confirms_sent_when_broker_up():
     fake = FakeProducer(broker_up=True)
-    pub = Publisher("kafka:9092", "test", producer=fake)
-    pub.publish("city.raw", "k1", {"a": 1})
-    pub.publish("city.raw", "k2", {"a": 2})
-    assert pub.sent == 0  # 콜백은 flush 전엔 오지 않는다
-    assert pub.flush(1.0) == 0
-    assert (pub.sent, pub.failed) == (2, 0)
+    publisher = Publisher("kafka:9092", "test", producer=fake)
+    publisher.publish("city.raw", "k1", {"a": 1})
+    publisher.publish("city.raw", "k2", {"a": 2})
+    assert publisher.sent == 0
+    assert publisher.flush(1.0) == 0
+    assert (publisher.sent, publisher.failed) == (2, 0)
 
 
 def test_flush_reports_pending_not_failed_when_broker_down():
     fake = FakeProducer(broker_up=False)
-    pub = Publisher("kafka:9092", "test", producer=fake)
-    pub.publish("city.raw", "k1", {"a": 1})
-    assert pub.flush(1.0) == 1  # 확인 대기 1건
-    assert (pub.sent, pub.failed) == (0, 0)  # 유실로 세지 않는다 — 큐에서 재시도 중
+    publisher = Publisher("kafka:9092", "test", producer=fake)
+    publisher.publish("city.raw", "k1", {"a": 1})
+    assert publisher.flush(1.0) == 1
+    assert (publisher.sent, publisher.failed) == (0, 0)
 
 
 def test_wait_ready_retries_until_broker_answers():
     fake = FakeProducer(list_topics_failures=2)
-    pub = Publisher("kafka:9092", "test", producer=fake)
+    publisher = Publisher("kafka:9092", "test", producer=fake)
     slept = []
-    assert pub.wait_ready(timeout_seconds=60, poll_seconds=1.0, sleep=slept.append) is True
+    assert publisher.wait_ready(timeout_seconds=60, poll_seconds=1.0, sleep=slept.append) is True
     assert fake.list_topics_calls == 3
     assert slept == [1.0, 1.0]
 
 
 def test_wait_ready_gives_up_after_timeout(monkeypatch):
     fake = FakeProducer(list_topics_failures=10_000)
-    pub = Publisher("kafka:9092", "test", producer=fake)
-    clock = iter([0.0, 100.0, 100.0, 100.0])  # deadline = 0 + 30 → 첫 실패 뒤 확인에서 초과
+    publisher = Publisher("kafka:9092", "test", producer=fake)
+    clock = iter([0.0, 100.0, 100.0, 100.0])
     monkeypatch.setattr("publisher.time.monotonic", lambda: next(clock))
-    assert pub.wait_ready(timeout_seconds=30, poll_seconds=1.0, sleep=lambda _s: None) is False
+    assert publisher.wait_ready(
+        timeout_seconds=30,
+        poll_seconds=1.0,
+        sleep=lambda _seconds: None,
+    ) is False
     assert fake.list_topics_calls == 1
 
 

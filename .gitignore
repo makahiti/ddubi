@@ -42,6 +42,8 @@ client/.metadata
 
 # Runtime data
 data/
+/artifacts/ml-serving/
+infra/transit-master/
 logs/
 *.log
 *.pid
@@ -60,3 +62,14 @@ CLAUDE.md
 # Firebase 서비스 계정 키 — 이 파일 하나로 우리 프로젝트 이름의 푸시를 보낼 수 있다
 **/firebase-service-account.json
 **/*-firebase-adminsdk-*.json
+
+# Firebase 앱 설정 — APK 에 들어가는 파일이지만 공개 저장소에 두면
+# 남이 우리 프로젝트 앞으로 요청을 보낼 수 있다. 비밀 채널로 공유한다.
+**/google-services.json
+**/GoogleService-Info.plist
+
+# 서비스 계정 키를 base64 로 뽑아둔 임시 파일. 쓰고 나면 지운다.
+fcm-base64.txt
+
+# 배포 잡이 서버에 만드는 backend 비밀값 파일. 저장소에 들어올 일이 없다.
+**/.env.backend

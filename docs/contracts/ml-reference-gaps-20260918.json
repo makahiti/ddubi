@@ -1,0 +1,238 @@
+{
+  "schemaVersion": 1,
+  "decidedAt": "2026-09-18T02:30:00+09:00",
+  "decision": "SOURCE_DATA_MISSING_ACCEPTED",
+  "decisionNote": "A안. 공급처 원천 결측으로 확정하고 그대로 인정한다. 생성·보간·복사로 채우지 않는다.",
+  "document": "ml-reference-gaps-20260918.md",
+  "canonicalContract": "transit-data-refresh.md",
+  "canonicalContractNote": "묶음 갱신 절차, missing_files 11개 명시, 원천별 0 규칙의 정본. 이 manifest는 그 계약을 대체하지 않고 재다운로드 검증 기록과 날짜별 영향 분석을 더한다.",
+  "relatedPlan": "ml-history-lag-redesign-plan.md",
+  "modelVersion": "20260908-v12",
+  "deployedBundle": "20260908-v12-ref-20260917-through-1010",
+  "supportedFrom": "2026-09-10",
+  "supportedUntil": "2026-10-10",
+  "missingReferenceFileCount": 11,
+  "fillPolicy": {
+    "interpolation": "FORBIDDEN",
+    "neighborDateCopy": "FORBIDDEN",
+    "average": "FORBIDDEN",
+    "sameWeekdaySubstitution": "FORBIDDEN",
+    "zeroFill": "FORBIDDEN",
+    "rationale": "관측 부재와 값 0을 구분하는 기존 정규화 원칙을 유지한다."
+  },
+  "zeroSemantics": {
+    "rawBlankCells": false,
+    "perSource": {
+      "OA-21217": { "metric": "구간 운행시간(초)", "zeroMeans": "NO_OBSERVATION", "normalized": "NaN" },
+      "OA-21218": { "metric": "재차인원", "zeroMeans": "VALID_ZERO", "normalized": "0 보존" },
+      "OA-21219": { "metric": "승차 승객 수", "zeroMeans": "VALID_ZERO", "normalized": "0 보존" },
+      "OA-21220": { "metric": "버스 운행횟수", "zeroMeans": "VALID_ZERO", "normalized": "0 보존" }
+    },
+    "zeroIsNotDurationZero": true,
+    "normalizationRule": "OA-21217: value > 0 AND value <= 86400. 그 외 원천: value >= 0 AND finite",
+    "normalizationCode": [
+      "ml-serving/tools/extend_reference_bundle.py:46",
+      "j-moo/experiments/runtime/ddubi_rebuild_v12.py: travel_chunk()"
+    ],
+    "canonicalContract": "transit-data-refresh.md",
+    "measuredZeroCellRatio": {
+      "2026-06-16": 0.334,
+      "2026-06-29": 0.341,
+      "2026-07-03": 0.329
+    },
+    "retainedOver1800Seconds": true,
+    "quarantineThresholdSeconds": 86400
+  },
+  "verification": {
+    "method": "공식 원천 재다운로드 후 스냅샷과 SHA-256 대조",
+    "officialSource": "서울 열린데이터광장",
+    "downloadEndpoint": "https://datafile.seoul.go.kr/bigfile/iot/inf/nio_download.do?&useCache=false",
+    "mirrorUsed": false,
+    "authRequired": false,
+    "downloads": [
+      {
+        "fileName": "tpss_route_section_speedh_202607.zip",
+        "postParams": { "infId": "OA-21217", "seq": "2607", "infSeq": "3" },
+        "downloadedAtUtc": "2026-09-17T17:03:56Z",
+        "downloadedAtKst": "2026-09-18T02:03:56+09:00",
+        "bytes": 117488969,
+        "sha256": "6834b0b5880e133018aa8c7d0c3023a4fd9a7e188b244a807ad8a2d7bff57c56",
+        "storedAt": "/home/j-j15e202/ybk/incoming/20260918-oa21217-recheck/downloaded.bin",
+        "containsTargetWeek": false,
+        "innerFiles": [
+          "tpss_route_section_speedh_2026.07.06-07.12.csv",
+          "tpss_route_section_speedh_2026.07.13-07.19.csv",
+          "tpss_route_section_speedh_2026.07.20-07.26.csv",
+          "tpss_route_section_speedh_2026.07.27-08.02.csv"
+        ],
+        "snapshotCsvShaIdentical": true
+      },
+      {
+        "fileName": "tpss_route_section_speedh_202606.zip",
+        "postParams": { "infId": "OA-21217", "seq": "2606", "infSeq": "3" },
+        "downloadedAtUtc": "2026-09-17T17:07:33Z",
+        "downloadedAtKst": "2026-09-18T02:07:33+09:00",
+        "bytes": 124257598,
+        "sha256": "e7abff08222b6992e1e126bccb7ea74457b1852b3dc93cd5981bd933297c3fb2",
+        "storedAt": "/home/j-j15e202/ybk/incoming/20260918-oa21217-recheck/downloaded-202606.bin",
+        "containsTargetWeek": true,
+        "innerFiles": [
+          "tpss_route_section_speedh_2026.06.01-06.07.csv",
+          "tpss_route_section_speedh_2026.06.08-06.14.csv",
+          "tpss_route_section_speedh_2026.06.15-06.21.csv",
+          "tpss_route_section_speedh_2026.06.22-06.28.csv",
+          "tpss_route_section_speedh_2026.06.29-07.05.csv"
+        ],
+        "snapshotZipShaIdentical": true,
+        "snapshotSha256": "e7abff08222b6992e1e126bccb7ea74457b1852b3dc93cd5981bd933297c3fb2"
+      }
+    ],
+    "supplierRevisesPublishedFiles": false,
+    "supplierRevisionEvidence": "2026-09-04 스냅샷과 2026-09-18 재다운로드의 SHA-256이 ZIP 1건과 주간 CSV 4건에서 모두 동일",
+    "featureAvailableAt": {
+      "policy": "다운로드 시각을 보수적 하한으로 기록한다. 과거 시점에 존재했던 자료로 백테스트에 사용하지 않는다.",
+      "tpss_route_section_speedh_202607.zip": "2026-09-18T02:03:56+09:00",
+      "tpss_route_section_speedh_202606.zip": "2026-09-18T02:07:33+09:00"
+    }
+  },
+  "gaps": [
+    { "path": "bus_daily/2026-05-16.parquet", "dataset": "OA-21217", "missingDate": "2026-05-16", "weekday": "토",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.05.11-05.17.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-12", "2026-09-19"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "bus_daily/2026-05-18.parquet", "dataset": "OA-21217", "missingDate": "2026-05-18", "weekday": "월",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.05.18-05.24.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-14", "2026-09-21"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "bus_daily/2026-06-15.parquet", "dataset": "OA-21217", "missingDate": "2026-06-15", "weekday": "월",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.06.15-06.21.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "bus_daily/2026-06-28.parquet", "dataset": "OA-21217", "missingDate": "2026-06-28", "weekday": "일",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.06.22-06.28.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-13", "2026-09-20", "2026-09-27", "2026-10-04"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "bus_daily/2026-07-01.parquet", "dataset": "OA-21217", "missingDate": "2026-07-01", "weekday": "수",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.06.29-07.05.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-16", "2026-09-23", "2026-09-30", "2026-10-07"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "bus_daily/2026-07-04.parquet", "dataset": "OA-21217", "missingDate": "2026-07-04", "weekday": "토",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.06.29-07.05.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-19", "2026-09-26", "2026-10-03", "2026-10-10"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "bus_daily/2026-07-05.parquet", "dataset": "OA-21217", "missingDate": "2026-07-05", "weekday": "일",
+      "sourceWeeklyFile": "tpss_route_section_speedh_2026.06.29-07.05.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-20", "2026-09-27", "2026-10-04"],
+      "affectedFeatures": ["history_recent_seconds","history_median_4obs","history_mean_4obs","history_median_8obs","history_mean_8obs","history_std_8obs","history_trend_seconds"],
+      "impact": "해당일 history_sample_count 상한 1 감소" },
+    { "path": "aux_daily/OA-21218/2026-06-16.parquet", "dataset": "OA-21218", "missingDate": "2026-06-16", "weekday": "화",
+      "sourceWeeklyFile": "tpss_a18route_section_2026.06.15-06.21.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-15", "2026-09-22"],
+      "affectedFeatures": ["passenger_recent","passenger_mean_4obs","passenger_std_4obs","passenger_trend"],
+      "impact": "승객 표본 4개 중 1개 감소" },
+    { "path": "aux_daily/OA-21218/2026-07-01.parquet", "dataset": "OA-21218", "missingDate": "2026-07-01", "weekday": "수",
+      "sourceWeeklyFile": "tpss_a18route_section_2026.06.29-07.05.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-16", "2026-09-23", "2026-09-30", "2026-10-07"],
+      "affectedFeatures": ["passenger_recent","passenger_mean_4obs","passenger_std_4obs","passenger_trend"],
+      "impact": "승객 표본 4개 중 1개 감소" },
+    { "path": "aux_daily/OA-21219/2026-07-01.parquet", "dataset": "OA-21219", "missingDate": "2026-07-01", "weekday": "수",
+      "sourceWeeklyFile": "tpss_sta_route_hpasngr_2026.06.29-07.05.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-09-16"],
+      "affectedFeatures": ["boarding_lag77d"],
+      "impact": "해당일 boarding_lag77d 전면 결측 (지연 77일 단일 원천)" },
+    { "path": "aux_daily/OA-21220/2026-07-17.parquet", "dataset": "OA-21220", "missingDate": "2026-07-17", "weekday": "금",
+      "sourceWeeklyFile": "tpss_sta_route_hturn_2026.07.13-07.19.csv", "sourceRowCount": 0,
+      "classification": "SOURCE_DATA_MISSING",
+      "affectedServiceDates": ["2026-10-02"],
+      "affectedFeatures": ["bus_runs_lag77d"],
+      "impact": "해당일 bus_runs_lag77d 전면 결측 (지연 77일 단일 원천)" }
+  ],
+  "serviceDateImpact": {
+    "historyCapSix": ["2026-09-14", "2026-09-19", "2026-09-20", "2026-09-21", "2026-09-27", "2026-10-04"],
+    "historyCapSeven": ["2026-09-12", "2026-09-13", "2026-09-16", "2026-09-23", "2026-09-26", "2026-09-28", "2026-09-30", "2026-10-03", "2026-10-05", "2026-10-07", "2026-10-10"],
+    "unaffectedCount": 14,
+    "note": "이 결측은 이력 상한만 낮춘다. history_sample_count=0 문제(노선·시간대 관측 자체 부재)와 원인이 다르다."
+  },
+  "testDateCheck": {
+    "serviceDate": "2026-09-18",
+    "affected": false,
+    "busDailyLagDates": ["2026-07-03", "2026-06-26", "2026-06-19", "2026-06-12", "2026-06-05", "2026-05-29", "2026-05-22", "2026-05-15"],
+    "auxOa21218LagDates": ["2026-07-03", "2026-06-26", "2026-06-19", "2026-06-12"],
+    "auxOa21219LagDates": ["2026-07-03"],
+    "auxOa21220LagDates": ["2026-07-03"],
+    "intersectionWithGaps": [],
+    "empiricalCheck": {
+      "providerRouteId": "100100014",
+      "providerFromStopId": "100000022",
+      "providerToStopId": "100000104",
+      "fromStopSequence": 33,
+      "hourSlot": 10,
+      "matchedLagFiles": 8,
+      "historySampleCount": 8
+    }
+  },
+  "diagnosticsExposure": {
+    "healthReadyFields": ["status", "model_version", "model_type", "target", "production_ready", "bundle_production_ready", "supported_from", "supported_until", "reference_status", "reference_days_remaining", "missing_reference_file_count"],
+    "healthReadyVerifiedAt": "2026-09-18T02:14:00+09:00",
+    "missingReferenceFileCountExposed": true,
+    "predictionFields": ["history_sample_count", "missing_feature_count", "missing_features", "data_insufficient", "unseen_id_count", "training_ids_verified"],
+    "backendByCommit": {
+      "deployed": {
+        "commit": "cdd7c47",
+        "containerStartedAt": "2026-09-17T13:54:48Z",
+        "missingFeatureNamesPreserved": false,
+        "trainingIdsVerifiedPreserved": false,
+        "applyModes": null,
+        "batchCall": false
+      },
+      "workingBranch": {
+        "commit": "a9b380c",
+        "missingFeatureNamesPreserved": true,
+        "missingFeaturesLimit": 32,
+        "truncationFlag": "missingFeaturesTruncated",
+        "trainingIdsVerifiedPreserved": true,
+        "applyModes": ["SHADOW", "TEST_APPLY", "PRODUCTION"],
+        "applyModeDefault": "SHADOW",
+        "testApplyGuard": "application-test.yml이 허용 값을 함께 줄 때만 활성",
+        "batchCall": true,
+        "userFacingRawFeatureNames": false
+      }
+    },
+    "repoVsDeployed": {
+      "comparedAt": "2026-09-18T02:25:00+09:00",
+      "branch": "feature/frontend/S15P21E202-46-fe-infra-correction",
+      "identical": true,
+      "method": "worktree ml-serving/ 와 배포 컨테이너 /app 의 파일별 SHA-256 대조",
+      "matchedFiles": ["app.py", "predictor.py", "reference_cache.py", "schemas.py", "serving_runtime.py", "environment_features.py", "environment_labels.py", "environment_model.py", "environment_schema.py", "Dockerfile", "requirements.txt", ".env.example", "README.md"],
+      "syncNeeded": false,
+      "implementationLocation": "app.py: reference_health()",
+      "note": "predictor.metadata()는 변경되지 않았다. 주 checkout(다른 브랜치)의 사본이 낮은 것은 정상이다."
+    },
+    "gaps": []
+  },
+  "fallbackContract": {
+    "consistent": true,
+    "ruleDeployed": "data_insufficient=true 이면 applicationFailure()가 ML_HISTORY_INSUFFICIENT를 반환하고 해당 BUS step 전체를 fallback 처리한다",
+    "ruleWorkingBranch": "위 조건에 더해, 서버가 data_insufficient를 표시하지 않아도 historySampleCount==0이면 ML_HISTORY_INSUFFICIENT로 처리한다(이중 안전장치)",
+    "partialEdgeApplication": "NOT_ALLOWED",
+    "productionApplication": "BLOCKED",
+    "productionBlockReason": "production_ready=false"
+  },
+  "notPerformed": ["정규화 재실행", "parquet 생성", "bundle 재생성·교체", "모델 재학습", "서버 배포", "DB 변경", "기존 GPU 원본·정규화 파일 수정"]
+}

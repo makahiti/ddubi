@@ -11,6 +11,35 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SubwaySegmentMatcherTest {
 
     @Test
+    void crossesOnlyAnExplicitClosedCircleAndPreservesOriginalStationIds() {
+        var matcher = new SubwaySegmentMatcher(List.of(line("2", "2호선", "INNER",
+                station("A", "가", 1), station("B", "나", 2),
+                station("C", "다", 3), station("A", "가", 4))));
+        var result = matcher.match(request("2호선", "다", "나", "다", "가", "나"));
+        assertThat(result.status()).isEqualTo(SubwayMappingStatus.EXACT);
+        assertThat(result.segments()).extracting(MappedSubwaySegment::fromStationId).containsExactly("C", "A");
+        assertThat(result.segments()).extracting(MappedSubwaySegment::toStationId).containsExactly("A", "B");
+        // 여러 바퀴를 돌거나 같은 역으로 돌아오는 경로를 닫힌 패턴만으로 추정하지 않는다.
+        assertThat(matcher.match(request("2호선", "다", "나", "다", "가", "나", "다", "가", "나")).status())
+                .isNotEqualTo(SubwayMappingStatus.EXACT);
+        assertThat(matcher.match(request("2호선", "다", "다", "다", "가", "나", "다")).status())
+                .isNotEqualTo(SubwayMappingStatus.EXACT);
+    }
+
+    @Test
+    void neverClosesAnOpenShortServiceOrARepeatedBranch() {
+        var open = new SubwaySegmentMatcher(List.of(line("2", "2호선", "INNER",
+                station("A", "가", 1), station("B", "나", 2), station("C", "다", 3))));
+        assertThat(open.match(request("2호선", "다", "나", "다", "가", "나")).status())
+                .isNotEqualTo(SubwayMappingStatus.EXACT);
+        var branch = new SubwaySegmentMatcher(List.of(line("2", "2호선", "INNER",
+                station("A", "가", 1), station("B", "나", 2), station("A", "가", 3),
+                station("C", "다", 4), station("A", "가", 5))));
+        assertThat(branch.match(request("2호선", "다", "나", "다", "가", "나")).status())
+                .isNotEqualTo(SubwayMappingStatus.EXACT);
+    }
+
+    @Test
     void keepsStaticCanonicalIdsStableAndCarriesRealtimeCrosswalkSeparately() {
         SubwaySegmentMatcher matcher = new SubwaySegmentMatcher(List.of(new SubwayLineMaster(
                 "2", "1002", "2호선", "INNER", "MAIN", List.of(

@@ -156,6 +156,7 @@ class RouteCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final tone = switch (route.kind) {
+      RouteKind.candidate => DdubiColors.blue,
       RouteKind.recommended => DdubiColors.green,
       RouteKind.fastest => DdubiColors.navy,
       RouteKind.safest => const Color(0xFF7257E8),
@@ -462,6 +463,7 @@ class AppPage extends StatelessWidget {
     this.fab,
     this.webTitle,
     this.webSubtitle,
+    this.mobileTitleStyle,
   });
   final String title;
   final Widget child;
@@ -471,6 +473,7 @@ class AppPage extends StatelessWidget {
   final Widget? fab;
   final String? webTitle;
   final String? webSubtitle;
+  final TextStyle? mobileTitleStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -509,7 +512,10 @@ class AppPage extends StatelessWidget {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
-        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        title: Text(
+          title,
+          style: mobileTitleStyle ?? Theme.of(context).textTheme.titleMedium,
+        ),
         centerTitle: false,
         actions: actions,
       ),
@@ -729,6 +735,16 @@ class _PlaceSearchDialog extends StatefulWidget {
   @override
   State<_PlaceSearchDialog> createState() => _PlaceSearchDialogState();
 }
+
+Future<PlaceLocation?> showPlaceSearchDialog(
+  BuildContext context, {
+  required String title,
+  required PlaceSearchService searchService,
+}) => showDialog<PlaceLocation>(
+  context: context,
+  builder: (_) =>
+      _PlaceSearchDialog(title: title, searchService: searchService),
+);
 
 class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
   final _query = TextEditingController();

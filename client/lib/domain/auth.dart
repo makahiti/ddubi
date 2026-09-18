@@ -1,6 +1,11 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
 enum AuthErrorCode {
   invalidCredentials,
   emailAlreadyExists,
+  accountLinkRequired,
   connectionFailed,
   registrationRequiresVerification,
   serverError,
@@ -11,6 +16,21 @@ class AuthException implements Exception {
 
   final AuthErrorCode code;
   final String? message;
+}
+
+class AccountLinkRequiredException extends AuthException {
+  const AccountLinkRequiredException({
+    required this.linkToken,
+    required this.provider,
+    required this.email,
+  }) : super(
+         AuthErrorCode.accountLinkRequired,
+         message: '기존 이메일 계정 확인이 필요합니다.',
+       );
+
+  final String linkToken;
+  final String provider;
+  final String email;
 }
 
 class AuthUser {
@@ -60,16 +80,90 @@ class AuthSession {
       user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
     );
   }
+
+  AuthSession withRefreshedTokens(Map<String, dynamic> json) {
+    return AuthSession(
+      accessToken: json['accessToken'] as String,
+      refreshToken: json['refreshToken'] as String,
+      tokenType: json['tokenType'] as String? ?? tokenType,
+      deviceId: deviceId,
+      user: user,
+    );
+  }
 }
 
-class AuthSessionStore {
+abstract interface class SessionStorage {
+  Future<String?> read();
+  Future<void> write(String? value);
+}
+
+class AuthSessionStore extends ChangeNotifier {
+  AuthSessionStore({SessionStorage? storage})
+    : _storage = storage; // ignore: prefer_initializing_formals
+  final SessionStorage? _storage;
+  Future<void> _writes = Future<void>.value();
+  bool keepSignedIn = true;
+  bool hasLaunched = false;
+  int _revision = 0;
+  int get revision => _revision;
   AuthSession? _session;
 
   AuthSession? get session => _session;
   String? get accessToken => _session?.accessToken;
 
-  void save(AuthSession session) => _session = session;
-  void clear() => _session = null;
+  Future<void> restore() async {
+    final revision = _revision;
+    final raw = await _storage?.read();
+    if (revision != _revision || raw == null) return;
+    try {
+      _session = AuthSession.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      if (_session!.accessToken.isEmpty ||
+          _session!.refreshToken.isEmpty ||
+          _session!.deviceId.isEmpty) {
+        throw const FormatException();
+      }
+      _revision++;
+      notifyListeners();
+    } on Object {
+      await clear();
+    }
+  }
+
+  Future<void> _persist(String? value) {
+    final next = _writes.then((_) => _storage?.write(value));
+    // Preserve operation ordering even if an earlier platform write failed.
+    _writes = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> save(AuthSession session) {
+    _session = session;
+    _revision++;
+    notifyListeners();
+    return _persist(
+      keepSignedIn
+          ? jsonEncode({
+              'accessToken': session.accessToken,
+              'refreshToken': session.refreshToken,
+              'tokenType': session.tokenType,
+              'deviceId': session.deviceId,
+              'user': {
+                'id': session.user.id,
+                'provider': session.user.provider,
+                'email': session.user.email,
+                'nickname': session.user.nickname,
+              },
+            })
+          : null,
+    );
+  }
+
+  Future<void> clear() {
+    _session = null;
+    _revision++;
+    notifyListeners();
+    return _persist(null);
+  }
 }
 
 abstract interface class AuthRepository {
@@ -78,10 +172,26 @@ abstract interface class AuthRepository {
     required String provider,
     required String accessToken,
   });
+  Future<void> loginWithOAuthCode({
+    required String provider,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
+  });
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
   });
+  Future<void> linkOAuthAccount({
+    required String linkToken,
+    required String password,
+  });
+  Future<List<String>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  });
+  Future<List<String>> unlinkSocialAccount(String provider);
   Future<void> requestEmailVerification(String email);
   Future<void> confirmEmailVerification({
     required String email,
@@ -113,12 +223,43 @@ class MockAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> loginWithOAuthCode({
+    required String provider,
+    required String authorizationCode,
+    required String redirectUri,
+    required String state,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
+  @override
   Future<void> loginWithOAuthIdToken({
     required String provider,
     required String idToken,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 100));
   }
+
+  @override
+  Future<void> linkOAuthAccount({
+    required String linkToken,
+    required String password,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    if (linkToken.isEmpty || password != 'password123') {
+      throw const AuthException(AuthErrorCode.invalidCredentials);
+    }
+  }
+
+  @override
+  Future<List<String>> linkSocialAccount({
+    required String provider,
+    String? accessToken,
+    String? idToken,
+  }) async => [provider];
+
+  @override
+  Future<List<String>> unlinkSocialAccount(String provider) async => const [];
 
   @override
   Future<void> requestEmailVerification(String email) async {}

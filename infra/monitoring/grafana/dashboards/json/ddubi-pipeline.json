@@ -1,114 +1,1313 @@
 {
   "uid": "ddubi-pipeline",
   "title": "DDUBI 파이프라인",
-  "tags": ["ddubi"],
+  "tags": [
+    "ddubi"
+  ],
   "schemaVersion": 39,
   "editable": true,
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "refresh": "30s",
   "panels": [
     {
-      "id": 1,
+      "id": 101,
+      "type": "row",
+      "title": "서비스 (서버2) — 사용자가 겪는 쪽",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 102,
       "type": "stat",
-      "title": "수집 대상 생존 (up)",
-      "description": "4가 아니면 어딘가 죽어 있다. prometheus / 서버1·2 node / 서버1 kafka-exporter",
-      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 5 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "expr": "sum(up)", "legendFormat": "살아있는 대상", "refId": "A" } ],
+      "title": "backend 생존",
+      "description": "up{job=\"backend\"}. 0 이면 backend 가 죽었거나 /actuator/prometheus 에 답하지 않는다 → runbooks/backend-down-and-nginx-502.md",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"backend\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "red", "value": null },
-            { "color": "yellow", "value": 3 },
-            { "color": "green", "value": 4 }
-          ] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "다운",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "정상",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "수집 안 됨"
         },
         "overrides": []
       },
-      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
-      "id": 2,
-      "type": "timeseries",
-      "title": "아카이버 컨슈머 랙 (1시간 병합 톱니)",
-      "description": "10분마다 14씩 계단, 정시 플러시 때 0으로. 계단이 멈추면 수집 장애, 0으로 안 떨어지면 아카이버 장애",
-      "gridPos": { "x": 4, "y": 0, "w": 12, "h": 10 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "id": 103,
+      "type": "stat",
+      "title": "MySQL 생존",
+      "description": "mysql_up (mysqld-exporter 가 exporter 계정으로 접속 성공). 0 이면 MySQL 다운 또는 exporter 계정 문제",
+      "gridPos": {
+        "x": 3,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "sum by (consumergroup) (kafka_consumergroup_lag)", "legendFormat": "{{consumergroup}}", "refId": "A" }
+        {
+          "expr": "mysql_up",
+          "legendFormat": "",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "다운",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "정상",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
     },
     {
-      "id": 3,
+      "id": 104,
+      "type": "stat",
+      "title": "Redis 생존",
+      "description": "redis_up. 0 이면 Redis 다운 또는 비밀번호 불일치",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "redis_up",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "다운",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "정상",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 131,
+      "type": "stat",
+      "title": "ML 예측 생존",
+      "description": "ml-serving 의 /health/ready 를 blackbox-exporter 가 대신 확인한 결과. 0 이면 죽었거나 모델 미준비이고, backend 는 카카오 값으로 대체 동작한다.",
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"ml-serving\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "다운",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "정상",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "MySQL 연결 수",
+      "description": "현재 연결 / 최대 200. backend 커넥션 풀이 보통 10~20 을 차지한다. 150 을 넘으면 연결 누수 의심",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "mysql_global_status_threads_connected",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 150
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "Redis 메모리 사용률",
+      "description": "used / maxmemory(384m). volatile-ttl 정책이라 90% 부근에서 TTL 있는 키가 퇴출되기 시작한다",
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes / redis_memory_max_bytes * 100",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 107,
+      "type": "stat",
+      "title": "Redis 키 수",
+      "description": "전체 키 수. weather:latest 14 + 실시간 transit:* 키. 갑자기 0 이면 볼륨 손실 또는 flush",
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(redis_db_keys)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 108,
+      "type": "timeseries",
+      "title": "backend 요청 (건/초)와 5xx",
+      "description": "nginx 를 거쳐 backend 에 닿은 요청. 5xx 가 0 이 아니면 backend 로그 확인. 인증 실패(401)는 정상 응답으로 센다",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[$__rate_interval]))",
+          "legendFormat": "전체",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[$__rate_interval]))",
+          "legendFormat": "5xx",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 109,
+      "type": "timeseries",
+      "title": "backend JVM 힙 사용률",
+      "description": "heap used / max. 톱니 모양(GC)이 정상. 바닥이 계속 올라가면 누수, 90% 이상 지속이면 mem_limit·Xmx 재조정",
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) / sum(jvm_memory_max_bytes{area=\"heap\"}) * 100",
+          "legendFormat": "heap",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 110,
+      "type": "timeseries",
+      "title": "MySQL 느린 쿼리 (건/초)와 연결 수",
+      "description": "느린 쿼리는 1초 넘게 걸린 것(long_query_time=1). 0 이 정상. 연결 수는 왼쪽 축과 같은 척도로 참고만",
+      "gridPos": {
+        "x": 16,
+        "y": 5,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(mysql_global_status_slow_queries[$__rate_interval])",
+          "legendFormat": "느린 쿼리/초",
+          "refId": "A"
+        },
+        {
+          "expr": "mysql_global_status_threads_connected",
+          "legendFormat": "연결 수",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 111,
+      "type": "timeseries",
+      "title": "Redis 메모리 (bytes)",
+      "description": "used 와 maxmemory(384MiB). used 가 max 에 붙으면 퇴출이 일어난다",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "expr": "redis_memory_max_bytes",
+          "legendFormat": "maxmemory",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 112,
+      "type": "timeseries",
+      "title": "Redis 퇴출·만료 (키/초)",
+      "description": "퇴출(evicted)은 메모리 부족으로 강제 삭제된 키. 0 이 정상, 오르면 TTL 없는 키가 메모리를 채운 것(redis-keys.yaml 확인). 만료(expired)는 TTL 만료라 정상",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(redis_evicted_keys_total[$__rate_interval])",
+          "legendFormat": "퇴출",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(redis_expired_keys_total[$__rate_interval])",
+          "legendFormat": "만료",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 113,
+      "type": "row",
+      "title": "데이터 파이프라인 (서버1) — 수집 → Kafka → Spark → Redis / HDFS",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 114,
+      "type": "stat",
+      "title": "수집 대상 생존 (up)",
+      "description": "Prometheus 가 읽는 대상 수. 정상 12: prometheus, node 2, kafka-exporter, backend, spark-master, spark-driver 2, spark-executors 2, hdfs, redis, mysql. 모자라면 Status→Targets 에서 어느 것이 DOWN 인지 본다",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(up)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "green",
+                "value": 12
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 115,
+      "type": "stat",
+      "title": "Spark worker 수",
+      "description": "master 가 보는 살아 있는 worker. 정상 2 (실험 프로필 켜면 3). 1 이면 worker 하나 죽음 → runbooks/spark-streaming-crash.md",
+      "gridPos": {
+        "x": 4,
+        "y": 20,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "metrics_master_aliveWorkers_Value{type=\"gauges\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 2
+              }
+            ]
+          },
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 116,
+      "type": "stat",
+      "title": "Spark 실행 중 앱",
+      "description": "스트리밍 잡 수. 정상 2 (weather_latest, realtime_latest). 배치 실행 중엔 잠깐 3. 1 이면 잡 하나가 죽어 재시작 중",
+      "gridPos": {
+        "x": 8,
+        "y": 20,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "metrics_master_apps_Value{type=\"gauges\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 2
+              }
+            ]
+          },
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 117,
+      "type": "stat",
+      "title": "HDFS Live 데이터노드",
+      "description": "정상 2 (서버1·2). 1 이면 한 대 죽음 → runbooks/hdfs-datanode-down.md. 죽은 직후 10분은 네임노드가 아직 2 로 볼 수 있다",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "hdfs_namenode_live_datanodes",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 2
+              }
+            ]
+          },
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 118,
+      "type": "stat",
+      "title": "HDFS Under-replicated",
+      "description": "복제본이 2 미만인 블록 수. 0 이 정상. 데이터노드가 돌아오면 수 분 안에 0 으로 회복",
+      "gridPos": {
+        "x": 16,
+        "y": 20,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "hdfs_namenode_under_replicated_blocks",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 119,
+      "type": "stat",
+      "title": "HDFS Missing 블록",
+      "description": "복사본이 하나도 없는 블록. 반드시 0. 0 이 아니면 데이터 유실 위험 → 죽은 노드 복구가 최우선",
+      "gridPos": {
+        "x": 20,
+        "y": 20,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "hdfs_namenode_missing_blocks",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "수집 안 됨"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 120,
       "type": "timeseries",
       "title": "토픽별 유입 (건/초)",
-      "description": "weather 수집기는 10분마다 14건. 0으로 오래 머물면 수집기 확인",
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 10 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "weather 수집기는 10분마다 14건. 실시간 수집기가 켜지면 transport.raw 가 30초마다 수백 건. 0 으로 오래 머물면 수집기 확인",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status\"}[5m]))", "legendFormat": "{{topic}}", "refId": "A" }
+        {
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status\"}[$__rate_interval]))",
+          "legendFormat": "{{topic}}",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
     },
     {
-      "id": 4,
+      "id": 121,
+      "type": "timeseries",
+      "title": "아카이버 컨슈머 랙 (1시간 병합 톱니)",
+      "description": "토픽마다 한 시간 주기로 저장·커밋할 때 떨어지는 톱니. 높이는 시간당 유입량과 같다(날씨만이면 84, 실시간 수집기가 켜진 뒤 transport.raw 는 수만). 두 토픽의 저장 시각이 달라 합계는 0 으로 안 내려온다. 계단이 멈추면 수집 장애, 한 토픽이 2시간 넘게 안 떨어지면 아카이버 장애(HDFS 쓰기 실패) — 알림은 '2시간 동안 커밋 위치 전진 없음'으로 판정",
+      "gridPos": {
+        "x": 8,
+        "y": 24,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumergroup) (kafka_consumergroup_lag)",
+          "legendFormat": "{{consumergroup}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 122,
+      "type": "timeseries",
+      "title": "Spark 스트리밍 배치 지연 (ms)",
+      "description": "마이크로배치 하나를 끝내는 데 걸린 시간. 트리거 10초(10000ms) 보다 작아야 밀리지 않는다. 계속 10000 을 넘으면 executor 자원 부족",
+      "gridPos": {
+        "x": 16,
+        "y": 24,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\"metrics_.*_driver_spark_streaming_.*_latency_Value\"}",
+          "legendFormat": "{{job_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 123,
+      "type": "timeseries",
+      "title": "Spark 스트리밍 입력 속도 (건/초)",
+      "description": "잡이 Kafka 에서 읽는 속도. 토픽별 유입과 같은 모양이어야 한다. 유입은 있는데 여기가 0 이면 잡이 멈춘 것",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\"metrics_.*_driver_spark_streaming_.*_inputRate_total_Value\"}",
+          "legendFormat": "{{job_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 124,
+      "type": "timeseries",
+      "title": "토픽별 누적 메시지",
+      "description": "계단형 우상향이 정상. 평평해지면 수집 중단. Kafka 보존 21일이 지나면 앞부분이 잘려 줄어들 수 있다",
+      "gridPos": {
+        "x": 8,
+        "y": 32,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status|notification.request\"})",
+          "legendFormat": "{{topic}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 125,
+      "type": "timeseries",
+      "title": "HDFS 용량 사용률",
+      "description": "used / total (두 서버 데이터노드 합). 아카이브가 쌓이며 서서히 오른다. 70% 에서 보관 정책 재검토",
+      "gridPos": {
+        "x": 16,
+        "y": 32,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "hdfs_namenode_capacity_used_bytes / hdfs_namenode_capacity_total_bytes * 100",
+          "legendFormat": "사용률",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 126,
+      "type": "row",
+      "title": "서버 자원 (node-exporter, 양 서버)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 127,
       "type": "timeseries",
       "title": "CPU 사용률",
-      "gridPos": { "x": 0, "y": 10, "w": 8, "h": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "서버1 은 Spark·Kafka, 서버2 는 backend·MySQL. 순간 스파이크는 정상, 80% 이상 지속이면 원인 컨테이너를 docker stats 로 찾는다",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "100 - avg by (server) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100", "legendFormat": "{{server}}", "refId": "A" }
+        {
+          "expr": "100 - avg by (server) (rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])) * 100",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "fillOpacity": 12 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
     },
     {
-      "id": 5,
+      "id": 128,
       "type": "timeseries",
       "title": "메모리 사용률",
-      "description": "기울기가 생기면(우상향 지속) 누수 의심",
-      "gridPos": { "x": 8, "y": 10, "w": 8, "h": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "기울기가 생기면(우상향 지속) 누수 의심. 전 컨테이너 mem_limit 합이 16GB 를 넘지 않게 관리한다",
+      "gridPos": {
+        "x": 8,
+        "y": 40,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "legendFormat": "{{server}}", "refId": "A" }
+        {
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "fillOpacity": 12 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
     },
     {
-      "id": 6,
+      "id": 129,
       "type": "timeseries",
       "title": "디스크 사용률 (/)",
-      "description": "아카이브가 쌓이며 서서히 오른다. 80% 넘으면 Kafka 보존 단축 검토",
-      "gridPos": { "x": 16, "y": 10, "w": 8, "h": 9 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "아카이브·Kafka 데이터·도커 이미지가 쌓인다. 80% 넘으면 Kafka 보존 단축과 docker system prune 검토",
+      "gridPos": {
+        "x": 16,
+        "y": 40,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype=\"ext4\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype=\"ext4\"}) * 100", "legendFormat": "{{server}}", "refId": "A" }
+        {
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype=\"ext4\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype=\"ext4\"}) * 100",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "fillOpacity": 12 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "fillOpacity": 12
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      }
     },
     {
-      "id": 7,
+      "id": 130,
       "type": "timeseries",
       "title": "네트워크 송신 (서버 간 트래픽 포함)",
       "description": "Spark→Redis, HDFS 복제, Prometheus 스크랩이 여기 보인다",
-      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "expr": "sum by (server) (rate(node_network_transmit_bytes_total{device!=\"lo\"}[5m]))", "legendFormat": "{{server}} 송신", "refId": "A" }
+        {
+          "expr": "sum by (server) (rate(node_network_transmit_bytes_total{device!=\"lo\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} 송신",
+          "refId": "A"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "fillOpacity": 12 } }, "overrides": [] }
-    },
-    {
-      "id": 8,
-      "type": "timeseries",
-      "title": "토픽별 누적 메시지",
-      "description": "계단형 우상향이 정상. 평평해지면 수집 중단",
-      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        { "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status|notification.request\"})", "legendFormat": "{{topic}}", "refId": "A" }
-      ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 12 } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "fillOpacity": 12
+          }
+        },
+        "overrides": []
+      }
     }
   ]
 }

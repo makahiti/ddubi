@@ -1,0 +1,14 @@
+{
+  "pollId": "00000000-0000-4000-8000-000000000003",
+  "source": "seoul.traffic_incident",
+  "scopeKey": "all-current",
+  "startedAt": "2026-09-16T08:15:00+09:00",
+  "finishedAt": "2026-09-16T08:15:30+09:00",
+  "status": "FAILED",
+  "completeSnapshot": false,
+  "pageCount": 0,
+  "rowCount": 0,
+  "errorCode": "UPSTREAM_TIMEOUT",
+  "nextAllowedAt": "2026-09-16T08:20:00+09:00",
+  "contentHash": "0000000000000000000000000000000000000000000000000000000000000003"
+}

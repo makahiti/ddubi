@@ -1,0 +1,725 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DDUBI 버스 모델 예측 확인",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "summary": "Live",
+        "description": "프로세스 생존 확인. 모델 준비 여부는 /health/ready로 별도 확인한다.",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "무결성과 오늘 KST 참조 범위를 함께 확인한다. 만료 묶음은 503이며 과거 Replay API는 별도로 유지한다.",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/predictions:batch": {
+      "post": {
+        "summary": "Predict",
+        "description": "스레드 실행 전에 제한된 FIFO에 입장한다. timeout 재시도는 호출자가 소유한다.\n\n대기열 초과/대기 만료는 MODEL_BUSY다. 모델 계산은 이벤트 루프 밖에서 실행하여\n대기 중에도 health 요청을 처리한다. 클라이언트 timeout은 계산 취소를 보장하지 않는다.",
+        "operationId": "predict_v1_bus_predictions_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/environment:prepare": {
+      "post": {
+        "summary": "Prepare Environment",
+        "description": "학습과 같은 point-in-time 선택을 수행한다. 정답/현재 날씨의 과거 소급 입력은 허용하지 않는다.",
+        "operationId": "prepare_environment_v1_bus_environment_prepare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/environment:predict": {
+      "post": {
+        "summary": "Predict Environment",
+        "description": "명시 등록한 별도 모델만 사용한다. v12 모델로 신규 환경 특성을 계산했다고 표시하지 않는다.",
+        "operationId": "predict_environment_v1_bus_environment_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchRequest": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Request Id"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentRequest"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Segments"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "segments"
+        ],
+        "title": "BatchRequest",
+        "description": "최대 1000개 구간을 한 번에 처리한다. 상관키 중복은 응답 연결 오류라 거절한다.\n\n동일 물리 구간이 여러 경로에 등장하는 것은 허용하되 segment_key는 각각 달라야 한다.\n1000은 초기 메모리 보호 한도이며 성능 보장을 뜻하지 않는다."
+      },
+      "BatchResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "model_type": {
+            "type": "string",
+            "const": "lightgbm",
+            "title": "Model Type"
+          },
+          "target": {
+            "type": "string",
+            "const": "hourly_mean_bus_segment_seconds",
+            "title": "Target"
+          },
+          "production_ready": {
+            "type": "boolean",
+            "const": false,
+            "title": "Production Ready"
+          },
+          "bundle_production_ready": {
+            "type": "boolean",
+            "title": "Bundle Production Ready"
+          },
+          "supported_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Supported From"
+          },
+          "supported_until": {
+            "type": "string",
+            "format": "date",
+            "title": "Supported Until"
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computed At"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "model_version",
+          "model_type",
+          "target",
+          "production_ready",
+          "bundle_production_ready",
+          "supported_from",
+          "supported_until",
+          "computed_at",
+          "results"
+        ],
+        "title": "BatchResponse",
+        "description": "배치 공통 버전·서울 계산시각·지원 날짜와 요청 순서대로 정렬된 구간 결과."
+      },
+      "EnvironmentObservation": {
+        "properties": {
+          "segmentId": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 9,
+            "title": "Segmentid"
+          },
+          "masterVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Masterversion"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "weather",
+              "road",
+              "events"
+            ],
+            "title": "Kind"
+          },
+          "eventId": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Eventid"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observedat"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Publishedat"
+          },
+          "collectedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Collectedat"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validfrom"
+          },
+          "validUntil": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validuntil"
+          },
+          "isForecast": {
+            "type": "boolean",
+            "title": "Isforecast",
+            "default": false
+          },
+          "feedComplete": {
+            "type": "boolean",
+            "title": "Feedcomplete",
+            "default": false
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "maxProperties": 20,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "segmentId",
+          "masterVersion",
+          "kind",
+          "eventId",
+          "source",
+          "observedAt",
+          "publishedAt",
+          "collectedAt",
+          "validFrom",
+          "validUntil",
+          "values"
+        ],
+        "title": "EnvironmentObservation",
+        "description": "공간 매핑이 검증된 한 이력 revision. 발표·수집·대상 시각을 서로 대체하지 않는다."
+      },
+      "EnvironmentPoint": {
+        "properties": {
+          "segmentId": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 9,
+            "title": "Segmentid"
+          },
+          "masterVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Masterversion"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Asof"
+          },
+          "passageAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Passageat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "segmentId",
+          "masterVersion",
+          "asOf",
+          "passageAt"
+        ],
+        "title": "EnvironmentPoint",
+        "description": "Backend가 확정한 canonical 인접 구간과 예측 기준/예상 통과 시각이다."
+      },
+      "EnvironmentRequest": {
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/EnvironmentPoint"
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentObservation"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Observations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request",
+          "observations"
+        ],
+        "title": "EnvironmentRequest",
+        "description": "최대 1,000개 구간 이력 revision을 공통 전처리에 전달한다. 정답 필드는 받지 않는다."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "InvalidField": {
+        "properties": {
+          "location": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "location",
+          "type"
+        ],
+        "title": "InvalidField",
+        "description": "원본 입력 대신 JSON 내 위치와 검증 오류 종류만 공개한다."
+      },
+      "InvalidRequest": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "INVALID_REQUEST",
+            "title": "Error"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/InvalidField"
+            },
+            "type": "array",
+            "title": "Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error",
+          "fields"
+        ],
+        "title": "InvalidRequest",
+        "description": "잘못된 요청의 422 계약. 입력값 자체를 로그·응답에 복제하지 않는다."
+      },
+      "Prediction": {
+        "properties": {
+          "mean_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Mean Seconds"
+          },
+          "missing_feature_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Missing Feature Count"
+          },
+          "missing_features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Features"
+          },
+          "unseen_id_count": {
+            "type": "integer",
+            "const": 0,
+            "title": "Unseen Id Count"
+          },
+          "history_sample_count": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 0.0,
+            "title": "History Sample Count"
+          },
+          "data_insufficient": {
+            "type": "boolean",
+            "title": "Data Insufficient"
+          },
+          "training_ids_verified": {
+            "type": "boolean",
+            "const": false,
+            "title": "Training Ids Verified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mean_seconds",
+          "missing_feature_count",
+          "missing_features",
+          "unseen_id_count",
+          "history_sample_count",
+          "data_insufficient",
+          "training_ids_verified"
+        ],
+        "title": "Prediction",
+        "description": "실제 모델이 계산한 평균 초와 입력 품질. 운영 사용 승인은 이 값에 포함되지 않는다."
+      },
+      "SegmentRequest": {
+        "properties": {
+          "segment_key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Segment Key"
+          },
+          "provider_namespace": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Provider Namespace",
+            "default": "SEOUL_BUS"
+          },
+          "provider_route_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,30}$",
+            "title": "Provider Route Id"
+          },
+          "provider_from_stop_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,30}$",
+            "title": "Provider From Stop Id"
+          },
+          "provider_to_stop_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,30}$",
+            "title": "Provider To Stop Id"
+          },
+          "from_stop_sequence": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "From Stop Sequence"
+          },
+          "service_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Service Date"
+          },
+          "hour_slot": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour Slot"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "segment_key",
+          "provider_route_id",
+          "provider_from_stop_id",
+          "provider_to_stop_id",
+          "from_stop_sequence",
+          "service_date",
+          "hour_slot"
+        ],
+        "title": "SegmentRequest",
+        "description": "한 인접 버스 구간. 순번은 provider 노선 순번이며 경로 내 배열 인덱스가 아니다.\n\n각 날짜는 Asia/Seoul의 달력 날짜, hour_slot은 0~23이다. namespace 미지원은\n전체 요청 오류 대신 개별 UNAVAILABLE 결과로 처리한다. 호출자는 인접성을 검증해야 한다."
+      },
+      "SegmentResult": {
+        "properties": {
+          "segment_key": {
+            "type": "string",
+            "title": "Segment Key"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PREVIEW",
+              "UNAVAILABLE"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "MODEL_NOT_PRODUCTION_READY",
+              "UNSUPPORTED_PROVIDER",
+              "REFERENCE_DATE_UNSUPPORTED",
+              "UNSEEN_PROVIDER_ID"
+            ],
+            "title": "Reason"
+          },
+          "prediction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Prediction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_key",
+          "status",
+          "reason",
+          "prediction"
+        ],
+        "title": "SegmentResult",
+        "description": "미지원 입력은 null이며 정상 모델 수치는 PREVIEW로만 노출한다."
+      },
+      "ServiceUnavailable": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "enum": [
+              "MODEL_NOT_READY",
+              "MODEL_BUSY",
+              "MODEL_UNAVAILABLE"
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ServiceUnavailable",
+        "description": "모델 미준비·대기열 초과/만료·추론 실패를 구분하는 503 응답이다."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

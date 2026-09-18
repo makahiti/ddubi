@@ -21,6 +21,13 @@ public record NotificationCommand(
         NotificationType type,
         String title,
         String body,
-        String suppressKey
+        String suppressKey,
+        String evaluationId,
+        String decision
 ) {
+    /** 일반 알림과 이전 outbox JSON은 평가 정보를 갖지 않아도 같은 발송 경로를 사용한다. */
+    public NotificationCommand(Long userId,Long scheduleId,Long recommendationId,NotificationType type,
+            String title,String body,String suppressKey) {
+        this(userId,scheduleId,recommendationId,type,title,body,suppressKey,null,null);
+    }
 }

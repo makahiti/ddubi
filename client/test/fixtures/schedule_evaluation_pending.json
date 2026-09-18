@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-pending",
+  "scheduleId": "schedule-1",
+  "state": "PENDING",
+  "decision": null,
+  "quality": {"preview": false, "productionEligible": false, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "UNKNOWN", "missingInputs": [], "fallbackReasons": []},
+  "nextEvaluationAt": "2099-09-18T00:01:00Z"
+}

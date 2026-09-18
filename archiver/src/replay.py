@@ -48,8 +48,7 @@ def iter_events(storage, files):
     value 는 열어보지 않고 그대로 통과시킨다 (원본 무변형).
     """
     for path in files:
-        with storage.fs.open(path, "rb") as f:
-            table = pq.read_table(f, columns=["kafka_key", "value", "kafka_timestamp"])
+        table = storage.read_parquet(path, columns=["kafka_key", "value", "kafka_timestamp"])  # 재시도 포함
         table = table.sort_by("kafka_timestamp")   # 파일 안 순서 보정
         for row in table.to_pylist():
             yield row["kafka_key"], row["value"], row["kafka_timestamp"]

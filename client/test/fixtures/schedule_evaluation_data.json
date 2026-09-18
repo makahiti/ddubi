@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-data",
+  "scheduleId": "schedule-1",
+  "state": "READY",
+  "decision": "DATA_INSUFFICIENT",
+  "proposedDepartAt": "2026-09-18T08:00:00+09:00",
+  "estimatedArrivalAt": null,
+  "quality": {"preview": true, "productionEligible": false, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "UNKNOWN", "missingInputs": ["BUS_ARRIVAL"], "fallbackReasons": []},
+  "validUntil": "2099-09-18T00:05:00Z"
+}

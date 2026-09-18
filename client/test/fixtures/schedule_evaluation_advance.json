@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-advance",
+  "scheduleId": "schedule-1",
+  "state": "READY",
+  "decision": "ADVANCE_DEPARTURE",
+  "plannedDepartAt": "2026-09-18T08:30:00+09:00",
+  "targetArriveAt": "2026-09-18T08:50:00+09:00",
+  "proposedDepartAt": "2026-09-18T08:10:00+09:00",
+  "estimatedArrivalAt": "2026-09-18T08:49:00+09:00",
+  "selectedRouteId": "route-old",
+  "proposedRouteId": "route-new",
+  "quality": {"preview": false, "productionEligible": true, "realtimeApplied": true, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "COMPLETE", "missingInputs": [], "fallbackReasons": []},
+  "legs": [
+    {"sequence": 1, "mode": "BUS", "legRole": "RIDE", "durationSource": "REALTIME_ARRIVAL", "fromName": "새 출발 정류장", "toName": "새 도착 정류장", "durationSeconds": 1800}
+  ],
+  "computedAt": "2026-09-17T23:00:00Z",
+  "validUntil": "2099-09-18T00:05:00Z"
+}

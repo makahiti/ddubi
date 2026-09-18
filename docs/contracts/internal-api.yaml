@@ -4,7 +4,8 @@
 #
 # 인증 (이중 잠금)
 #   1) 모든 요청에 X-DDUBI-API-KEY 헤더. 값은 환경변수 INTERNAL_API_KEY (서버1 Spark 배치와 서버2 Spring 만 보유, 커밋 금지)
-#   2) nginx 에서 /internal/ 경로는 서버1 IP 만 허용 (서버 이식 9단계에서 설정. client_max_body_size 도 함께 상향)
+#   2) nginx 에서 /internal/ 경로는 서버1 IP 만 허용 (적용 완료). client_max_body_size 20m,
+#      proxy_read_timeout·proxy_send_timeout 300s (2026-09-07 인프라 반영)
 #
 # 버전 운영 규칙 (Spring 이 구현)
 #   - 업로드는 전부 새 dataVersion 으로 쌓인다. 활성 전환은 activate 호출에서만 일어난다
@@ -13,9 +14,26 @@
 #   - 활성화되지 못한 채 48시간 지난 고아 버전은 다음 activate 때 함께 삭제
 #   - 마지막 활성화 시각을 기록해 두고, 기준선이 오래되면 추천 confidence 강등 + DATA_STALE 알림에 쓴다
 
-baseUrl: "https://{SERVICE_HOST}/internal"
+# 2026-09-15 사용 여부 정리
+#   - 기준선 업로드(uploadBaselineRows)와 활성화(activateBaseline)는 현재 쓰지 않는다. 2026-09-10 에 "평시 소요 시간은 카카오 경로 API 값을 쓰고,
+#     버스 구간만 ml-serving 예측으로 대체한다" 로 결정되어 Spark 구간 기준선 배치가 폐기됐다. 구현·계약·클라이언트(sparkjobs)는 지우지 않고 남긴다.
+#   - 지하철 마스터 내려받기(downloadSubwayMaster)와 구간 변경 트리거(segment-changes)는 사용 중이다.
+#
+# 2026-09-07 인프라 정정: 공인 도메인이 아니라 서버2 사설 IP 로 붙는다.
+# 공인 도메인으로 접속하면 출발 IP 가 공인 IP 가 되어 nginx 의 서버1 IP 제한에 걸린다.
+baseUrl: "http://172.26.6.220/internal"   # 서버2 사설 IP, 80 포트
 
 endpoints:
+
+  downloadSubwayMaster:
+    method: GET
+    path: /transit/subway-master
+    description: "Backend가 시작 시 검증한 원본 gzip. 파일 미설정은 404. X-DDUBI-API-KEY 인증은 다른 내부 API와 동일하다."
+    responseContentType: application/gzip
+    responseHeaders:
+      X-Master-Version: "활성 파일의 dataVersion"
+      X-Content-SHA256: "반환 gzip 원본 바이트의 SHA-256"
+      ETag: "같은 SHA-256"
 
   uploadBaselineRows:
     method: POST
@@ -53,12 +71,15 @@ endpoints:
       p50: "소요시간 중앙값, 단위 초"
       p80: "80퍼센타일, 단위 초"
       p95: "95퍼센타일, 단위 초"
-      sampleCount: "집계에 쓰인 표본 수, 1 이상"
+      sampleCount: "집계에 쓰인 표본 수, 0 이상 (2026-09-08 정정: 표본이 없었다는 것도 사실이라 0 을 허용)"
     constraints:
       - "한 요청당 rows 최대 5000개"
-      - "검증 실패 시 요청 전체 거부 (부분 저장 없음): p50 ≤ p80 ≤ p95, sampleCount ≥ 1, weatherBucket enum, 필수 필드 누락"
+      - "검증 실패 시 요청 전체 거부 (부분 저장 없음): p50 ≤ p80 ≤ p95, sampleCount ≥ 0, weatherBucket enum, 필수 필드 누락"
     responses:
-      "200": '{"accepted": 5000, "dataVersion": "2026-09-01"}'
+      "200": '{"dataVersion": "2026-09-01", "received": 5000, "versionTotal": 252000}'
+         # 2026-09-08 정정: 계약 초안의 accepted 대신 구현이 실제로 주는 필드로 맞춤.
+         #   received     이번 요청에 담겨 온 행 수
+         #   versionTotal 이 버전에 지금까지 쌓인 총 행 수 (배치가 스스로 대조할 수 있게)
       "400": "검증 실패. body 에 어긴 규칙과 첫 위반 행 인덱스"
       "401": "API 키 없음/불일치"
       "409": "이미 활성화된 dataVersion 에 추가 업로드 시도"
@@ -75,8 +96,59 @@ endpoints:
       POST /internal/baselines/segment/versions/2026-09-01/activate
       X-DDUBI-API-KEY: ***
       Content-Type: application/json
-      {"totalRows": 252000}
+      {"totalRows": 252000, "allowShrink": false}
+    requestFields:
+      totalRows: "배치가 보낸 총 행 수. 서버에 저장된 행 수와 다르면 409 (배치가 중간에 끊긴 채 activate 된 것)"
+      allowShrink: >-
+        선택, 기본 false. true 면 "직전 활성 버전 대비 절반 미만 급감" 검사만 건너뛴다.
+        노선 폐지처럼 구간이 실제로 줄어드는 정상 축소를 운영자가 미리 알고 한 번만 허용하는 용도.
+        totalRows 대조는 그대로 한다. (2026-09-08 추가 — backend 질문 "정상적인 급감은 어떻게 하나"의 답)
+      shrinkReason: >-
+        allowShrink=true 면 필수(비어 있으면 400). **maxLength 100** — 저장 칸 pipeline_config.config_value 가 VARCHAR(100)이라
+        넘으면 서버가 400 으로 거절한다(조용히 잘리는 것을 막기 위해, 2026-09-09 backend 제안). 형식은 "짧은 사유 + 이슈 번호"
+        (예: "2026-09-08 노선 3개 폐지 (#63)"). 긴 근거·링크는 이슈에 두고 여기서는 가리키기만 한다.
+        서버는 로그와 pipeline_config(baseline_last_shrink_reason)에 남긴다. 이 기록은 나중에 "왜 축소를 허용했나"를 설명하기 위한 것.
+        Spark 쪽은 환경변수 BASELINE_ALLOW_SHRINK=true / BASELINE_SHRINK_REASON 이 있을 때만 이 필드를 보내고, 실행 뒤 변수를 지운다.
     responses:
-      "200": '{"activated": "2026-09-01", "previous": "2026-08-31", "deletedVersions": ["2026-08-30"]}'
-      "409": "행 수 불일치 또는 급감 감지. 활성 버전은 바뀌지 않음"
+      "200": '{"activeVersion": "2026-09-01", "previousVersion": "2026-08-31", "rowCount": 252000, "activatedAt": "2026-09-01T03:12:44.123456", "purgedVersions": ["2026-08-30"]}'
+         # 2026-09-08 정정: 계약 초안의 activated/previous/deletedVersions 를 구현 필드명으로 맞춤
+      "400": "allowShrink=true 인데 shrinkReason 이 비어 있거나 100자를 넘음"
+      "409": "행 수 불일치 또는 급감 감지(allowShrink 없을 때). 활성 버전은 바뀌지 않음"
       "401": "API 키 없음/불일치"
+
+# ---------------------------------------------------------------------
+# 구현 메모 (백엔드, 2026-09-07)
+# ---------------------------------------------------------------------
+implementationNotes:
+  status: BACKEND_IMPLEMENTED
+  controller: InternalBaselineController  # /internal/baselines/**
+  auth:
+    header: X-DDUBI-API-KEY
+    behaviourWhenKeyMissing: >-
+      키가 비어 있으면 /internal 전체를 503 으로 닫는다. 메일·FCM 처럼 "없으면 로그로 대체"
+      하지 않는다 — 열어두면 네트워크 안에 들어온 누구나 기준선을 갈아치울 수 있다.
+    note: >-
+      필터가 ROLE_INTERNAL 을 부여하고 SecurityConfig 가 그 역할을 요구한다.
+      permitAll 이 아니라서, 필터가 빠지거나 순서가 어긋나면 열리는 것이 아니라 403 으로 닫힌다.
+
+  maxRowsPerChunk: 20000   # 초과 시 400. nginx 20m·300s 안에 들어오도록 서버가 먼저 거절한다
+  upsertKey: (segment_id, dow, hour_slot, weather_bucket, data_version)
+
+  validation:
+    - segmentId 는 BUS:{routeId}:{fromId}:{toId} / SUB:{...} 형식만 받는다
+    - dow 1~7 (일=1), hourSlot 0~23
+    - p50 <= p80 <= p95. 뒤집히면 400 — 여유를 크게 잡을수록 빨라진다는 결론이 나온다
+    - dataVersion 1~20자 (컬럼이 VARCHAR(20))
+    - 서빙 중인 버전에는 덮어쓸 수 없다 (409 성격의 INVALID_STATE)
+
+  activate:
+    - 행이 0건인 버전은 활성화 거절
+    - 같은 버전 재활성화는 멱등
+    - 활성·직전 버전은 정리에서 보호
+    - 48시간(ORPHAN_RETENTION) 지난 고아 버전만 함께 삭제
+    - pipeline_config 에 baseline_active_version / baseline_previous_version /
+      baseline_activated_at 을 기록한다
+
+  openQuestion: >-
+    청크당 처리 시간을 실측한 뒤 nginx proxy_read_timeout 적정값을 인프라에 회신할 것.
+    우선 300초로 잡혀 있다.

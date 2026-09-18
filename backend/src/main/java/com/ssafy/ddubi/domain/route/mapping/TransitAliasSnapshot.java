@@ -9,6 +9,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
 
 /**
+ * busRouteAliasIds/busStopAliasIds는 과거 corpus JSON 입력 호환용이다. 운영 Provider는 비우고
+ * Resolver는 지하철 두 맵만 정책에 반영한다. 수도권 버스 수동 대응은 별도 Review를 사용한다.
  * 활성 마스터 버전에서 검증된 외부 표기 → 공식 ID 후보 집합 별칭 스냅샷이다.
  *
  * <p>값은 이름이 아니라 마스터의 정적 canonical ID다. 따라서 별칭이 공식 마스터 이름

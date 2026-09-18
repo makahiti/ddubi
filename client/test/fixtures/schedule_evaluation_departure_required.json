@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "schedule-evaluation-v2",
+  "evaluationId": "eval-departure-required",
+  "scheduleId": "schedule-1",
+  "state": "DEPARTURE_REQUIRED",
+  "decision": null,
+  "quality": {"preview": false, "productionEligible": false, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "UNKNOWN", "missingInputs": ["PLANNED_DEPART_AT"], "fallbackReasons": []}
+}

@@ -15,6 +15,11 @@ import java.util.Optional;
 
 public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
 
+    /** 수정의 버전 검사와 inputRevision 증가를 직렬화한다. 조회 API에는 이 lock을 쓰지 않는다. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Schedule s where s.id = :id")
+    Optional<Schedule> findForUpdate(@Param("id") Long id);
+
     Page<Schedule> findAllByUserIdAndArriveByBetween(
             Long userId, LocalDateTime from, LocalDateTime to, Pageable pageable);
 

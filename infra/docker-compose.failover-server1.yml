@@ -1,0 +1,32 @@
+# 서버1 전용, 장애 때만 쓰는 세 번째 오버레이.
+#
+# 언제 쓰는가. 서버1 네임노드의 목차를 잃어 네임노드를 서버2의 예비(hdfs-namenode-standby)로 옮긴 뒤에도 서버1 자체는 살아 있어서
+# 아카이버와 Spark 를 계속 돌리고 싶을 때다. 평소 배포에는 절대 넣지 않는다.
+#
+# 왜 필요한가. 서버1 안에서 hdfs-namenode 는 compose 서비스 이름이라, 도커 DNS 가 죽은 서버1 네임노드 컨테이너를 가리킨다.
+# extra_hosts 는 DNS 보다 먼저 읽히므로 이 파일로 hdfs-namenode 를 서버2 IP 로 덮어쓴다.
+#
+# 사용법(서버1 infra/ 에서). 먼저 .env 에 HDFS_NAMENODE_HOST=<서버2 사설 IP> 를 넣는다. 그 다음
+#   docker compose -f docker-compose.yml -f docker-compose.server1.yml -f docker-compose.failover-server1.yml \
+#     --profile archive --profile spark up -d --force-recreate archiver spark-streaming-weather spark-streaming-realtime
+# 되돌릴 때는 .env 의 HDFS_NAMENODE_HOST 를 지우고, 이 파일 없이 같은 서비스를 --force-recreate 한다.
+#
+# 절차 전체는 docs/runbooks/hdfs-namenode-metadata-loss.md 에 있다.
+
+x-nn-remote: &nn-remote
+  extra_hosts:
+    - "hdfs-namenode:${HDFS_NAMENODE_HOST:?.env 에 HDFS_NAMENODE_HOST(서버2 사설 IP) 를 설정하세요}"
+    - "hdfs-datanode2:${SERVER2_PRIVATE_IP:?.env 에 SERVER2_PRIVATE_IP 를 설정하세요}"
+
+services:
+  hdfs-datanode1: *nn-remote
+  archiver: *nn-remote
+  replay-producer: *nn-remote
+  spark-master: *nn-remote
+  spark-worker-1: *nn-remote
+  spark-worker-2: *nn-remote
+  spark-worker-3: *nn-remote
+  spark-streaming-weather: *nn-remote
+  spark-streaming-realtime: *nn-remote
+  spark-streaming-replay: *nn-remote
+  spark-batch: *nn-remote

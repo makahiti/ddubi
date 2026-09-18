@@ -1,0 +1,12 @@
+{
+  "origin": {
+    "longitude": 127.0,
+    "latitude": 37.5
+  },
+  "destination": {
+    "longitude": 127.03,
+    "latitude": 37.51
+  },
+  "plannedDepartAt": "2026-09-17T08:30:00+09:00",
+  "arriveBy": "2026-09-17T09:00:00+09:00"
+}

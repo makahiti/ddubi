@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -24,6 +25,27 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     /** 안읽음 뱃지 — 목록 응답과 홈 요약(HOME-001)이 같이 쓴다. */
     long countByUserIdAndReadAtIsNull(Long userId);
+
+    /**
+     * 그 억제 키로 이미 알림을 받은 사용자들.
+     *
+     * <p>아침 브리핑을 하루 한 번으로 묶는 근거다. Redis 억제 키는 TTL 이 10분이라 하루를
+     * 덮지 못하고 서버를 재시작하면 사라진다. 억제된 행도 남으므로(도메인 규칙 9) 발송을
+     * <b>시도했다는 사실</b>이 여기 남는다 — 알림을 꺼 둔 사용자에게 하루 종일 재시도하지 않는다.
+     *
+     * <p>{@code created_at} 대신 키로 묻는 이유: 키에 날짜가 들어 있어 "그날의 브리핑" 을
+     * 직접 가리킨다. 저장 시각으로 판단하면 같은 값이 <b>언제 실행하느냐</b>에 따라 달라진다.
+     *
+     * <p>사용자마다 따로 묻지 않고 한 번에 가져온다. 대상이 늘어도 쿼리는 하나다.
+     * (브리핑은 사용자당 하루 한 행이라 대상 수만큼만 나온다.)
+     */
+    @Query("""
+            select distinct n.user.id from Notification n
+            where n.type = :type
+              and n.suppressKey = :suppressKey
+            """)
+    List<Long> findUserIdsNotifiedWith(@Param("type") NotificationType type,
+                                       @Param("suppressKey") String suppressKey);
 
     /**
      * NTF-004 전체 읽음 — 벌크 UPDATE 한 번.

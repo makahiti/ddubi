@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "idPolicy": "canonical-adjacent-v2",
+  "masterVersion": "METRO-BUS-20260917-SEOUL-0902",
+  "masterSha256": "6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2",
+  "edgeCount": 105588,
+  "sequenceGaps": 11,
+  "sha256": "8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246"
+}

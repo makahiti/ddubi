@@ -102,11 +102,17 @@ public class NaverOAuthClient extends AbstractOAuthClient {
         // 실제 값은 response 안에 있다.
         JsonNode profile = body.path("response");
 
-        // 네이버는 가입 시 본인확인을 거치므로 별도 인증 플래그가 없다.
-        // 동의 항목에서 이메일을 빼면 아예 오지 않는다.
+        // 네이버는 가입 시 본인확인을 거치므로 프로필 API 에 인증 플래그 자체가 없다.
+        // 카카오·구글처럼 확인할 값이 없어 "검증됨" 으로 본다 — 없는 플래그를 false 로 두면
+        // 네이버 사용자는 계정 연동을 영영 못 한다.
+        //
+        // 이 판단이 위험하지 않은 이유: 연동에는 기존 계정의 비밀번호가 필요하다(2026-09-10).
+        // 남는 위험은 "그 이메일로 계정이 있다"는 사실이 마스킹된 형태로 노출되는 것뿐이다.
+        // 동의 항목에서 이메일을 빼면 값 자체가 오지 않는다.
         return new OAuthUserInfo(
                 text(profile, "id"),
                 text(profile, "email"),
+                true,
                 text(profile, "nickname"));
     }
 }

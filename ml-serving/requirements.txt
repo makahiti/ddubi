@@ -1,0 +1,14 @@
+# GPU 서버 학습·추론과 동일한 버전. 업데이트 시 실제 golden 대조가 필요하다.
+numpy==2.5.2
+pandas==3.0.5
+scikit-learn==1.9.0
+lightgbm==4.7.0
+joblib==1.6.0
+pyarrow==25.0.1
+holidays==0.103
+threadpoolctl==3.6.0
+tzdata==2026.3
+# HTTP 계층은 학습과 독립이다. 아래 버전에서 계약 시험을 실행한다.
+fastapi==0.141.1
+pydantic==2.13.5
+uvicorn==0.52.4

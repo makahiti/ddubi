@@ -2,18 +2,11 @@ package com.ssafy.ddubi.domain.route.mapping;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.poi.ss.usermodel.DataFormatter;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.BufferedReader;
-import java.io.InputStream;
-import java.math.BigDecimal;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,10 +22,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 서울 공식 버스 XLSX와 지하철 운행시각표 CSV를 버전 마스터 테이블에 적재한다.
+ * 서울 공식 지하철 운행시각표 CSV를 버전 마스터 테이블에 적재한다.
  *
- * <p>버스 입력 열은 ROUTE_ID, 노선명, 순번, NODE_ID, ARS_ID, 정류소명, X좌표, Y좌표다.
- * 지하철 입력은 CP949 CSV이며 호선, 역사코드, 역사명, 방향, 급행여부, 열차코드,
+ * <p>버스는 MetropolitanBusMasterService가 별도 버전으로 적재한다. 지하철 입력은 CP949 CSV이며 호선, 역사코드, 역사명, 방향, 급행여부, 열차코드,
  * 도착·출발시각을 사용한다. 급행은 물리적으로 인접하지 않은 역을 건너뛰므로 마스터
  * 인접 구간 생성에서 제외한다. 일반 열차의 고유 역 순서를 서비스 패턴으로 보존하여
  * 본선·지선·단축 운행을 하나의 잘못된 선형 순서로 합치지 않는다.</p>
@@ -59,40 +51,36 @@ public class SeoulTransitMasterImportService {
         this.objectMapper = objectMapper;
     }
 
-    /** 두 공식 파일을 검증·적재하고 활성 버전을 원자적으로 교체한다. */
+    /** 지하철 시간표를 검증·적재하고 활성 버전을 원자적으로 교체한다. */
     @Transactional(rollbackFor = Exception.class)
     public ImportSummary importAndActivate(
             String dataVersion,
-            Path busWorkbook,
             Path subwayTimetable
     ) throws Exception {
-        return importAndActivate(dataVersion, busWorkbook, subwayTimetable, null, null);
+        return importAndActivate(dataVersion, subwayTimetable, null, null);
     }
 
     /** 정적 코드↔실시간 statnId JSON이 있으면 같은 트랜잭션에서 역 마스터를 보강한다. */
     @Transactional(rollbackFor = Exception.class)
     public ImportSummary importAndActivate(
             String dataVersion,
-            Path busWorkbook,
             Path subwayTimetable,
             Path subwayRealtimeStationMapping
     ) throws Exception {
         return importAndActivate(
-                dataVersion, busWorkbook, subwayTimetable, subwayRealtimeStationMapping, null);
+                dataVersion, subwayTimetable, subwayRealtimeStationMapping, null);
     }
 
     /** 실시간 역 ID와 검증된 별칭 JSON까지 한 버전으로 묶어 적재한다. */
     @Transactional(rollbackFor = Exception.class)
     public ImportSummary importAndActivate(
             String dataVersion,
-            Path busWorkbook,
             Path subwayTimetable,
             Path subwayRealtimeStationMapping,
             Path transitAliases
     ) throws Exception {
         // 1단계: 트랜잭션을 열기 전에 입력 경로와 버전 형식을 확인한다.
         // 선택 파일은 null일 수 있지만, 전달된 파일이 읽히지 않으면 대응표 일부만 빠진 버전을 만들지 않는다.
-        requireReadable(busWorkbook, "버스 노선별 정류소 XLSX");
         requireReadable(subwayTimetable, "지하철 운행시각표 CSV");
         if (subwayRealtimeStationMapping != null) {
             requireReadable(subwayRealtimeStationMapping, "지하철 정적·실시간 역 ID JSON");
@@ -121,15 +109,13 @@ public class SeoulTransitMasterImportService {
                         VALUES (?, 'STAGING', ?)
                         """,
                 dataVersion,
-                busWorkbook.getFileName() + " + " + subwayTimetable.getFileName());
+                subwayTimetable.getFileName().toString());
 
         // 4단계: 외부 파일을 DB 행과 동일한 의미의 메모리 스냅샷으로 변환한 뒤 전체 교차 검증한다.
         // 행을 읽자마자 INSERT하지 않아 뒤쪽 오류 때문에 반쪽 마스터가 남는 상황을 피한다.
-        BusSnapshot bus = readBusWorkbook(busWorkbook);
         SubwaySnapshot subway = readSubwayTimetable(subwayTimetable);
-        validate(bus, subway);
+        validate(subway);
         // 5단계: 정적 topology를 먼저 저장해야 선택 crosswalk와 alias의 canonical ID를 역조회할 수 있다.
-        insertBus(dataVersion, bus);
         insertSubway(dataVersion, subway);
         int realtimeStationMappingCount = subwayRealtimeStationMapping == null
                 ? 0 : applyRealtimeStationMapping(dataVersion, subwayRealtimeStationMapping);
@@ -151,9 +137,6 @@ public class SeoulTransitMasterImportService {
 
         return new ImportSummary(
                 dataVersion,
-                bus.routes().size(),
-                bus.stops().size(),
-                bus.routeStops().size(),
                 subway.lines().size(),
                 subway.stations().size(),
                 subway.lineStations().size(),
@@ -171,16 +154,12 @@ public class SeoulTransitMasterImportService {
                 Files.readAllBytes(path), new TypeReference<List<TransitAliasRow>>() { });
         TransitNameNormalizer normalizer = new TransitNameNormalizer();
         for (TransitAliasRow row : rows) {
-            String mode = requiredEnum(row.mode(), Set.of("BUS", "SUBWAY"), "mode");
+            String mode = requiredEnum(row.mode(), Set.of("SUBWAY"), "mode");
             String provider = row.provider() == null || row.provider().isBlank()
                     ? "KAKAO"
                     : row.provider().strip().toUpperCase(java.util.Locale.ROOT);
             String aliasType = requiredEnum(
-                    row.aliasType(), Set.of("ROUTE", "STOP", "LINE", "STATION"), "aliasType");
-            if ((mode.equals("BUS") && !(aliasType.equals("ROUTE") || aliasType.equals("STOP")))
-                    || (mode.equals("SUBWAY") && !(aliasType.equals("LINE") || aliasType.equals("STATION")))) {
-                throw new IllegalArgumentException("교통수단과 별칭 종류가 맞지 않습니다: " + mode + '/' + aliasType);
-            }
+                    row.aliasType(), Set.of("LINE", "STATION"), "aliasType");
             requireAliasValue(row.aliasName(), "aliasName");
             requireAliasValue(row.canonicalId(), "canonicalId");
             // canonicalName은 사람이 입력한 문자열을 신뢰하지 않고 canonicalId로 마스터에서 역조회한다.
@@ -194,8 +173,6 @@ public class SeoulTransitMasterImportService {
                                 + row.canonicalId() + '/' + row.canonicalName());
             }
             String normalized = switch (aliasType) {
-                case "ROUTE" -> normalizer.normalizeRouteName(row.aliasName());
-                case "STOP" -> normalizer.normalizeStopName(row.aliasName());
                 case "LINE" -> normalizer.normalizeSubwayLineName(row.aliasName());
                 case "STATION" -> normalizer.normalizeSubwayStationName(row.aliasName());
                 default -> throw new IllegalStateException("검증되지 않은 aliasType");
@@ -228,8 +205,6 @@ public class SeoulTransitMasterImportService {
             String canonicalId
     ) {
         String sql = switch (aliasType) {
-            case "ROUTE" -> "SELECT DISTINCT route_name FROM seoul_bus_route WHERE data_version=? AND route_id=?";
-            case "STOP" -> "SELECT DISTINCT stop_name FROM seoul_bus_stop WHERE data_version=? AND stop_id=?";
             case "LINE" -> "SELECT DISTINCT line_name FROM seoul_subway_line WHERE data_version=? AND subway_id=?";
             case "STATION" -> "SELECT DISTINCT station_name FROM seoul_subway_station WHERE data_version=? AND station_id=?";
             default -> throw new IllegalArgumentException("지원하지 않는 aliasType입니다: " + aliasType);
@@ -250,8 +225,6 @@ public class SeoulTransitMasterImportService {
             String value
     ) {
         return switch (aliasType) {
-            case "ROUTE" -> normalizer.normalizeRouteName(value);
-            case "STOP" -> normalizer.normalizeStopName(value);
             case "LINE" -> normalizer.normalizeSubwayLineName(value);
             case "STATION" -> normalizer.normalizeSubwayStationName(value);
             default -> throw new IllegalArgumentException("지원하지 않는 aliasType입니다: " + aliasType);
@@ -368,55 +341,6 @@ public class SeoulTransitMasterImportService {
         return rows.size();
     }
 
-    /** 버스 XLSX를 공식 ID별로 중복 제거하되 노선별 정류장 순번 행은 하나도 합치지 않는다. */
-    /**
-     * 서울 버스 XLSX를 노선, 정류장, 노선별 순서의 세 집합으로 분리한다.
-     * 같은 ID가 서로 다른 이름·좌표로 반복되면 조용히 마지막 값을 택하지 않고 즉시 실패시킨다.
-     */
-    private BusSnapshot readBusWorkbook(Path path) throws Exception {
-        Map<String, BusRouteRow> routes = new LinkedHashMap<>();
-        Map<String, BusStopRow> stops = new LinkedHashMap<>();
-        List<BusRouteStopRow> routeStops = new ArrayList<>();
-        DataFormatter formatter = new DataFormatter();
-
-        try (InputStream input = Files.newInputStream(path);
-             Workbook workbook = WorkbookFactory.create(input)) {
-            Sheet sheet = workbook.getSheetAt(0);
-            Map<String, Integer> columns = header(sheet.getRow(0), formatter);
-            requireColumns(columns, "ROUTE_ID", "노선명", "순번", "NODE_ID", "ARS_ID",
-                    "정류소명", "X좌표", "Y좌표");
-
-            for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
-                Row row = sheet.getRow(rowIndex);
-                if (row == null) {
-                    continue;
-                }
-                String routeId = cell(row, columns.get("ROUTE_ID"), formatter);
-                String routeName = cell(row, columns.get("노선명"), formatter);
-                String stopId = cell(row, columns.get("NODE_ID"), formatter);
-                String stopName = cell(row, columns.get("정류소명"), formatter);
-                if (routeId.isBlank() || routeName.isBlank() || stopId.isBlank() || stopName.isBlank()) {
-                    throw new IllegalArgumentException("버스 마스터 필수값 누락: XLSX " + (rowIndex + 1) + "행");
-                }
-                int sequence = integerCell(row, columns.get("순번"), formatter, rowIndex);
-                putConsistent(routes, routeId, new BusRouteRow(routeId, routeName), "버스 노선");
-                putConsistent(stops, stopId, new BusStopRow(
-                        stopId,
-                        blankToNull(cell(row, columns.get("ARS_ID"), formatter)),
-                        stopName,
-                        decimalCell(row, columns.get("X좌표"), formatter),
-                        decimalCell(row, columns.get("Y좌표"), formatter)
-                ), "버스 정류장");
-                routeStops.add(new BusRouteStopRow(routeId, stopId, sequence));
-            }
-        }
-        return new BusSnapshot(List.copyOf(routes.values()), List.copyOf(stops.values()), routeStops);
-    }
-
-    /**
-     * 일반 열차별 시각 순서를 역 순서로 복원하고 동일한 전체 역 경로를 하나의 패턴으로 합친다.
-     * 급행·결측·한 역짜리 운행은 인접 구간 기준으로 사용할 수 없어 제외하거나 명시적으로 실패시킨다.
-     */
     /**
      * MS949 운행시각표를 일반열차별 정차 순서로 묶어 방향·서비스 패턴 topology를 만든다.
      * 급행 정차역만 연결하면 물리적으로 인접하지 않은 역이 edge가 되므로 급행은 제외한다.
@@ -523,49 +447,13 @@ public class SeoulTransitMasterImportService {
      * 한 정류장/역짜리 노선을 ACTIVE로 전환하지는 않는다.
      */
     /**
-     * ACTIVE 전환 전에 참조 무결성, 순번, 좌표 범위와 최소 topology 크기를 메모리에서 검증한다.
+     * ACTIVE 전환 전에 참조 무결성, 순번과 최소 topology 크기를 메모리에서 검증한다.
      * 이 검사는 파일 내부 일관성 게이트이며, 공식 배포본의 완전성을 증명하는 checksum·기대 건수
      * manifest는 별도 후속 계약이다.
      */
-    private void validate(BusSnapshot bus, SubwaySnapshot subway) {
-        if (bus.routes().isEmpty() || bus.stops().isEmpty() || bus.routeStops().isEmpty()) {
-            throw new IllegalArgumentException("버스 마스터가 비어 있습니다.");
-        }
+    private void validate(SubwaySnapshot subway) {
         if (subway.lines().isEmpty() || subway.stations().isEmpty() || subway.lineStations().isEmpty()) {
             throw new IllegalArgumentException("지하철 마스터가 비어 있습니다.");
-        }
-
-        Set<String> busRouteIds = bus.routes().stream().map(BusRouteRow::routeId)
-                .collect(java.util.stream.Collectors.toSet());
-        Set<String> busStopIds = bus.stops().stream().map(BusStopRow::stopId)
-                .collect(java.util.stream.Collectors.toSet());
-        Map<String, Set<Integer>> busSequences = new HashMap<>();
-        for (BusRouteStopRow row : bus.routeStops()) {
-            if (!busRouteIds.contains(row.routeId()) || !busStopIds.contains(row.stopId())) {
-                throw new IllegalArgumentException("버스 노선-정류장 관계에 고아 ID가 있습니다.");
-            }
-            if (row.sequence() < 1
-                    || !busSequences.computeIfAbsent(row.routeId(), ignored -> new LinkedHashSet<>())
-                    .add(row.sequence())) {
-                throw new IllegalArgumentException(
-                        "버스 노선 안 순번이 잘못됐거나 중복됩니다: " + row.routeId() + '/' + row.sequence());
-            }
-        }
-        if (busRouteIds.stream().anyMatch(routeId ->
-                busSequences.getOrDefault(routeId, Set.of()).size() < 2)) {
-            throw new IllegalArgumentException("정류장이 2개 미만인 버스 노선이 있습니다.");
-        }
-        for (BusStopRow stop : bus.stops()) {
-            if ((stop.longitude() == null) != (stop.latitude() == null)) {
-                throw new IllegalArgumentException("버스 정류장 좌표 한쪽만 비었습니다: " + stop.stopId());
-            }
-            if (stop.longitude() != null
-                    && (stop.longitude().compareTo(BigDecimal.valueOf(124)) < 0
-                    || stop.longitude().compareTo(BigDecimal.valueOf(132)) > 0
-                    || stop.latitude().compareTo(BigDecimal.valueOf(33)) < 0
-                    || stop.latitude().compareTo(BigDecimal.valueOf(39)) > 0)) {
-                throw new IllegalArgumentException("버스 정류장 좌표가 수도권 범위를 벗어납니다: " + stop.stopId());
-            }
         }
 
         Set<String> subwayStationIds = subway.stations().stream()
@@ -600,16 +488,6 @@ public class SeoulTransitMasterImportService {
         }
     }
 
-    /** FK 순서에 맞춰 노선→정류장→노선정류장 관계 순서로 적재한다. */
-    private void insertBus(String version, BusSnapshot snapshot) {
-        batch("INSERT INTO seoul_bus_route(data_version,route_id,route_name) VALUES (?,?,?)",
-                snapshot.routes().stream().map(row -> new Object[]{version, row.routeId(), row.routeName()}).toList());
-        batch("INSERT INTO seoul_bus_stop(data_version,stop_id,ars_id,stop_name,longitude,latitude) VALUES (?,?,?,?,?,?)",
-                snapshot.stops().stream().map(row -> new Object[]{version, row.stopId(), row.arsId(), row.stopName(), row.longitude(), row.latitude()}).toList());
-        batch("INSERT INTO seoul_bus_route_stop(data_version,route_id,stop_id,stop_sequence) VALUES (?,?,?,?)",
-                snapshot.routeStops().stream().map(row -> new Object[]{version, row.routeId(), row.stopId(), row.sequence()}).toList());
-    }
-
     /** FK 순서에 맞춰 패턴→역→패턴역 관계 순서로 적재한다. */
     private void insertSubway(String version, SubwaySnapshot snapshot) {
         batch("INSERT INTO seoul_subway_line(data_version,subway_id,direction,service_pattern_id,line_name) VALUES (?,?,?,?,?)",
@@ -627,14 +505,6 @@ public class SeoulTransitMasterImportService {
         }
     }
 
-    private Map<String, Integer> header(Row row, DataFormatter formatter) {
-        Map<String, Integer> result = new HashMap<>();
-        for (int index = 0; index < row.getLastCellNum(); index++) {
-            result.put(formatter.formatCellValue(row.getCell(index)).strip(), index);
-        }
-        return result;
-    }
-
     private Map<String, Integer> header(List<String> headers) {
         Map<String, Integer> result = new HashMap<>();
         for (int index = 0; index < headers.size(); index++) {
@@ -649,24 +519,6 @@ public class SeoulTransitMasterImportService {
                 throw new IllegalArgumentException("마스터 원본에 필수 열이 없습니다: " + column);
             }
         }
-    }
-
-    private String cell(Row row, int column, DataFormatter formatter) {
-        return formatter.formatCellValue(row.getCell(column)).strip();
-    }
-
-    private int integerCell(Row row, int column, DataFormatter formatter, int rowIndex) {
-        try {
-            return new BigDecimal(cell(row, column, formatter)).intValueExact();
-        } catch (RuntimeException exception) {
-            // 잘못된 순번을 0으로 대체하면 정류장 방향이 틀어지므로 원본 행 번호와 함께 적재를 중단한다.
-            throw new IllegalArgumentException("버스 순번 오류: XLSX " + (rowIndex + 1) + "행", exception);
-        }
-    }
-
-    private BigDecimal decimalCell(Row row, int column, DataFormatter formatter) {
-        String value = cell(row, column, formatter);
-        return value.isBlank() ? null : new BigDecimal(value);
     }
 
     /** 따옴표와 이중 따옴표를 처리하는 작은 RFC 4180 한 줄 파서다. 원본에는 줄바꿈 필드가 없다. */
@@ -786,9 +638,6 @@ public class SeoulTransitMasterImportService {
      */
     public record ImportSummary(
             String dataVersion,
-            int busRouteCount,
-            int busStopCount,
-            int busRouteStopCount,
             int subwayPatternCount,
             int subwayStationCount,
             int subwayLineStationCount,
@@ -823,28 +672,6 @@ public class SeoulTransitMasterImportService {
             String canonicalId,
             String canonicalName,
             Boolean verified
-    ) { }
-
-    /** DB seoul_bus_route에 대응하는 중복 제거 전 노선 행이다. */
-    private record BusRouteRow(String routeId, String routeName) { }
-
-    /** DB seoul_bus_stop에 대응하며 좌표는 WGS84 경도·위도다. */
-    private record BusStopRow(
-            String stopId,
-            String arsId,
-            String stopName,
-            BigDecimal longitude,
-            BigDecimal latitude
-    ) { }
-
-    /** 한 노선 안 정류장 순서를 나타내며 sequence는 1 이상이어야 한다. */
-    private record BusRouteStopRow(String routeId, String stopId, int sequence) { }
-
-    /** 버스 파일 전체를 DB 세 테이블의 의미로 나눈 검증 단위다. */
-    private record BusSnapshot(
-            List<BusRouteRow> routes,
-            List<BusStopRow> stops,
-            List<BusRouteStopRow> routeStops
     ) { }
 
     /** 같은 실제 열차 운행의 역 순서를 합치기 위한 키이며 모든 필드가 필수다. */

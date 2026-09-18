@@ -1,0 +1,12 @@
+{
+  "pollId": "00000000-0000-4000-8000-000000000001",
+  "source": "seoul.subway_arrival",
+  "scopeKey": "metropolitan-all-stations",
+  "startedAt": "2026-09-16T03:20:00+09:00",
+  "finishedAt": "2026-09-16T03:20:01+09:00",
+  "status": "SUCCESS",
+  "completeSnapshot": true,
+  "pageCount": 1,
+  "rowCount": 0,
+  "contentHash": "0000000000000000000000000000000000000000000000000000000000000001"
+}

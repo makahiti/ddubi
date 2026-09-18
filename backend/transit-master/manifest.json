@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "bus/metropolitan-bus-v6.crosswalk.json.gz",
+      "version": "METRO-BUS-20260917-SEOUL-0902",
+      "sha256": "8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.crosswalk.json.manifest.json",
+      "version": "METRO-BUS-20260917-SEOUL-0902",
+      "sha256": "172533760e7674fd8db93c48c9944b7e9f25dbdaa4991db024a04ebdce882398",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.json.gz",
+      "version": "METRO-BUS-20260917-SEOUL-0902",
+      "sha256": "6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.json.manifest.json",
+      "version": "METRO-BUS-20260917-SEOUL-0902",
+      "sha256": "f5c0a7b5424ef153404ab7e5417ae09a012ab83fb72614c39d44ba31d20de120",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "bus/metropolitan-bus-v6.json.sources.json",
+      "version": "METRO-BUS-20260917-SEOUL-0902",
+      "sha256": "a05d5f518c7382eccee53a688ef0bd510b935ca3eac16996625c2eeb04730423",
+      "source": "bus/metropolitan-bus-v6.json.manifest.json",
+      "referenceDate": null
+    },
+    {
+      "path": "subway/metropolitan-subway-coordinates.json",
+      "version": "metro-20260910-b192e5734f46814a",
+      "sha256": "5a94b3ddb842709ae72abbb39a7a01a082ea47294239375728b91a18b292b7a0",
+      "source": "subway/metropolitan-subway-master.sources.json",
+      "referenceDate": null
+    },
+    {
+      "path": "subway/metropolitan-subway-master.json.gz",
+      "version": "metro-20260910-b192e5734f46814a",
+      "sha256": "f90444ef16df7a1658388d4cdd3946776df9df759cbf760e36369a5057fd7433",
+      "source": "subway/metropolitan-subway-master.sources.json",
+      "referenceDate": null
+    },
+    {
+      "path": "subway/metropolitan-subway-master.sources.json",
+      "version": "metro-20260910-b192e5734f46814a",
+      "sha256": "dd3aabb10462212d231953e38ca7d4979d90d68137b08a5902cb492608e8188c",
+      "source": "subway/metropolitan-subway-master.sources.json",
+      "referenceDate": null
+    }
+  ],
+  "compatibleSets": [
+    {
+      "busMasterVersion": "METRO-BUS-20260917-SEOUL-0902",
+      "busMasterSha256": "6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2",
+      "busCrosswalkSha256": "8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246",
+      "idPolicy": "canonical-adjacent-v2",
+      "subwayVersion": "metro-20260910-b192e5734f46814a",
+      "roadVersion": null
+    }
+  ],
+  "road": {
+    "status": "REVIEW_REQUIRED",
+    "artifact": null
+  },
+  "referenceDateNote": "출처별 기준일은 source 문서 참조. 단일 기준일이 검증되지 않아 null 사용."
+}

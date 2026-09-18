@@ -1,0 +1,14 @@
+# Kafka offsets are gauges. Missing series remain absent, never a healthy zero.
+# Production eligibility and source freshness require BE/DT evidence separately.
+groups:
+  - name: recommendation_dataflow
+    interval: 30s
+    rules:
+      - record: ddubi:recommendation_topic_growth:5m
+        expr: sum by (topic) (clamp_min(delta(kafka_topic_partition_current_offset{topic=~"transport.raw|segment.observation|segment.status"}[5m]), 0))
+      - record: ddubi:recommendation_consumer_lag
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag{topic=~"transport.raw|segment.observation|segment.status"})
+      - record: ddubi:redis_keys
+        expr: sum(redis_db_keys)
+      - record: ddubi:redis_keys_without_expiry
+        expr: sum(redis_db_keys - redis_db_keys_expiring)

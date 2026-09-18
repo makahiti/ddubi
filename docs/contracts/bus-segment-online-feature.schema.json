@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bus-segment-online-feature.schema.json",
+  "title": "BusSegmentOnlineFeatureV1",
+  "description": "Spark가 Redis에 발행하고 실시간 버스 구간 예측이 읽는 최신 Feature Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "segmentId",
+    "masterVersion",
+    "featureVersion",
+    "asOf",
+    "computedAt",
+    "validUntil",
+    "features",
+    "missingFeatures",
+    "provenance"
+  ],
+  "properties": {
+    "segmentId": {
+      "type": "string",
+      "pattern": "^BUS:[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}$"
+    },
+    "masterVersion": { "type": "string", "minLength": 1 },
+    "featureVersion": { "const": "bus-segment-feature-v1" },
+    "asOf": { "type": "string", "format": "date-time" },
+    "computedAt": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "busCongestionCode",
+        "busOperationStateCode",
+        "recentSegmentMedianSeconds",
+        "recentSegmentSampleCount",
+        "roadSpeedKph",
+        "roadTravelSeconds",
+        "roadCoverageRatio",
+        "accidentCount",
+        "closureCount",
+        "assemblyCount",
+        "protestCount",
+        "temperatureC",
+        "humidityPercent",
+        "precipitationMm",
+        "snowDepthCm",
+        "windSpeedMps",
+        "cityCongestionLevel",
+        "areaPopulationMin",
+        "areaPopulationMax",
+        "nearbyPopulation"
+      ],
+      "properties": {
+        "busCongestionCode": { "type": ["integer", "null"] },
+        "busOperationStateCode": { "type": ["integer", "null"] },
+        "recentSegmentMedianSeconds": { "type": ["number", "null"], "minimum": 0 },
+        "recentSegmentSampleCount": { "type": ["integer", "null"], "minimum": 0 },
+        "roadSpeedKph": { "type": ["number", "null"], "minimum": 0 },
+        "roadTravelSeconds": { "type": ["number", "null"], "minimum": 0 },
+        "roadCoverageRatio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "accidentCount": { "type": ["integer", "null"], "minimum": 0 },
+        "closureCount": { "type": ["integer", "null"], "minimum": 0 },
+        "assemblyCount": { "type": ["integer", "null"], "minimum": 0 },
+        "protestCount": { "type": ["integer", "null"], "minimum": 0 },
+        "temperatureC": { "type": ["number", "null"] },
+        "humidityPercent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "precipitationMm": { "type": ["number", "null"], "minimum": 0 },
+        "snowDepthCm": { "type": ["number", "null"], "minimum": 0 },
+        "windSpeedMps": { "type": ["number", "null"], "minimum": 0 },
+        "cityCongestionLevel": { "type": ["string", "null"] },
+        "areaPopulationMin": { "type": ["integer", "null"], "minimum": 0 },
+        "areaPopulationMax": { "type": ["integer", "null"], "minimum": 0 },
+        "nearbyPopulation": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "missingFeatures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "선택된 bus/traffic/weather/city 관측의 eventId·source·시각·유효기간",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

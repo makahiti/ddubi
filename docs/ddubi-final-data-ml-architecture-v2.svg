@@ -1,0 +1,288 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1260" role="img" aria-labelledby="title desc" font-family="'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif">
+  <title id="title">뚜비 최종 데이터 저장 및 머신러닝 아키텍처</title>
+  <desc id="desc">외부 API 9개가 Collector와 Kafka를 거쳐 Spark에서 정제되고, 하나의 HDFS 클러스터 안 archive, silver, gold 디렉터리에 저장된다. 최신값은 Redis에 Online Feature JSON으로 저장된다. Spring Backend가 예측 대상 구간과 시각을 ML Serving에 전달하면 ML Serving이 Redis Feature를 직접 조회하여 CPU 추론하고 결과를 Spring에 반환한다. Gold 학습 데이터는 공용 GPU 서버로 안전하게 전달되어 재학습한 뒤 승인된 모델만 서버2의 ML Serving에 배포된다.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#059669"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <style>
+      .zone { fill:#f8fafc; stroke:#94a3b8; stroke-width:2; }
+      .server1 { fill:#eff6ff; stroke:#2563eb; stroke-width:2.5; }
+      .server2 { fill:#ecfdf5; stroke:#059669; stroke-width:2.5; }
+      .gpu { fill:#faf5ff; stroke:#9333ea; stroke-width:2.5; stroke-dasharray:9 6; }
+      .existing { fill:#ffffff; stroke:#059669; stroke-width:2; }
+      .planned { fill:#fffbeb; stroke:#d97706; stroke-width:2; stroke-dasharray:8 5; }
+      .storage { fill:#eff6ff; stroke:#2563eb; stroke-width:2; }
+      .archive { fill:#f1f5f9; stroke:#64748b; stroke-width:2; }
+      .silver { fill:#f8fafc; stroke:#94a3b8; stroke-width:2; }
+      .gold { fill:#fff7ed; stroke:#ea580c; stroke-width:2; }
+      .error { fill:#fef2f2; stroke:#dc2626; stroke-width:2; }
+      .title { font-size:26px; font-weight:700; fill:#0f172a; }
+      .subtitle { font-size:14px; fill:#475569; }
+      .zone-title { font-size:19px; font-weight:700; fill:#0f172a; }
+      .box-title { font-size:16px; font-weight:700; fill:#0f172a; }
+      .body { font-size:13px; fill:#334155; }
+      .small { font-size:11px; fill:#64748b; }
+      .label { font-size:12px; font-weight:700; fill:#334155; paint-order:stroke; stroke:#f8fafc; stroke-width:5px; stroke-linejoin:round; }
+      .status-existing { font-size:11px; font-weight:700; fill:#047857; }
+      .status-planned { font-size:11px; font-weight:700; fill:#b45309; }
+      .flow { fill:none; stroke:#475569; stroke-width:2.3; marker-end:url(#arrow); }
+      .flow-existing { fill:none; stroke:#059669; stroke-width:2.7; marker-end:url(#arrow-green); }
+      .flow-planned { fill:none; stroke:#d97706; stroke-width:2.5; stroke-dasharray:8 5; marker-end:url(#arrow-orange); }
+      .flow-model { fill:none; stroke:#7c3aed; stroke-width:2.7; marker-end:url(#arrow-purple); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1260" fill="#f8fafc"/>
+  <text id="title-text" x="900" y="38" text-anchor="middle" class="title">뚜비 최종 데이터 저장 · 실시간 예측 · 재학습 아키텍처</text>
+  <text x="900" y="64" text-anchor="middle" class="subtitle">HDFS는 하나이며, archive · silver · gold는 같은 HDFS 내부의 논리 디렉터리입니다</text>
+
+  <!-- ingress -->
+  <rect x="30" y="90" width="270" height="125" rx="12" class="zone" filter="url(#shadow)"/>
+  <text x="165" y="118" text-anchor="middle" class="box-title">외부 실시간 API 9개</text>
+  <text x="50" y="145" class="body">버스 2개 · 지하철 3개</text>
+  <text x="50" y="166" class="body">교통 2개 · 도시 1개 · 날씨 1개</text>
+  <text x="50" y="190" class="small">제공기관 JSON/XML · 서로 다른 필드/단위</text>
+
+  <rect x="350" y="90" width="250" height="125" rx="12" class="existing" filter="url(#shadow)"/>
+  <text x="475" y="118" text-anchor="middle" class="box-title">Collector ×9</text>
+  <text x="475" y="144" text-anchor="middle" class="body">API 호출 · 응답 검증</text>
+  <text x="475" y="165" text-anchor="middle" class="body">공통 이벤트 Envelope 생성</text>
+  <text x="475" y="190" text-anchor="middle" class="small">eventId · eventType · 시각 · payload.raw</text>
+  <text x="582" y="108" text-anchor="end" class="status-existing">현재 코드 있음</text>
+
+  <rect x="650" y="90" width="280" height="125" rx="12" class="existing" filter="url(#shadow)"/>
+  <text x="790" y="118" text-anchor="middle" class="box-title">Kafka · 실시간 운반 계층</text>
+  <text x="790" y="145" text-anchor="middle" class="body">transport.raw · city.raw</text>
+  <text x="790" y="166" text-anchor="middle" class="body">Value: 공통 JSON · 보존: 21일</text>
+  <text x="790" y="190" text-anchor="middle" class="small">Topic은 HDFS 폴더가 아니라 실시간 메시지 통로</text>
+  <text x="912" y="108" text-anchor="end" class="status-existing">현재 코드 있음</text>
+
+  <rect x="1510" y="90" width="255" height="125" rx="12" class="zone" filter="url(#shadow)"/>
+  <text x="1637" y="118" text-anchor="middle" class="box-title">사용자 앱</text>
+  <text x="1637" y="145" text-anchor="middle" class="body">일정 · 출발지 · 도착지</text>
+  <text x="1637" y="168" text-anchor="middle" class="body">추천 출발시각과 경로 조회</text>
+  <text x="1637" y="191" text-anchor="middle" class="small">외부 진입은 nginx 80/443</text>
+
+  <path d="M300 152 H346" class="flow-existing"/>
+  <path d="M600 152 H646" class="flow-existing"/>
+  <text x="325" y="140" text-anchor="middle" class="label">호출</text>
+  <text x="625" y="140" text-anchor="middle" class="label">발행</text>
+
+  <!-- server 1 -->
+  <rect x="30" y="250" width="1120" height="710" rx="16" class="server1"/>
+  <text x="55" y="282" class="zone-title">서버1 · 데이터 서버 (j15e202a · 172.26.15.35)</text>
+  <text x="55" y="303" class="small">Kafka · Archiver · Spark · HDFS NameNode/DataNode1 · 데이터 파이프라인 실행</text>
+
+  <!-- archiver -->
+  <rect x="60" y="335" width="270" height="125" rx="10" class="existing" filter="url(#shadow)"/>
+  <text x="195" y="365" text-anchor="middle" class="box-title">Archiver</text>
+  <text x="195" y="390" text-anchor="middle" class="body">Kafka 원문을 시간/용량 단위 병합</text>
+  <text x="195" y="412" text-anchor="middle" class="body">PyArrow Table → Snappy Parquet</text>
+  <text x="195" y="437" text-anchor="middle" class="small">파일 성공 후 Kafka offset commit</text>
+  <text x="312" y="353" text-anchor="end" class="status-existing">현재 구현</text>
+
+  <!-- spark streaming -->
+  <rect x="60" y="500" width="320" height="260" rx="10" class="planned" filter="url(#shadow)"/>
+  <text x="220" y="531" text-anchor="middle" class="box-title">Spark Structured Streaming</text>
+  <text x="220" y="553" text-anchor="middle" class="status-planned">Silver 적재 잡 신규 구현</text>
+  <text x="82" y="585" class="body">① Kafka JSON → Spark DataFrame</text>
+  <text x="82" y="610" class="body">② 5개 카테고리 분류</text>
+  <text x="100" y="631" class="small">bus · subway · traffic · city · weather</text>
+  <text x="82" y="656" class="body">③ 타입·단위·ID·시각 정규화</text>
+  <text x="82" y="681" class="body">④ 정상/오류 분리 · eventId 중복 방어</text>
+  <text x="82" y="706" class="body">⑤ 전체 정제 이력과 최신값으로 분기</text>
+  <text x="82" y="735" class="small">상시 실행 · 별도 HDFS checkpoint 사용</text>
+
+  <!-- spark batch -->
+  <rect x="60" y="790" width="320" height="130" rx="10" class="planned" filter="url(#shadow)"/>
+  <text x="220" y="820" text-anchor="middle" class="box-title">Spark Batch · 주기 실행</text>
+  <text x="220" y="845" text-anchor="middle" class="body">Silver 기간 선택 · API 간 시점 결합</text>
+  <text x="220" y="868" text-anchor="middle" class="body">Feature 생성 · 검증된 Label 결합</text>
+  <text x="220" y="894" text-anchor="middle" class="small">완료 시 manifest + _SUCCESS 생성</text>
+  <text x="362" y="808" text-anchor="end" class="status-planned">신규 구현</text>
+
+  <!-- HDFS one cluster -->
+  <rect x="420" y="330" width="690" height="590" rx="14" class="storage" filter="url(#shadow)"/>
+  <text x="765" y="362" text-anchor="middle" class="zone-title">HDFS 클러스터 1개</text>
+  <text x="765" y="385" text-anchor="middle" class="small">논리 경로: hdfs://hdfs-namenode:9000/ddubi · 파일 확인 UI: NameNode :9870</text>
+
+  <rect x="450" y="415" width="290" height="150" rx="9" class="archive"/>
+  <text x="595" y="444" text-anchor="middle" class="box-title">/ddubi/archive · 원본</text>
+  <text x="595" y="468" text-anchor="middle" class="body">transport.raw / city.raw</text>
+  <text x="595" y="490" text-anchor="middle" class="body">Kafka JSON 문자열 + metadata</text>
+  <text x="595" y="512" text-anchor="middle" class="body">형식: Snappy Parquet</text>
+  <text x="595" y="538" text-anchor="middle" class="small">복구 · Replay · 규칙 변경 재처리의 기준</text>
+  <text x="720" y="432" text-anchor="end" class="status-existing">현재 구현</text>
+
+  <rect x="770" y="415" width="310" height="220" rx="9" class="silver"/>
+  <text x="925" y="444" text-anchor="middle" class="box-title">/ddubi/silver · 1차 정제</text>
+  <text x="925" y="468" text-anchor="middle" class="body">Spark DataFrame을 Parquet로 저장</text>
+  <text x="795" y="494" class="body">bus/ · subway/ · traffic/</text>
+  <text x="795" y="516" class="body">city/ · weather/</text>
+  <text x="795" y="542" class="small">전체 과거 행 · API별 정제 스키마</text>
+  <text x="795" y="564" class="small">eventDate/eventHour 파티셔닝</text>
+  <text x="795" y="586" class="small">Batch·분석·과거 재계산에서 재사용</text>
+  <text x="795" y="610" class="small">예: part-...snappy.parquet</text>
+  <text x="1062" y="432" text-anchor="end" class="status-planned">신규 경로/코드</text>
+
+  <rect x="450" y="600" width="290" height="105" rx="9" class="error"/>
+  <text x="595" y="629" text-anchor="middle" class="box-title">/ddubi/rejected · 오류</text>
+  <text x="595" y="654" text-anchor="middle" class="body">원본 참조 · reasonCode · 실패 시각</text>
+  <text x="595" y="679" text-anchor="middle" class="small">삭제하지 않고 품질 감사·재처리</text>
+
+  <rect x="770" y="670" width="310" height="170" rx="9" class="gold"/>
+  <text x="925" y="699" text-anchor="middle" class="box-title">/ddubi/gold · ML 최종 학습표</text>
+  <text x="925" y="724" text-anchor="middle" class="body">Spark Batch DataFrame → Parquet</text>
+  <text x="795" y="749" class="body">bus-travel-time/version=...</text>
+  <text x="795" y="771" class="body">subway-delay/version=...</text>
+  <text x="795" y="793" class="body">city-congestion/version=...</text>
+  <text x="795" y="818" class="small">Feature + Label · 버전 불변 Snapshot</text>
+  <text x="1062" y="687" text-anchor="end" class="status-planned">신규 경로/코드</text>
+
+  <rect x="450" y="740" width="290" height="100" rx="9" class="storage"/>
+  <text x="595" y="770" text-anchor="middle" class="box-title">/ddubi/checkpoints</text>
+  <text x="595" y="796" text-anchor="middle" class="body">Spark가 처리한 Kafka offset</text>
+  <text x="595" y="820" text-anchor="middle" class="small">데이터 폴더가 아니라 복구 상태</text>
+
+  <rect x="450" y="865" width="630" height="35" rx="7" fill="#dbeafe" stroke="#60a5fa"/>
+  <text x="765" y="888" text-anchor="middle" class="body">물리 저장: NameNode + DataNode1(서버1) + DataNode2(서버2) · 복제 계수 2</text>
+
+  <!-- kafka to server1 branches -->
+  <path d="M790 215 V300 H195 V331" class="flow-existing"/>
+  <text x="454" y="291" class="label">원본 보존 경로</text>
+  <path d="M820 215 V320 H220 V496" class="flow-planned"/>
+  <text x="835" y="289" class="label">정제 경로</text>
+  <path d="M330 397 H446" class="flow-existing"/>
+  <path d="M380 620 H766" class="flow-planned"/>
+  <text x="572" y="608" text-anchor="middle" class="label">정상 전체 이력</text>
+  <path d="M380 685 H420 V651 H446" class="flow-planned"/>
+  <text x="426" y="674" class="label">오류</text>
+  <path d="M770 590 H720 V855 H380" class="flow-planned"/>
+  <text x="547" y="849" text-anchor="middle" class="label">Silver 읽기</text>
+  <path d="M380 875 H766" class="flow-planned"/>
+  <text x="575" y="866" text-anchor="middle" class="label">Gold 쓰기</text>
+
+  <!-- server2 -->
+  <rect x="1180" y="250" width="590" height="710" rx="16" class="server2"/>
+  <text x="1205" y="282" class="zone-title">서버2 · 서비스 서버 (j15e202 · 172.26.6.220)</text>
+  <text x="1205" y="303" class="small">Redis · Spring Backend · ML Serving · MySQL · 모니터링</text>
+
+  <rect x="1210" y="335" width="270" height="210" rx="10" class="existing" filter="url(#shadow)"/>
+  <text x="1345" y="365" text-anchor="middle" class="box-title">Redis · 온라인 최신값</text>
+  <text x="1345" y="389" text-anchor="middle" class="body">Spark 정제 DataFrame의 최신 행</text>
+  <text x="1345" y="411" text-anchor="middle" class="body">Key + JSON 문자열 + TTL</text>
+  <text x="1232" y="442" class="small">transit:latest:* · traffic:latest:*</text>
+  <text x="1232" y="464" class="small">city:latest:* · weather:latest:*</text>
+  <text x="1345" y="490" text-anchor="middle" class="small">Spring 화면 조회 + ml-serving 예측 Feature 조회</text>
+  <text x="1345" y="512" text-anchor="middle" class="small">JSON 저장 · validUntil 경과 시 사용 금지</text>
+  <text x="1462" y="353" text-anchor="end" class="status-existing">Sink 코드 있음</text>
+
+  <rect x="1510" y="335" width="230" height="145" rx="10" class="existing" filter="url(#shadow)"/>
+  <text x="1625" y="365" text-anchor="middle" class="box-title">Spring Backend</text>
+  <text x="1625" y="391" text-anchor="middle" class="body">화면용 Redis 최신값 조회</text>
+  <text x="1625" y="414" text-anchor="middle" class="body">segmentId·예측시각 전달</text>
+  <text x="1625" y="437" text-anchor="middle" class="body">예측 결과로 경로·시간 계산</text>
+  <text x="1625" y="461" text-anchor="middle" class="small">사용자 앱에 최종 응답</text>
+
+  <rect x="1510" y="525" width="230" height="175" rx="10" class="planned" filter="url(#shadow)"/>
+  <text x="1625" y="555" text-anchor="middle" class="box-title">ml-serving · CPU 추론</text>
+  <text x="1625" y="579" text-anchor="middle" class="body">Spring 예측 대상 수신</text>
+  <text x="1625" y="602" text-anchor="middle" class="body">Redis Feature 직접 조회·TTL 검증</text>
+  <text x="1625" y="625" text-anchor="middle" class="body">JSON → Pandas/NumPy Vector</text>
+  <text x="1625" y="648" text-anchor="middle" class="body">승인 모델로 predict()</text>
+  <text x="1625" y="674" text-anchor="middle" class="small">Redis만 온라인 조회 · HDFS/Kafka 접속 없음</text>
+  <text x="1722" y="543" text-anchor="end" class="status-planned">배포 필요</text>
+
+  <rect x="1210" y="590" width="270" height="110" rx="10" class="planned"/>
+  <text x="1345" y="620" text-anchor="middle" class="box-title">공통 ML Feature 계약</text>
+  <text x="1345" y="645" text-anchor="middle" class="body">Gold 학습값 ↔ Redis 예측값 일치</text>
+  <text x="1345" y="668" text-anchor="middle" class="small">이름·타입·단위·결측·순서·버전 고정</text>
+  <text x="1462" y="608" text-anchor="end" class="status-planned">설계 필요</text>
+
+  <rect x="1210" y="750" width="270" height="90" rx="10" class="existing"/>
+  <text x="1345" y="780" text-anchor="middle" class="box-title">MySQL</text>
+  <text x="1345" y="804" text-anchor="middle" class="body">회원 · 일정 · 추천 · 기준선</text>
+  <text x="1345" y="825" text-anchor="middle" class="small">실시간 원본/학습 이력 저장소 아님</text>
+
+  <rect x="1510" y="750" width="230" height="90" rx="10" class="existing"/>
+  <text x="1625" y="780" text-anchor="middle" class="box-title">Prometheus · Grafana</text>
+  <text x="1625" y="804" text-anchor="middle" class="body">Kafka lag · Spark batch · HDFS</text>
+  <text x="1625" y="825" text-anchor="middle" class="small">Redis TTL · 실패/재시작 알림</text>
+
+  <rect x="1210" y="870" width="530" height="55" rx="9" class="storage"/>
+  <text x="1475" y="893" text-anchor="middle" class="box-title">HDFS DataNode2</text>
+  <text x="1475" y="914" text-anchor="middle" class="small">서버1 DataNode1의 블록 복제본 · 별도 HDFS 클러스터가 아님</text>
+
+  <!-- cross server online flow -->
+  <path d="M380 720 H400 V570 H1160 V420 H1206" class="flow-planned"/>
+  <text x="970" y="559" text-anchor="middle" class="label">최신 행 → JSON + TTL</text>
+  <path d="M1480 407 H1506" class="flow-existing"/>
+  <text x="1493" y="397" text-anchor="middle" class="label">조회</text>
+  <path d="M1480 500 H1495 V610 H1506" class="flow-existing" marker-start="url(#arrow-green)"/>
+  <text x="1498" y="555" text-anchor="middle" class="label" transform="rotate(90 1498 555)">MGET · Feature JSON</text>
+  <path d="M1605 480 V521" class="flow-planned"/>
+  <text x="1595" y="507" text-anchor="end" class="label">예측 대상</text>
+  <path d="M1645 521 V480" class="flow-planned"/>
+  <text x="1655" y="507" class="label">예측 결과</text>
+  <path d="M1650 335 V230 H1637 V219" class="flow-existing"/>
+  <text x="1670" y="259" class="label">응답</text>
+  <path d="M1620 215 V331" class="flow-existing"/>
+  <text x="1580" y="260" class="label">요청</text>
+  <path d="M1108 882 H1170 V897 H1206" fill="none" stroke="#2563eb" stroke-width="2.4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="1154" y="874" text-anchor="middle" class="label">HDFS 복제</text>
+
+  <!-- GPU training zone -->
+  <rect x="30" y="990" width="1740" height="200" rx="16" class="gpu"/>
+  <text x="55" y="1022" class="zone-title">공용 GPU 학습 서버 · 우리 팀 전용 서버 아님</text>
+  <text x="55" y="1043" class="small">권장: HDFS 직접 공개 대신 검증된 Gold Snapshot만 안전하게 전달 · 자동 재학습과 운영 모델 승격은 분리</text>
+
+  <rect x="70" y="1065" width="330" height="90" rx="10" class="planned"/>
+  <text x="235" y="1094" text-anchor="middle" class="box-title">Gold Snapshot 전달</text>
+  <text x="235" y="1118" text-anchor="middle" class="body">Parquet + manifest + SHA256 + _SUCCESS</text>
+  <text x="235" y="1141" text-anchor="middle" class="small">SCP 또는 승인된 공용 드라이브</text>
+
+  <rect x="480" y="1065" width="330" height="90" rx="10" class="planned"/>
+  <text x="645" y="1094" text-anchor="middle" class="box-title">ml-trainer · GPU 0</text>
+  <text x="645" y="1118" text-anchor="middle" class="body">시간순 Train/Validation/Test · LightGBM</text>
+  <text x="645" y="1141" text-anchor="middle" class="small">Gold를 Pandas/NumPy로 읽어 학습</text>
+
+  <rect x="890" y="1065" width="330" height="90" rx="10" class="planned"/>
+  <text x="1055" y="1094" text-anchor="middle" class="box-title">평가 · 승인 게이트</text>
+  <text x="1055" y="1118" text-anchor="middle" class="body">MAE/RMSE · 노선별 편차 · 결측/커버리지</text>
+  <text x="1055" y="1141" text-anchor="middle" class="small">재학습 자동 가능 · 운영 승격은 검증 후</text>
+
+  <rect x="1300" y="1065" width="420" height="90" rx="10" class="planned"/>
+  <text x="1510" y="1094" text-anchor="middle" class="box-title">버전별 모델 Bundle</text>
+  <text x="1510" y="1118" text-anchor="middle" class="body">model · feature schema · encoder · metrics</text>
+  <text x="1510" y="1141" text-anchor="middle" class="small">승인된 Bundle만 서버2 ml-serving에 읽기 전용 배포</text>
+
+  <path d="M925 840 V945 H235 V1061" class="flow-planned"/>
+  <text x="612" y="969" text-anchor="middle" class="label">주기 Batch 완료 후 Gold Snapshot 전달</text>
+  <path d="M400 1110 H476" class="flow-model"/>
+  <path d="M810 1110 H886" class="flow-model"/>
+  <path d="M1220 1110 H1296" class="flow-model"/>
+  <path d="M1510 1065 V970 H1760 V612 H1744" class="flow-model"/>
+  <text x="1695" y="975" text-anchor="middle" class="label">승인 모델 배포</text>
+
+  <!-- bottom legend -->
+  <rect x="30" y="1210" width="1740" height="35" rx="7" fill="#ffffff" stroke="#cbd5e1"/>
+  <line x1="60" y1="1228" x2="110" y2="1228" stroke="#059669" stroke-width="3"/>
+  <text x="120" y="1233" class="body">현재 코드/인프라 존재</text>
+  <line x1="315" y1="1228" x2="365" y2="1228" stroke="#d97706" stroke-width="3" stroke-dasharray="8 5"/>
+  <text x="375" y="1233" class="body">신규 구현·연결 필요</text>
+  <text x="650" y="1233" class="body">저장 형식: HDFS=Parquet · Redis=Key/JSON/TTL · 모델 입력=Pandas/NumPy · 원본↔정제↔학습 데이터는 서로 다른 목적</text>
+</svg>

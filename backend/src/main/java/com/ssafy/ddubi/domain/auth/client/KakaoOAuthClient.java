@@ -110,18 +110,15 @@ public class KakaoOAuthClient extends AbstractOAuthClient {
         String providerUserId = body.path("id").isMissingNode() ? null : body.path("id").asText();
         JsonNode account = body.path("kakao_account");
 
-        // 미인증 이메일로는 계정을 통합하지 않는다 — 남의 이메일을 등록해 두고
-        // 그 계정을 가져가는 경로가 생긴다(도메인 규칙 3).
-        String email = null;
-        if (account.path("email").isTextual()) {
-            if (account.path("is_email_verified").asBoolean(false)) {
-                email = account.path("email").asText();
-            } else {
-                log.warn("카카오 이메일 미인증 — 계정 통합 대상에서 제외한다");
-            }
+        // 값과 검증 여부를 그대로 넘기고, 쓸지 말지는 AuthService 가 정한다.
+        // 여기서 걸러 버리면 제공자마다 정책이 흩어져 나중에 한쪽만 고쳐진다.
+        String email = account.path("email").isTextual() ? account.path("email").asText() : null;
+        boolean emailVerified = account.path("is_email_verified").asBoolean(false);
+        if (email != null && !emailVerified) {
+            log.warn("카카오 이메일 미인증 — 계정 연동에 쓰지 않는다");
         }
         String nickname = text(account.path("profile"), "nickname");
 
-        return new OAuthUserInfo(providerUserId, email, nickname);
+        return new OAuthUserInfo(providerUserId, email, emailVerified, nickname);
     }
 }
