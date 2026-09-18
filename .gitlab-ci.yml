@@ -58,7 +58,7 @@ forbidden-output-check:
   stage: validate
   image: alpine:3.20
   script:
-    - apk add --no-cache grep >/dev/null
+    - apk add --no-cache grep git >/dev/null
     - |
       set -e
       fail=0
@@ -69,7 +69,8 @@ forbidden-output-check:
       echo "[파이썬] 런타임 경로 print"
       if grep -rnE '^\s*print\(' ml-serving/app.py ml-serving/predictor.py ml-serving/serving_runtime.py ml-serving/reference_cache.py ml-serving/schemas.py archiver/src sparkjobs/streaming sparkjobs/batch sparkjobs/common collector/src/main.py collector/src/config.py collector/src/publisher.py 2>/dev/null; then fail=1; fi
       echo "[웹] console.log"
-      if git ls-files | grep -E '\.(js|ts|html)$' | grep -v node_modules | xargs -r grep -n 'console\.log'; then fail=1; fi
+      web=$(git ls-files '*.js' '*.ts' '*.html' | grep -v node_modules || true)
+      if [ -n "$web" ] && echo "$web" | xargs grep -n 'console\.log'; then fail=1; fi
       if [ "$fail" = "1" ]; then echo "금지된 출력문이 있습니다. AppLog/SLF4J/logging 으로 바꾸세요."; exit 1; fi
       echo "forbidden output OK"
   rules:
