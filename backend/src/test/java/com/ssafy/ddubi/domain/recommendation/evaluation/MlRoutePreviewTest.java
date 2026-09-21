@@ -155,11 +155,15 @@ class MlRoutePreviewTest {
                         now,
                         now.plusSeconds(1000));
         assertThat(result.fastest().journeyKey()).isEqualTo("candidate-1");
-        // 후보 1은 900+30+10이 아니라 30+10초다. 정시 여부와 무관하게 최소 소요시간을 선택한다.
-        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(30));
+        // 후보 1은 900이 아니라 ML 30초에 미분류 10초를 더한 40초다. 정시 여부와 무관하게
+        // 최소 소요시간을 선택한다. 미분류 몫은 어느 구간에도 배분하지 않고 총시간에만 남긴다.
+        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(40));
+        // 후보 0 도 마찬가지로 미분류 10초가 총시간에 남는다(200 + 10).
         assertThat(result.candidates().get(0).result().estimatedArrivalAt())
-                .isEqualTo(now.plusSeconds(200));
-        assertThat(result.candidates().get(1).quality()).isEqualTo("ML_PREVIEW");
+                .isEqualTo(now.plusSeconds(210));
+        // ML 만으로 이뤄진 후보가 아니다. 설명되지 않은 provider 몫이 총시간에 함께 남으므로
+        // 섞인 결과로 표시한다 — 화면이 "ML 예측" 이라고 단정하지 않게 한다.
+        assertThat(result.candidates().get(1).quality()).isEqualTo("MIXED_PREVIEW");
         assertThat(result.productionReady()).isFalse();
     }
 
@@ -219,13 +223,15 @@ class MlRoutePreviewTest {
     }
 
     @Test
-    void providerResidualDoesNotShiftMlEntryHour() {
+    void providerResidualIsKeptInTotalButDoesNotShiftMlEntryHour() {
         when(client.predict(any())).thenReturn(estimate(30));
         var result =
                 service.compare(
                         List.of(route(0, "1", 300, 60, 1)), empty, now, now, now.plusSeconds(1000));
         verify(client).predict(any());
-        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(30));
+        // 미분류 60초는 총시간에 남는다(30+60). 다만 어느 구간에도 배분하지 않으므로 ML 승차
+        // 시각 자체는 밀리지 않는다 — 그 구분을 아래 reason 으로 지킨다(2026-09-21).
+        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(90));
         assertThat(result.fastest().reasons()).doesNotContain("step-1:ENTRY_HOUR_UNCERTAIN");
     }
 

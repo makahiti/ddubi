@@ -179,8 +179,10 @@ class WalkingEnrichmentTest {
                             .prepare(List.of(input), origin, destination, now, points("BUS_STOP"));
             var actual = output.candidates().get(0);
             assertThat(output.evidence().apiCalls()).isEqualTo(2);
-            assertThat(actual.totalDurationSeconds()).isEqualTo(840);
-            assertThat(actual.unassignedDurationSeconds()).isEqualTo(0);
+            long providerTotal = 600 + residual;
+            long expectedTotal = Math.max(840, providerTotal);
+            assertThat(actual.totalDurationSeconds()).isEqualTo(expectedTotal);
+            assertThat(actual.unassignedDurationSeconds()).isEqualTo(expectedTotal - 840);
             assertThat(actual.segments()).hasSize(3);
             // 합성 도보도 route_segment에 저장되므로 양 끝 이름이 DB NOT NULL 계약을 만족해야 한다.
             assertThat(actual.segments().get(0).fromName()).isEqualTo("출발지");
@@ -209,9 +211,14 @@ class WalkingEnrichmentTest {
                                                 : new WalkingRouteClient.Evidence(
                                                         null, null, null, "WALK_TIMEOUT"))
                         .prepare(List.of(input), origin, destination, now, points("BUS_STOP"));
-        assertThat(output.candidates().get(0).totalDurationSeconds()).isEqualTo(720);
-        assertThat(output.candidates().get(0).unassignedDurationSeconds()).isZero();
-        assertThat(output.candidates().get(0).segments()).hasSize(2);
+        assertThat(output.candidates().get(0).totalDurationSeconds()).isEqualTo(900);
+        assertThat(output.candidates().get(0).unassignedDurationSeconds()).isEqualTo(180);
+        assertThat(output.candidates().get(0).segments()).hasSize(3);
+        assertThat(output.candidates().get(0).segments())
+                .anyMatch(
+                        segment ->
+                                "EVALUATION_ENDPOINT_WALK".equals(segment.providerRouteKey())
+                                        && segment.durationSeconds() == 0);
         assertThat(output.evidence().fallbackReasons())
                 .contains("WALK_TIMEOUT", "WALK_ENDPOINT_DURATION_UNAVAILABLE");
     }

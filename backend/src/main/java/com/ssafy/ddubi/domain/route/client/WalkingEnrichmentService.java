@@ -358,9 +358,10 @@ public class WalkingEnrichmentService {
                 }
                 if ("EVALUATION_ENDPOINT_WALK".equals(step.providerRouteKey())
                         && !"KAKAO_WALKING_API".equals(source)) {
-                    // 원본에 없던 도보의 API 실패를 0초 성공으로 만들지 않는다.
+                    // 원본에 없던 도보의 API 실패를 0초 성공으로 만들지 않는다. 합성 구간 자체는
+                    // 남겨 두어 평가 조립기가 "끝점 시간 미확인"과 일반적인 provider 잔여시간을
+                    // 구분한다. 최종 시간은 아래 unassigned/provider total fallback이 보존한다.
                     routeReasons.add("WALK_ENDPOINT_DURATION_UNAVAILABLE");
-                    continue;
                 }
                 steps.add(
                         new RouteSegment(
@@ -388,18 +389,24 @@ public class WalkingEnrichmentService {
                                 source,
                                 endpoint));
             }
-            // 사용자 정책: 총시간은 명시된 구간의 합으로 다시 만든다.
-            // provider 총시간의 미분류 몫은 배분하거나 대기로 가정하지 않는다.
+            // 명시된 구간 합이 provider 전체시간보다 짧으면 그 차이를 버리지 않는다.
+            // 이 값에는 응답에서 독립 step으로 분해되지 않은 접근·이탈 도보와 대기가 섞일 수
+            // 있으므로 어느 구간에 임의 배분하지 않고 unassigned로 보존한다. 반대로 별도 도보
+            // API가 provider 전체시간보다 긴 값을 주면 검증된 구간 합을 우선한다.
+            long segmentSeconds = steps.stream().mapToLong(RouteSegment::durationSeconds).sum();
+            long totalSeconds = Math.max(route.totalDurationSeconds(), segmentSeconds);
+            long unassignedSeconds = totalSeconds - segmentSeconds;
+            if (unassignedSeconds > 0) routeReasons.add("PROVIDER_TOTAL_COMPONENT_UNASSIGNED");
             output.add(
                     new RouteCandidate(
                             route.providerCandidateIndex(),
                             route.type(),
                             route.totalDistanceMeters(),
-                            steps.stream().mapToLong(RouteSegment::durationSeconds).sum(),
+                            totalSeconds,
                             route.transfers(),
                             route.fare(),
                             route.unassignedDistanceMeters(),
-                            0,
+                            unassignedSeconds,
                             steps));
             candidateReasons.put(
                     com.ssafy.ddubi.domain.recommendation.evaluation.RouteEvidenceAssembler.key(

@@ -347,8 +347,11 @@ class BusHistoricalReferenceServiceTest {
                         now,
                         now,
                         now.plusSeconds(1000));
-        assertEquals(now.plusSeconds(90), result.fastest().estimatedArrivalAt());
-        assertEquals("BUS_REFERENCE", result.candidates().get(0).quality());
+        // provider 총시간 중 구간으로 분해되지 않은 10초를 버리지 않고 총시간에 남긴다(2026-09-21).
+        assertEquals(now.plusSeconds(100), result.fastest().estimatedArrivalAt());
+        // 과거 평균만으로 이뤄진 후보가 아니다. 설명되지 않은 provider 몫이 총시간에 함께
+        // 남으므로 섞인 결과로 표시한다 — 화면이 "과거 평균" 이라고 단정하지 않게 한다.
+        assertEquals("MIXED_PREVIEW", result.candidates().get(0).quality());
         assertEquals(0, result.candidates().get(0).mlSteps());
         assertEquals("BUS_HISTORICAL_REFERENCE", result.fastest().steps().get(0).source());
         assertTrue(result.fastest().reasons().contains("step-1:HISTORICAL_REFERENCE_APPLIED"));
@@ -389,7 +392,7 @@ class BusHistoricalReferenceServiceTest {
                         session);
         verify(ml, never()).predict(any());
         assertEquals("BUS_HISTORICAL_REFERENCE", result.fastest().steps().get(0).source());
-        assertEquals(now.plusSeconds(90), result.fastest().estimatedArrivalAt());
+        assertEquals(now.plusSeconds(100), result.fastest().estimatedArrivalAt());
         assertTrue(result.fastest().reasons().contains("step-1:ML_BUDGET_EXHAUSTED"));
         assertTrue(result.fastest().reasons().contains("step-1:HISTORICAL_REFERENCE_APPLIED"));
         assertFalse(result.budgetExhausted()); // 보조 ML 실패와 전체 후보 탐색 실패를 구별한다.

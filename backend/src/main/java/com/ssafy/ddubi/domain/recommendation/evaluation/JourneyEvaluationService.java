@@ -244,6 +244,12 @@ public class JourneyEvaluationService {
         boolean exhausted = false;
         for (RouteCandidate route : routes) {
             Journey original = evidence.assemble(route, snapshot, asOf);
+            // provider 총시간의 미분류 몫에는 대기가 이미 포함됐을 수 있다. 이 값을 별도
+            // UNASSIGNED로 보존하는 후보에는 실시간 대기를 다시 더하지 않는다. BUS 이동
+            // 자체의 ML/기준값 교체는 계속 가능하며, 끝점 도보시간까지 미확인이면 조립기가
+            // PROVIDER_TOTAL 하나로 내려 보내 이 분기로 들어오지 않는다.
+            boolean hasProviderUnassigned =
+                    original.legs().stream().anyMatch(leg -> leg.kind() == Kind.UNASSIGNED);
             var legs = new ArrayList<Leg>();
             Instant cursor = departure;
             int mlSteps = 0,
@@ -267,7 +273,10 @@ public class JourneyEvaluationService {
                 if (segment != null && segment.mode() == TransportMode.BUS) {
                     Instant station = cursor.plusSeconds(leg.entryUncertaintySeconds());
                     var wait = busWaiting.estimate(segment, asOf, station, busSession);
-                    boolean canUseWait = wait.seconds() != null && wait.boardingAt() != null;
+                    boolean canUseWait =
+                            !hasProviderUnassigned
+                                    && wait.seconds() != null
+                                    && wait.boardingAt() != null;
                     boolean waitApplied = false;
                     if (!topologySupported(edges)) {
                         reasons.add(leg.key() + ":UNVERIFIED_OR_UNSUPPORTED_BUS_MAPPING");
@@ -534,7 +543,10 @@ public class JourneyEvaluationService {
                         waitApplied = true;
                         busWaitSteps++;
                     }
-                    if (!waitApplied) {
+                    if (!waitApplied && hasProviderUnassigned) {
+                        reasons.add(leg.key() + ":WAIT_TIME_COVERED_BY_PROVIDER_TOTAL");
+                        waitReasons.add("WAIT_TIME_COVERED_BY_PROVIDER_TOTAL");
+                    } else if (!waitApplied) {
                         reasons.add(leg.key() + ":WAIT_TIME_EXCLUDED");
                         waitReasons.add("WAIT_TIME_EXCLUDED");
                     }
@@ -556,68 +568,81 @@ public class JourneyEvaluationService {
                     reasons.addAll(waitReasons.stream().map(r -> leg.key() + ":" + r).toList());
                 }
                 if (segment != null && segment.mode() == TransportMode.SUBWAY) {
-                    // 앞선 도보·탑승·환승의 합으로 승강장 도착을 정하고 이용 가능한 운행을 찾는다.
-                    // 성공한 대기와 탑승을 별도 합산하며 provider 총시간은 계산에 사용하지 않는다.
-                    Instant platform = cursor.plusSeconds(leg.entryUncertaintySeconds());
-                    var timing = subway.estimate(segment, asOf, platform, subwaySession);
-                    String reason = timing.arrivalAt() == null ? "SUBWAY_TIMING_UNAVAILABLE" : null;
-                    boolean applied = reason == null;
-                    var waitReasons = new ArrayList<>(timing.reasons());
-                    if (reason != null) waitReasons.add(reason);
-                    waitPredictions.add(
-                            new WaitPrediction(
-                                    original.key(),
-                                    leg.key(),
-                                    TransportMode.SUBWAY,
-                                    platform,
-                                    timing.waitSeconds(),
-                                    timing.boardingAt(),
-                                    timing.tripKey(),
-                                    timing.source(),
-                                    timing.arrivalEventId(),
-                                    timing.observedAt(),
-                                    timing.validUntil(),
-                                    applied,
-                                    waitReasons));
-                    subwayPredictions.add(
-                            new SubwayPrediction(
-                                    original.key(), leg.key(), platform, timing, applied, reason));
-                    reasons.addAll(
-                            timing.reasons().stream().map(r -> leg.key() + ":" + r).toList());
-                    if (applied) {
-                        // 이미 asOf와 platform에 대해 검증한 고정 결과다. 실시간 TTL을 연장하는 캐시가 아니며,
-                        // 출발시각을 바꾸면 별도 estimate를 수행한다. 환승 후 다음 step도 갱신된 cursor를 쓴다.
-                        // 대기는 선로 통과가 아니다. WAIT를 분리하여 탑승 전에 끝난 선로 통제가 경로를 막지 않게 한다.
-                        legs.add(
-                                new Leg(
-                                        leg.key() + "-wait",
-                                        Kind.WAIT,
-                                        List.of(),
-                                        timing.waitSeconds(),
-                                        null,
-                                        new Window(timing.source(), asOf, asOf, Instant.MAX),
-                                        List.of(
-                                                new Boarding(
-                                                        timing.tripKey(),
-                                                        timing.boardingAt(),
-                                                        timing.boardingAt(),
-                                                        false))));
-                        cursor = cursor.plusSeconds(timing.waitSeconds());
-                        chosen =
-                                new Leg(
-                                        leg.key(),
-                                        leg.kind(),
-                                        leg.segmentIds(),
-                                        timing.rideSeconds(),
-                                        timing.rideSeconds(),
-                                        new Window(timing.source(), asOf, asOf, Instant.MAX),
-                                        List.of());
-                        subwaySteps++;
-                    } else {
-                        reasons.add(leg.key() + ":" + reason);
-                        // 시간표 계산 실패는 해당 지하철 step만 원본으로 대체한다. 대기는 제외한다.
-                        reasons.add(leg.key() + ":WAIT_TIME_EXCLUDED");
+                    if (hasProviderUnassigned) {
+                        // 카카오 미분류 시간에 승강장 대기가 포함됐을 수 있어 시간표 대기와
+                        // 중복 합산하지 않는다. 원본 ride와 provider 잔여시간을 사용한다.
+                        reasons.add(leg.key() + ":WAIT_TIME_COVERED_BY_PROVIDER_TOTAL");
                         reasons.add(leg.key() + ":API_FALLBACK");
+                    } else {
+                        // 앞선 도보·탑승·환승의 합으로 승강장 도착을 정하고 이용 가능한 운행을 찾는다.
+                        // 성공한 대기와 탑승을 별도 합산하며 provider 총시간은 계산에 사용하지 않는다.
+                        Instant platform = cursor.plusSeconds(leg.entryUncertaintySeconds());
+                        var timing = subway.estimate(segment, asOf, platform, subwaySession);
+                        String reason =
+                                timing.arrivalAt() == null ? "SUBWAY_TIMING_UNAVAILABLE" : null;
+                        boolean applied = reason == null;
+                        var waitReasons = new ArrayList<>(timing.reasons());
+                        if (reason != null) waitReasons.add(reason);
+                        waitPredictions.add(
+                                new WaitPrediction(
+                                        original.key(),
+                                        leg.key(),
+                                        TransportMode.SUBWAY,
+                                        platform,
+                                        timing.waitSeconds(),
+                                        timing.boardingAt(),
+                                        timing.tripKey(),
+                                        timing.source(),
+                                        timing.arrivalEventId(),
+                                        timing.observedAt(),
+                                        timing.validUntil(),
+                                        applied,
+                                        waitReasons));
+                        subwayPredictions.add(
+                                new SubwayPrediction(
+                                        original.key(),
+                                        leg.key(),
+                                        platform,
+                                        timing,
+                                        applied,
+                                        reason));
+                        reasons.addAll(
+                                timing.reasons().stream().map(r -> leg.key() + ":" + r).toList());
+                        if (applied) {
+                            // 이미 asOf와 platform에 대해 검증한 고정 결과다. 실시간 TTL을 연장하는 캐시가 아니며,
+                            // 출발시각을 바꾸면 별도 estimate를 수행한다. 환승 후 다음 step도 갱신된 cursor를 쓴다.
+                            // 대기는 선로 통과가 아니다. WAIT를 분리하여 탑승 전에 끝난 선로 통제가 경로를 막지 않게 한다.
+                            legs.add(
+                                    new Leg(
+                                            leg.key() + "-wait",
+                                            Kind.WAIT,
+                                            List.of(),
+                                            timing.waitSeconds(),
+                                            null,
+                                            new Window(timing.source(), asOf, asOf, Instant.MAX),
+                                            List.of(
+                                                    new Boarding(
+                                                            timing.tripKey(),
+                                                            timing.boardingAt(),
+                                                            timing.boardingAt(),
+                                                            false))));
+                            cursor = cursor.plusSeconds(timing.waitSeconds());
+                            chosen =
+                                    new Leg(
+                                            leg.key(),
+                                            leg.kind(),
+                                            leg.segmentIds(),
+                                            timing.rideSeconds(),
+                                            timing.rideSeconds(),
+                                            new Window(timing.source(), asOf, asOf, Instant.MAX),
+                                            List.of());
+                            subwaySteps++;
+                        } else {
+                            reasons.add(leg.key() + ":" + reason);
+                            // 시간표 계산 실패는 해당 지하철 step만 원본으로 대체한다. 대기는 제외한다.
+                            reasons.add(leg.key() + ":WAIT_TIME_EXCLUDED");
+                            reasons.add(leg.key() + ":API_FALLBACK");
+                        }
                     }
                 }
                 if (segment != null

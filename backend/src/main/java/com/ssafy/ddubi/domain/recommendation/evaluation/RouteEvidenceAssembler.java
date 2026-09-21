@@ -115,12 +115,38 @@ public class RouteEvidenceAssembler {
     }
 
     /**
-     * 보강된 접근·이탈 도보와 원본 환승·탑승 step을 초 단위 fallback으로 제공한다. 총시간과 step 합의 차이는 사용하지 않는다. 대기는 서비스에서 계산 성공
-     * 시에만 삽입한다. Redis는 통제 근거이며 이 단계에서 이동시간을 교체하지 않는다.
+     * 보강된 접근·이탈 도보와 원본 환승·탑승 step을 초 단위 fallback으로 제공한다. 끝점 도보시간 자체가 없으면 provider 전체시간 하나로 내리고,
+     * 일반적인 미분류 비용은 별도 UNASSIGNED 요소로 보존한다. 미분류 값에는 대기가 이미 포함됐을 수 있어 호출자가 실시간 대기를 다시 더하지 않는다. Redis는
+     * 통제 근거이며 이 단계에서 이동시간을 교체하지 않는다.
      */
     public Journey assemble(RouteCandidate candidate, Snapshot snapshot, Instant asOf) {
-        // 구간별 합산 정책: provider 총시간과의 차이를 대기/도보로 배분하지 않는다.
-        // 대기는 JourneyEvaluationService에서 실제 계산 성공 시에만 추가한다.
+        boolean endpointDurationUnknown =
+                candidate.segments().stream()
+                        .anyMatch(
+                                segment ->
+                                        "EVALUATION_ENDPOINT_WALK"
+                                                        .equals(segment.providerRouteKey())
+                                                && segment.durationSeconds() == 0);
+        if (endpointDurationUnknown) {
+            var ids =
+                    candidate.segments().stream()
+                            .flatMap(segment -> edges(segment).stream())
+                            .map(MappedTransitSegment::segmentId)
+                            .distinct()
+                            .toList();
+            return new Journey(
+                    key(candidate),
+                    List.of(
+                            new Leg(
+                                    "provider-total",
+                                    Kind.PROVIDER_TOTAL,
+                                    ids,
+                                    candidate.totalDurationSeconds(),
+                                    null,
+                                    null,
+                                    List.of())));
+        }
+
         long unassigned = 0;
         var legs = new ArrayList<Leg>();
         for (RouteSegment segment : candidate.segments()) {
@@ -138,6 +164,16 @@ public class RouteEvidenceAssembler {
                             List.of(),
                             unassigned));
         }
+        if (candidate.unassignedDurationSeconds() > 0)
+            legs.add(
+                    new Leg(
+                            "provider-unassigned",
+                            Kind.UNASSIGNED,
+                            List.of(),
+                            candidate.unassignedDurationSeconds(),
+                            null,
+                            null,
+                            List.of()));
 
         return new Journey(key(candidate), legs);
     }

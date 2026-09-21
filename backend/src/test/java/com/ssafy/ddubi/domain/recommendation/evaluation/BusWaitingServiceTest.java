@@ -253,10 +253,15 @@ class BusWaitingServiceTest {
     }
 
     @Test
-    void residualIsExcludedAndVerifiedWaitIsIndependentOfLegacyFlag() {
+    void providerResidualCoversWaitAndVerifiedWaitIsIndependentOfLegacyFlag() {
+        // 규칙이 바뀌었다(2026-09-21). 예전에는 provider 미분류 시간을 버리고 검증된 대기를
+        // 따로 더했다. 지금은 미분류 시간에 승강장 대기가 이미 들어 있을 수 있다고 보고 대기를
+        // 다시 더하지 않는다 — 같은 대기를 두 번 세지 않기 위해서다.
         var result = compare(MlRoutePreviewTest.route(0, "1", 300, 10, 1), true, now);
-        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(50));
-        assertThat(result.waitPredictions().get(0).applied()).isTrue();
+        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(40));
+        assertThat(result.fastest().reasons())
+                .anyMatch(reason -> reason.endsWith(":WAIT_TIME_COVERED_BY_PROVIDER_TOTAL"));
+        // 미분류 시간이 없는 후보에서는 검증된 대기가 예전처럼 그대로 적용된다.
         assertThat(compare(route, false, now).waitPredictions().get(0).applied()).isTrue();
     }
 

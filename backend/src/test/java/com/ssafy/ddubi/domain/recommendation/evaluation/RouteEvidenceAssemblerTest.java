@@ -79,7 +79,8 @@ public class RouteEvidenceAssemblerTest {
     }
 
     @Test
-    void redisObservationDoesNotReplaceMovementAndUnassignedTimeIsExcluded() throws Exception {
+    void redisObservationDoesNotReplaceMovementAndUnassignedTimeUsesProviderTotal()
+            throws Exception {
         var assembler = new RouteEvidenceAssembler(mock(StringRedisTemplate.class), json);
         var state =
                 json.readTree(
@@ -93,9 +94,13 @@ public class RouteEvidenceAssemblerTest {
         var result =
                 new RouteTimelineEvaluator()
                         .evaluate(journey, now, now, now.plusSeconds(300), List.of());
-        // 관측 120초/지연 60초로 API 이동을 교체하지 않는다. API 60초 + 잔여 30초만 보존한다.
-        assertThat(result.estimatedArrivalAt()).isEqualTo(now.plusSeconds(60));
+        // 관측 120초/지연 60초로 API 이동을 교체하지 않는다. 분해되지 않은 30초를 버리지 않고
+        // 카카오 전체시간 90초로 fallback해 도보·대기 누락으로 사용자를 늦게 보내지 않는다.
+        assertThat(result.estimatedArrivalAt()).isEqualTo(now.plusSeconds(90));
         assertThat(result.tentative()).isTrue();
+        assertThat(result.steps())
+                .extracting(RouteTimelineEvaluator.Step::key)
+                .containsExactly("step-1", "provider-unassigned");
         var future =
                 new RouteTimelineEvaluator()
                         .evaluate(
@@ -104,7 +109,7 @@ public class RouteEvidenceAssemblerTest {
                                 now.plusSeconds(600),
                                 now.plusSeconds(1000),
                                 List.of());
-        assertThat(future.estimatedArrivalAt()).isEqualTo(now.plusSeconds(660));
+        assertThat(future.estimatedArrivalAt()).isEqualTo(now.plusSeconds(690));
     }
 
     @Test
