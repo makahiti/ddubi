@@ -67,6 +67,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => HomeScreen(
               homeApi: homeApi,
               recommendationApi: recommendationApi,
+              scheduleRepository: scheduleRepository,
               evaluationRepository:
                   scheduleRepository is ScheduleEvaluationRepository
                   ? scheduleRepository as ScheduleEvaluationRepository

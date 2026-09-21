@@ -51,6 +51,15 @@ public class User extends BaseTimeEntity {
     @Column(name = "briefing_time")
     private LocalTime briefingTime;
 
+    /**
+     * 밤 브리핑 수신 시각. NULL 이면 보내지 않는다.
+     *
+     * <p>아침 브리핑은 <b>오늘 남은</b> 일정을, 밤 브리핑은 <b>내일</b> 일정을 알린다.
+     * 성격이 다른 알림이라 시각을 따로 둔다.
+     */
+    @Column(name = "night_briefing_time")
+    private LocalTime nightBriefingTime;
+
     /** 알림 전체 토글. false 여도 notification 행은 만들고 발송만 억제한다. */
     @Column(name = "is_alarm", nullable = false)
     private boolean alarm;
@@ -99,6 +108,10 @@ public class User extends BaseTimeEntity {
 
     public void changeBriefingTime(LocalTime briefingTime) {
         this.briefingTime = briefingTime;
+    }
+
+    public void changeNightBriefingTime(LocalTime nightBriefingTime) {
+        this.nightBriefingTime = nightBriefingTime;
     }
 
     public void changeAlarm(boolean alarm) {

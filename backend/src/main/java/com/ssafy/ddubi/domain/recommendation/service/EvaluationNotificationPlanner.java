@@ -7,10 +7,14 @@ import com.ssafy.ddubi.domain.recommendation.evaluation.RouteTimelineEvaluator.R
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.Optional;
 
 /**
@@ -71,7 +75,7 @@ public class EvaluationNotificationPlanner {
         if(outcome.conditional()!=null && fastest!=null
                 && outcome.conditional().decision()==com.ssafy.ddubi.domain.recommendation.evaluation.ConditionalDeparturePolicy.Decision.ADVANCE_DEPARTURE
                 && Duration.between(fastest.departureAt(),job.departure()).compareTo(meaningfulGain)>=0) {
-            String key="EARLY_DEPART:"+fastest.journeyKey()+":"+(fastest.departureAt().getEpochSecond()/300);
+            String key=shortKey("EARLY_DEPART", fastest.journeyKey()+":"+(fastest.departureAt().getEpochSecond()/300));
             return Optional.of(new Planned(command(job,outcome,NotificationType.EARLY_DEPART,"출발 계획을 확인해 주세요",
                     at(fastest.departureAt())+" 출발 시 "+at(fastest.estimatedArrivalAt())+" 도착 예상입니다.",key),key));
         }
@@ -112,20 +116,45 @@ public class EvaluationNotificationPlanner {
                         + (hasAlternative ? ". 더 빠른 경로가 있습니다." : "");
         // 키에 시각을 넣지 않는다. 분마다 1초씩 밀리는 값을 키에 넣으면 상황이 그대로인데도
         // 매 평가가 새 알림이 된다. 경로가 바뀌거나 종류가 바뀔 때만 다시 알린다.
+        String key = shortKey("ON_TIME_UNLIKELY", selected.journeyKey());
         return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
-                "제시간 도착이 어려울 수 있어요", body,
-                "ON_TIME_UNLIKELY:" + selected.journeyKey()),
-                "ON_TIME_UNLIKELY:" + selected.journeyKey());
+                "제시간 도착이 어려울 수 있어요", body, key), key);
     }
 
     private Planned routeChange(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
                                 Result selected, Result fastest) {
         long gainMinutes = Duration.between(fastest.estimatedArrivalAt(), selected.estimatedArrivalAt()).toMinutes();
-        String key = "ROUTE_CHANGE:" + selected.journeyKey() + ">" + fastest.journeyKey();
+        String key = shortKey("ROUTE_CHANGE", selected.journeyKey() + ">" + fastest.journeyKey());
         return new Planned(command(job, outcome, NotificationType.ROUTE_CHANGE,
                 "더 빠른 경로가 있어요", gainMinutes + "분 빠른 경로를 찾았습니다. 예상 도착 "
                         + at(fastest.estimatedArrivalAt()) + ".", key),
                 key);
+    }
+
+    /**
+     * 알림 식별 키를 64자 안에 담는다.
+     *
+     * <p>이 값은 {@code schedule_evaluation.notification_key} 와 {@code notification.suppress_key}
+     * 에 그대로 들어가는데 두 칸 모두 {@code varchar(64)} 다. 경로 키(journeyKey)는 53자라
+     * ROUTE_CHANGE 처럼 둘을 이어 붙이면 120자가 되어 저장이 실패한다(ER_DATA_TOO_LONG).
+     *
+     * <p>종류는 읽을 수 있게 남기고 나머지만 고정 길이로 줄인다. 같은 상황이면 같은 값이
+     * 나와야 중복 발송을 막을 수 있으므로 해시를 쓴다 — 자르기는 서로 다른 경로가 같은 키로
+     * 뭉개질 수 있어 쓰지 않는다.
+     */
+    static String shortKey(String type, String detail) {
+        return type + ":" + sha256Hex(detail).substring(0, 32);
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            return HexFormat.of()
+                    .formatHex(
+                            MessageDigest.getInstance("SHA-256")
+                                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 지원 없음", impossible);
+        }
     }
 
     private NotificationCommand command(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,

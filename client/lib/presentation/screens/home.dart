@@ -19,11 +19,15 @@ class HomeScreen extends StatelessWidget {
     required this.homeApi,
     this.recommendationApi,
     this.evaluationRepository,
+    this.scheduleRepository,
     this.go,
   });
   final HomeApi homeApi;
   final RecommendationApi? recommendationApi;
   final ScheduleEvaluationRepository? evaluationRepository;
+
+  /// 날짜 화살표로 다른 날을 보려면 오늘 말고도 필요하다. 홈 요약(summary)은 오늘치만 준다.
+  final ScheduleRepository? scheduleRepository;
   final ValueChanged<int>? go;
 
   Future<_HomeData> _load() async {
@@ -101,6 +105,7 @@ class HomeScreen extends StatelessWidget {
                   )
                 : _MobileHomeContent(
                     schedules: data.summary.todaySchedules,
+                    scheduleRepository: scheduleRepository,
                     routes: routes,
                     evaluation: data.evaluation,
                     scheduleId: schedule?.id,
@@ -151,15 +156,20 @@ class _HomeData {
   final ScheduleEvaluationV2? evaluation;
 }
 
-class _MobileHomeContent extends StatelessWidget {
+class _MobileHomeContent extends StatefulWidget {
   const _MobileHomeContent({
     required this.schedules,
     required this.routes,
+    this.scheduleRepository,
     this.evaluation,
     this.scheduleId,
   });
 
   final List<Schedule> schedules;
+
+  /// 다른 날 일정은 화살표를 처음 누를 때만 불러온다. 홈을 열 때마다 받으면
+  /// 오늘만 보는 대부분의 경우에 요청이 하나 늘어난다.
+  final ScheduleRepository? scheduleRepository;
   final List<RouteOption> routes;
   final ScheduleEvaluationV2? evaluation;
 
@@ -167,18 +177,71 @@ class _MobileHomeContent extends StatelessWidget {
   final String? scheduleId;
 
   @override
+  State<_MobileHomeContent> createState() => _MobileHomeContentState();
+}
+
+class _MobileHomeContentState extends State<_MobileHomeContent> {
+  /// 화면에 보이는 날. 처음에는 오늘이다.
+  DateTime _selected = _dayOf(DateTime.now());
+
+  static DateTime _dayOf(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  /// 화살표를 처음 누른 뒤에만 채워진다. 실패하면 null 로 남는다.
+  List<Schedule>? _browsed;
+  bool _loading = false;
+  bool _failed = false;
+
+  bool get _canBrowse => widget.scheduleRepository != null;
+
+  bool get _isToday => _selected == _dayOf(DateTime.now());
+
+  Future<void> _shiftDay(int days) async {
+    final next = DateTime(
+      _selected.year,
+      _selected.month,
+      _selected.day + days,
+    );
+    if (_browsed == null) {
+      setState(() {
+        _loading = true;
+        _failed = false;
+      });
+      List<Schedule>? loaded;
+      try {
+        loaded = await widget.scheduleRepository!.schedules();
+      } on Object {
+        loaded = null;
+      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _browsed = loaded;
+        _failed = loaded == null;
+        if (loaded != null) _selected = next;
+      });
+      return;
+    }
+    setState(() => _selected = next);
+  }
+
+  void _backToToday() {
+    setState(() => _selected = _dayOf(DateTime.now()));
+  }
+
+  /// 그 날 일정. 아직 전체를 불러오지 않았으면 홈 요약이 준 오늘치를 쓴다.
+  List<Schedule> _schedulesOn(DateTime day) {
+    final source = _browsed ?? widget.schedules;
+    return source
+        .where((schedule) => _dayOf(schedule.date) == day)
+        .toList(growable: false)
+      ..sort((a, b) => a.date.compareTo(b.date));
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final today =
-        schedules
-            .where(
-              (schedule) =>
-                  schedule.date.year == now.year &&
-                  schedule.date.month == now.month &&
-                  schedule.date.day == now.day,
-            )
-            .toList()
-          ..sort((a, b) => a.date.compareTo(b.date));
+    final now = _selected;
+    final today = _schedulesOn(_selected);
     return ColoredBox(
       color: const Color(0xFFF7FBFA),
       child: ListView(
@@ -221,41 +284,69 @@ class _MobileHomeContent extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          if (evaluation != null) ...[
+          if (widget.evaluation != null) ...[
             // 홈은 결론 한 줄만 보여주고, 자세한 근거는 일정 상세에서 본다.
             DepartureHeadline(
-              evaluation: evaluation,
+              evaluation: widget.evaluation!,
               compact: true,
-              onTap: scheduleId == null
+              onTap: widget.scheduleId == null
                   ? null
-                  : () => context.push('/schedules/$scheduleId'),
+                  : () => context.push('/schedules/${widget.scheduleId}'),
             ),
             const SizedBox(height: 16),
           ],
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.chevron_left_rounded, color: Color(0xFF52709B)),
-              const SizedBox(width: 14),
-              Text(
-                '${now.month}월 ${now.day}일 (${weekdayLabels[now.weekday - 1]})',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: DdubiColors.navy,
+              _DayArrow(
+                key: const Key('homePreviousDay'),
+                icon: Icons.chevron_left_rounded,
+                tooltip: '전날',
+                onTap: _canBrowse && !_loading ? () => _shiftDay(-1) : null,
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                // 며칠 넘긴 뒤 오늘로 바로 돌아올 길을 둔다.
+                key: const Key('homeDateLabel'),
+                onTap: _isToday ? null : _backToToday,
+                child: Text(
+                  '${now.month}월 ${now.day}일 (${weekdayLabels[now.weekday - 1]})',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: DdubiColors.navy,
+                  ),
                 ),
               ),
-              const SizedBox(width: 14),
-              const Icon(Icons.chevron_right_rounded, color: Color(0xFF52709B)),
+              const SizedBox(width: 6),
+              _DayArrow(
+                key: const Key('homeNextDay'),
+                icon: Icons.chevron_right_rounded,
+                tooltip: '다음 날',
+                onTap: _canBrowse && !_loading ? () => _shiftDay(1) : null,
+              ),
             ],
           ),
+          if (_loading || _failed || !_isToday) ...[
+            const SizedBox(height: 6),
+            Center(
+              child: Text(
+                _loading
+                    ? '다른 날 일정을 불러오는 중...'
+                    : _failed
+                    ? '다른 날 일정을 불러오지 못했어요.'
+                    : '날짜를 눌러 오늘로 돌아갑니다',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7F91A2)),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  '오늘의 일정',
-                  style: TextStyle(
+                  _isToday ? '오늘의 일정' : '${now.month}월 ${now.day}일 일정',
+                  style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
                     color: DdubiColors.navy,
@@ -283,11 +374,13 @@ class _MobileHomeContent extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           if (today.isEmpty)
-            const InfoCard(
+            InfoCard(
               child: Center(
                 child: Padding(
-                  padding: EdgeInsets.all(18),
-                  child: Text('오늘 등록된 일정이 없어요.'),
+                  padding: const EdgeInsets.all(18),
+                  child: Text(
+                    _isToday ? '오늘 등록된 일정이 없어요.' : '이 날은 등록된 일정이 없어요.',
+                  ),
                 ),
               ),
             )
@@ -295,7 +388,7 @@ class _MobileHomeContent extends StatelessWidget {
             for (var index = 0; index < today.length; index++) ...[
               _TodayScheduleCard(
                 schedule: today[index],
-                routes: routes,
+                routes: widget.routes,
                 index: index,
               ),
               const SizedBox(height: 10),
@@ -747,4 +840,36 @@ class _HomeMetric extends StatelessWidget {
       Text(value, style: Theme.of(context).textTheme.titleMedium),
     ],
   );
+}
+
+/// 홈 날짜를 앞뒤로 넘기는 화살표.
+///
+/// 예전에는 그냥 [Icon] 이라 눌러도 아무 일이 없었다. 눌리는 것처럼 보이는데 안 눌리면
+/// 고장으로 읽히므로, 쓸 수 없을 때는 흐리게 보여 눌러도 되는지 눈으로 알 수 있게 한다.
+class _DayArrow extends StatelessWidget {
+  const _DayArrow({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onTap,
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      icon: Icon(
+        icon,
+        color: onTap == null
+            ? const Color(0xFFBFCBD8)
+            : const Color(0xFF52709B),
+      ),
+    );
+  }
 }

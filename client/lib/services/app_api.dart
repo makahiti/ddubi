@@ -292,6 +292,8 @@ class UserApi {
     bool? alarmEnabled,
     // "07:00" 형식. 빈 문자열을 보내면 서버가 "브리핑 안 받음" 으로 지운다.
     String? briefingTime,
+    // 밤 브리핑 시각. 규칙은 briefingTime 과 같다.
+    String? nightBriefingTime,
   }) async {
     if (_sessionStore.session == null) return getMe();
     return UserProfile.fromJson(
@@ -304,6 +306,10 @@ class UserApi {
             'alarmEnabled': ?alarmEnabled,
             if (briefingTime != null)
               'briefingTime': briefingTime.isEmpty ? null : briefingTime,
+            if (nightBriefingTime != null)
+              'nightBriefingTime': nightBriefingTime.isEmpty
+                  ? null
+                  : nightBriefingTime,
           },
         ),
       ),

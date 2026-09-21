@@ -43,6 +43,11 @@ public class UserUpdateRequest {
 
     private boolean briefingTimePresent;
 
+    /** 밤 브리핑 시각. 명시적 null 이면 끈다. 내일 일정을 전날 밤에 알린다. */
+    private LocalTime nightBriefingTime;
+
+    private boolean nightBriefingTimePresent;
+
     /** 이동 시 어려운 점. 명시적 null 이면 지운다 (REQ-SCH-004). */
     @Size(max = 100, message = "이동 메모는 100자를 넘을 수 없습니다.")
     private String mobilityNote;
@@ -109,6 +114,20 @@ public class UserUpdateRequest {
         return mobilityNotePresent;
     }
 
+    public LocalTime getNightBriefingTime() {
+        return nightBriefingTime;
+    }
+
+    public void setNightBriefingTime(LocalTime nightBriefingTime) {
+        this.nightBriefingTime = nightBriefingTime;
+        this.nightBriefingTimePresent = true;
+    }
+
+    /** JSON 에 nightBriefingTime 키가 있었는가. 값이 null 이어도 true 다. */
+    public boolean isNightBriefingTimePresent() {
+        return nightBriefingTimePresent;
+    }
+
     /** 변경할 게 하나도 없으면 굳이 UPDATE 를 돌리지 않는다. */
     public boolean isEmpty() {
         return nickname == null
@@ -116,6 +135,7 @@ public class UserUpdateRequest {
                 && alarmEnabled == null
                 && historyConsent == null
                 && !briefingTimePresent
+                && !nightBriefingTimePresent
                 && !mobilityNotePresent;
     }
 }

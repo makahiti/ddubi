@@ -22,5 +22,7 @@ public enum NotificationType {
     /** 연속 일정 충돌 (SCH-006 / REQ-RSK-001) */
     SCHEDULE_CONFLICT,
     /** 파이프라인 데이터가 낡음 — 추천 신뢰도 하락 */
-    DATA_STALE
+    DATA_STALE,
+    /** 밤 브리핑 — 내일 일정을 전날 밤에 미리 알린다 */
+    NIGHT_BRIEF
 }

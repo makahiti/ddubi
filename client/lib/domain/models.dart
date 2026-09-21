@@ -488,6 +488,7 @@ class UserProfile {
     required this.notifyLeadMin,
     required this.alarmEnabled,
     this.briefingTime,
+    this.nightBriefingTime,
     this.provider,
   });
 
@@ -501,6 +502,10 @@ class UserProfile {
   /// 서버가 briefing_time 이 비어 있는 사용자를 대상에서 제외한다.
   final String? briefingTime;
 
+  /// 밤 브리핑을 받을 시각 "HH:mm". null 이면 받지 않는다.
+  /// 아침 브리핑은 오늘 남은 일정을, 밤 브리핑은 내일 일정을 알린다.
+  final String? nightBriefingTime;
+
   final String? provider;
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -510,6 +515,7 @@ class UserProfile {
     notifyLeadMin: (json['notifyLeadMin'] as num?)?.toInt() ?? 20,
     alarmEnabled: json['alarmEnabled'] as bool? ?? true,
     briefingTime: _hourMinuteOrNull(json['briefingTime']?.toString()),
+    nightBriefingTime: _hourMinuteOrNull(json['nightBriefingTime']?.toString()),
     provider: json['provider']?.toString(),
   );
 }

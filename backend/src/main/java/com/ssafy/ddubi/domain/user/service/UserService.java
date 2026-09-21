@@ -69,6 +69,9 @@ public class UserService {
             user.changeHistoryConsent(request.getHistoryConsent());
         }
         // 지울 수 있는 필드는 "키가 왔는가"로 판단한다. 값이 null 이면 지우라는 뜻이다.
+        if (request.isNightBriefingTimePresent()) {
+            user.changeNightBriefingTime(request.getNightBriefingTime());
+        }
         if (request.isBriefingTimePresent()) {
             user.changeBriefingTime(request.getBriefingTime());
         }

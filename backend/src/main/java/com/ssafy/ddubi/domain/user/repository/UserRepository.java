@@ -35,4 +35,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
             order by u.id asc
             """)
     List<User> findAllWithBriefingTimeAtOrBefore(@Param("now") LocalTime now);
+
+    /**
+     * 밤 브리핑 대상 후보 — 오늘 밤 브리핑 시각이 이미 지난 사용자.
+     *
+     * <p>아침 브리핑과 같은 규칙이다. NULL 이면 받지 않겠다는 뜻이고, 같은 날 안에서만 본다.
+     */
+    @Query("""
+            select u from User u
+            where u.nightBriefingTime is not null
+              and u.nightBriefingTime <= :now
+            order by u.id asc
+            """)
+    List<User> findAllWithNightBriefingTimeAtOrBefore(@Param("now") LocalTime now);
 }

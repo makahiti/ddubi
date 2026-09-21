@@ -47,6 +47,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// 저장 직후의 아침 브리핑 시각. 서버 값을 다시 읽기 전까지 화면이 되돌아가지 않게 둔다.
   String? _briefingTime;
+  String? _nightBriefingTime;
+  bool _nightBriefingBusy = false;
   bool _briefingBusy = false;
 
   @override
@@ -137,6 +139,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 2),
             const SizedBox(height: 14),
             _briefingCard(context, user),
+            const SizedBox(height: 12),
+            _nightBriefingCard(context, user),
             const SizedBox(height: 14),
             _mobileServiceStatus(context),
             const SizedBox(height: 14),
@@ -265,6 +269,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _permissionCard(),
                 const SizedBox(height: 16),
                 _briefingCard(context, user),
+                const SizedBox(height: 12),
+                _nightBriefingCard(context, user),
                 const SizedBox(height: 16),
                 _serviceStatus(context),
                 const SizedBox(height: 16),
@@ -1005,6 +1011,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  /// 밤 브리핑 시각.
+  ///
+  /// 아침 브리핑은 "오늘 남은" 일정을 알린다. 그래서 저녁 시각으로 맞춰 두면 그날 일정이
+  /// 이미 끝나 있어 아무것도 오지 않는다. 내일을 미리 보는 것은 성격이 다른 알림이라
+  /// 시각을 따로 둔다.
+  Widget _nightBriefingCard(BuildContext context, UserProfile user) {
+    final time = _nightBriefingTime ?? user.nightBriefingTime;
+    return InfoCard(
+      key: const Key('nightBriefingCard'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('밤 브리핑'),
+          const SizedBox(height: 6),
+          const Text(
+            '정한 시각에 내일 일정을 미리 알려드려요.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  time == null ? '받지 않음' : '$time 에 받기',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: DdubiColors.navy,
+                  ),
+                ),
+              ),
+              if (time != null)
+                TextButton(
+                  key: const Key('nightBriefingClearButton'),
+                  onPressed: _nightBriefingBusy
+                      ? null
+                      : () => _saveNightBriefing(''),
+                  child: const Text('끄기'),
+                ),
+              OutlinedButton(
+                key: const Key('nightBriefingPickButton'),
+                onPressed: _nightBriefingBusy
+                    ? null
+                    : () => _pickNightBriefingTime(time),
+                child: Text(time == null ? '시각 정하기' : '변경'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickNightBriefingTime(String? current) async {
+    final parts = (current ?? '21:00').split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.tryParse(parts.first) ?? 21,
+        minute: int.tryParse(parts.last) ?? 0,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final value =
+        '${picked.hour.toString().padLeft(2, '0')}:'
+        '${picked.minute.toString().padLeft(2, '0')}';
+    await _saveNightBriefing(value);
+  }
+
+  /// 빈 문자열을 보내면 서버가 값을 지워 "밤 브리핑 안 받음" 이 된다.
+  Future<void> _saveNightBriefing(String value) async {
+    setState(() => _nightBriefingBusy = true);
+    try {
+      final updated = await widget.userApi.update(nightBriefingTime: value);
+      if (!mounted) return;
+      setState(() => _nightBriefingTime = updated.nightBriefingTime);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value.isEmpty ? '밤 브리핑을 끕니다.' : '$value 에 내일 일정을 알려드릴게요.',
+          ),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('밤 브리핑 설정을 저장하지 못했어요.')));
+    } finally {
+      if (mounted) setState(() => _nightBriefingBusy = false);
+    }
   }
 
   Future<void> _pickBriefingTime(String? current) async {

@@ -23,6 +23,7 @@ public record UserResponse(
         boolean alarmEnabled,
         LocalDateTime historyConsentedAt,
         LocalTime briefingTime,
+        LocalTime nightBriefingTime,
         String mobilityNote,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
@@ -37,6 +38,7 @@ public record UserResponse(
                 user.isAlarm(),
                 user.getHistoryConsentedAt(),
                 user.getBriefingTime(),
+                user.getNightBriefingTime(),
                 user.getMobilityNote(),
                 user.getCreatedAt(),
                 user.getUpdatedAt());
