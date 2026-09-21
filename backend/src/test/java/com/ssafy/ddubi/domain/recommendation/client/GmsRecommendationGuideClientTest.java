@@ -36,6 +36,8 @@ class GmsRecommendationGuideClientTest {
                         java.util.Map.of(
                                 "routeSummary",
                                 "집에서 역까지 걸은 뒤 지하철을 이용하세요.",
+                                "recommendationReason",
+                                "통제로 다른 경로를 제안해요.",
                                 "delayExplanation",
                                 "공식 사고 영향이 확인됐어요."));
         String response =
@@ -44,8 +46,15 @@ class GmsRecommendationGuideClientTest {
                                 "output",
                                 List.of(
                                         java.util.Map.of(
-                                                "type", "message",
-                                                "content", List.of(java.util.Map.of("type", "output_text", "text", content))))));
+                                                "type",
+                                                "message",
+                                                "content",
+                                                List.of(
+                                                        java.util.Map.of(
+                                                                "type",
+                                                                "output_text",
+                                                                "text",
+                                                                content))))));
         server.expect(requestTo("https://gms.ssafy.io/gmsapi/api.openai.com/v1/responses"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer synthetic-key"))
@@ -60,6 +69,7 @@ class GmsRecommendationGuideClientTest {
         var result = client.generate(facts(true));
         assertThat(result).isPresent();
         assertThat(result.orElseThrow().routeSummary()).contains("지하철");
+        assertThat(result.orElseThrow().recommendationReason()).contains("다른 경로");
         assertThat(result.orElseThrow().delayExplanation()).contains("사고");
         server.verify();
     }
@@ -88,9 +98,18 @@ class GmsRecommendationGuideClientTest {
         return new GmsRecommendationGuideClient.Facts(
                 "2026-09-21T08:10",
                 "2026-09-21T08:52",
-                List.of(new GmsRecommendationGuideClient.StepFact(1, "WALK", null, "집", "강남역", 300L)),
+                List.of(
+                        new GmsRecommendationGuideClient.StepFact(
+                                1, "WALK", null, "집", "강남역", 300L)),
                 2520L,
                 new com.ssafy.ddubi.domain.route.model.FareRange(1550, 1650),
+                new GmsRecommendationGuideClient.ChangeFact(
+                        "ROUTE_CHANGED",
+                        "2026-09-21T08:20",
+                        "2026-09-21T09:00",
+                        -600L,
+                        -480L,
+                        true),
                 new GmsRecommendationGuideClient.DelayFact(
                         confirmed ? "DELAYED" : "POSSIBLE",
                         confirmed ? "공식 사고 영향" : "영향 가능성",

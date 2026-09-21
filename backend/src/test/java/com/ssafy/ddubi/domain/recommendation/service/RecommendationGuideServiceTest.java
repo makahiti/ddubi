@@ -20,6 +20,63 @@ import org.springframework.data.redis.core.ValueOperations;
 /** AI가 시간·구조를 바꾸지 않고 서버 계산값 위에 표현 문구만 더하는지 검증한다. */
 class RecommendationGuideServiceTest {
     @Test
+    void classifiesRouteDepartureEtaAndNoChangeBeforeCallingGms() throws Exception {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+
+        assertThat(
+                        RecommendationGuideService.change(
+                                        evaluation(json, 1, 2, "08:00", "07:50", "08:40", "08:35"))
+                                .type())
+                .isEqualTo("ROUTE_CHANGED");
+        assertThat(
+                        RecommendationGuideService.change(
+                                        evaluation(json, 1, 1, "08:00", "07:50", "08:40", "08:35"))
+                                .type())
+                .isEqualTo("DEPARTURE_TIME_CHANGED");
+        assertThat(
+                        RecommendationGuideService.change(
+                                        evaluation(json, 1, 1, "08:00", "08:00", "08:40", "08:45"))
+                                .type())
+                .isEqualTo("ETA_UPDATED");
+        assertThat(
+                        RecommendationGuideService.change(
+                                        evaluation(json, 1, 1, "08:00", "08:00", "08:40", "08:40"))
+                                .type())
+                .isEqualTo("NO_CHANGE");
+    }
+
+    private static ScheduleEvaluationV2 evaluation(
+            ObjectMapper json,
+            long selected,
+            long proposed,
+            String planned,
+            String proposedDeparture,
+            String previousArrival,
+            String proposedArrival)
+            throws Exception {
+        return json.readValue(
+                """
+                {
+                  "selectedRouteId":%d,
+                  "proposedRouteId":%d,
+                  "plannedDepartAt":"2026-09-22T%s:00",
+                  "proposedDepartAt":"2026-09-22T%s:00",
+                  "originalEstimatedArrivalAt":"2026-09-22T%s:00",
+                  "estimatedArrivalAt":"2026-09-22T%s:00",
+                  "causes":[],"segments":[],"candidateEstimates":[]
+                }
+                """
+                        .formatted(
+                                selected,
+                                proposed,
+                                planned,
+                                proposedDeparture,
+                                previousArrival,
+                                proposedArrival),
+                ScheduleEvaluationV2.class);
+    }
+
+    @Test
     void guideKeepsCalculatedTimesAndReturnsStructuredSteps() throws Exception {
         ObjectMapper json = new ObjectMapper().findAndRegisterModules();
         ScheduleEvaluationV2 evaluation =
@@ -50,7 +107,7 @@ class RecommendationGuideServiceTest {
                 .thenReturn(
                         Optional.of(
                                 new GmsRecommendationGuideClient.GeneratedCopy(
-                                        "강남역까지 걸은 뒤 잠실역까지 지하철로 이동하세요.", null)));
+                                        "강남역까지 걸은 뒤 잠실역까지 지하철로 이동하세요.", "현재 경로를 유지해도 돼요.", null)));
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
         @SuppressWarnings("unchecked")
         ValueOperations<String, String> values = mock(ValueOperations.class);
@@ -75,6 +132,8 @@ class RecommendationGuideServiceTest {
         assertThat(result.routeSteps().get(1).routeLabel()).isEqualTo("2호선");
         assertThat(result.fare().minimumWon()).isEqualTo(1550);
         assertThat(result.routeSummary()).contains("잠실역");
+        assertThat(result.changeType()).isEqualTo("NO_CHANGE");
+        assertThat(result.recommendationReason()).contains("유지");
         assertThat(result.delay().status()).isEqualTo("NO_CONFIRMED_DELAY");
         assertThat(result.generatedBy()).isEqualTo("GMS:gpt-5.5-pro");
     }

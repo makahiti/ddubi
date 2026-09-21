@@ -202,6 +202,8 @@ CREATE TABLE route (
     route_request_id  BIGINT       NOT NULL COMMENT '이 후보를 만든 호출',
     provider_path_id  VARCHAR(100) NULL     COMMENT '외부 API 가 준 경로 식별자',
     base_duration_min INT          NOT NULL COMMENT '외부 API 기본 예상시간(분) — 뚜비 보정 전',
+    fare_minimum_won  INT          NULL     COMMENT '경로 API가 제공한 최소 예상 요금(원), 알 수 없으면 NULL',
+    fare_maximum_won  INT          NULL     COMMENT '경로 API가 제공한 최대 예상 요금(원), 단일 요금이면 최소와 동일',
     is_selected       BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '사용자 주 경로. 재계산·알림 대상',
     rank_no           INT          NULL     COMMENT '최신 순위 캐시. 과거 순위의 진실은 recommendation',
     created_at        DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),

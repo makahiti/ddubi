@@ -501,6 +501,7 @@ Git에는 모델과 참조 자료가 포함되지 않으므로 코드만 받아�
 | `PRODUCTION` | 12.4 운영 계약을 모두 만족한 응답만 | `ML_APPLIED`, step source `ML_PRODUCTION`. 미충족 시 `ML_NOT_APPLIED:ML_PRODUCTION_CONTRACT_NOT_MET` | 승인 후 | false(승인 정책 전환은 별도 결정) |
 
 - 어느 모드도 `productionReady`를 true로 바꾸지 않는다. 되돌리기는 값을 `SHADOW`로 바꾸고 backend를 재기동하는 것으로 끝난다(코드 변경·DB 변경 없음).
+- `TEST_APPLY`가 실제 평가에 남긴 `ML_TEST_APPLIED` 결과는 탐색이 완료된 경우 앱에서 수동 적용할 수 있다. 이는 휴대폰 QA를 위한 동작이며 응답의 `PREVIEW`·`productionReady=false` 표시는 유지된다. 단순 PREVIEW/SHADOW 결과는 적용할 수 없다.
 - step 단위 원자성: 한 step의 edge 중 하나라도 숫자가 없으면 그 step 전체를 경로 API 원본 값으로 되돌리고 `ML_NOT_APPLIED:<원인>`을 남긴다. 부분 적용은 하지 않는다.
 - 잘못된 모드 문자열은 기동 실패(fail fast)다.
 

@@ -1,7 +1,7 @@
 """데이터 없는 서비스를 정상으로 오인하거나 배치 입력이 조용히 변형되는 장애를 방어한다."""
 
-import json
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -121,9 +121,7 @@ def test_http_response_digest_uses_exact_request_bytes():
 
     raw = json.dumps(payload(), ensure_ascii=False, separators=(", ", ": ")).encode()
     with TestClient(create_app(predictor=Preview())) as client:
-        response = client.post(
-            "/v1/bus/predictions:batch", content=raw, headers={"Content-Type": "application/json"}
-        )
+        response = client.post("/v1/bus/predictions:batch", content=raw, headers={"Content-Type": "application/json"})
     assert response.status_code == 200
     assert response.json()["input_digest"] == hashlib.sha256(raw).hexdigest()
 

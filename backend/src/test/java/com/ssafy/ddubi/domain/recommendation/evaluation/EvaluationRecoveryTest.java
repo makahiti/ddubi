@@ -147,7 +147,7 @@ class EvaluationRecoveryTest {
     }
 
     @Test
-    void testAppliedModelRemainsUnacceptable() {
+    void explicitlyTestAppliedModelCanBeAcceptedForManualQa() {
         var f = new MlApplyModeTest();
         when(f.client.predict(any())).thenReturn(f.sufficient(30));
         var e =
@@ -169,7 +169,9 @@ class EvaluationRecoveryTest {
                                                         at,
                                                         f.now.plusSeconds(1000)));
         assertThat(EvaluationGuidance.from(e).canDisplayEstimate()).isTrue();
-        assertThat(EvaluationGuidance.from(e).canAccept()).isFalse();
+        assertThat(EvaluationGuidance.from(e).canAccept()).isTrue();
+        assertThat(EvaluationGuidance.from(e).source()).isEqualTo("EXPERIMENTAL_ESTIMATE");
+        assertThat(EvaluationGuidance.from(e).reasons()).contains("ML_TEST_APPLIED");
     }
 
     @Test

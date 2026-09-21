@@ -104,6 +104,8 @@ class RouteQueryApiTest extends IntegrationTestSupport {
                         .routeRequest(request)
                         .providerPathId("path-1")
                         .baseDurationMin(25)
+                        .fareMinimumWon(1650)
+                        .fareMaximumWon(1650)
                         .selected(true)
                         .rankNo(1)
                         .build();
@@ -320,6 +322,8 @@ class RouteQueryApiTest extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.data[0].displayRank").value(1))
                 .andExpect(jsonPath("$.data[0].selected").value(true))
                 .andExpect(jsonPath("$.data[0].baseDurationMin").value(25))
+                .andExpect(jsonPath("$.data[0].fare.minimumWon").value(1650))
+                .andExpect(jsonPath("$.data[0].fare.maximumWon").value(1650))
                 .andExpect(jsonPath("$.data[0].fromName").value("집"))
                 .andExpect(jsonPath("$.data[0].toName").value("역삼역"))
                 .andExpect(jsonPath("$.data[0].segmentCount").value(2))

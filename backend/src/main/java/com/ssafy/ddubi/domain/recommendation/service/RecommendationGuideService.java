@@ -10,6 +10,7 @@ import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -62,6 +63,7 @@ public class RecommendationGuideService {
         List<RecommendationGuideResponse.RouteStep> steps = steps(evaluation);
         CauseDetail detail = cause(evaluation.causes(), now);
         RecommendationGuideResponse.Delay delay = delay(evaluation.causes(), detail);
+        GmsRecommendationGuideClient.ChangeFact change = change(evaluation);
         String fallbackRoute =
                 steps.isEmpty()
                         ? "이동 경로를 확인하고 있어요."
@@ -86,13 +88,18 @@ public class RecommendationGuideService {
                                 .toList(),
                         evaluation.durationSeconds(),
                         evaluation.fare(),
+                        change,
                         new GmsRecommendationGuideClient.DelayFact(
                                 delay.status(), delay.reason(), delay.source(), delay.confirmed()));
         var generated = gms.generate(facts).orElse(null);
         String delayReason =
-                generated != null && generated.delayExplanation() != null && delay.confirmed()
+                generated != null && generated.delayExplanation() != null
                         ? generated.delayExplanation()
                         : delay.reason();
+        String recommendationReason =
+                generated == null
+                        ? fallbackRecommendation(change.type(), delay)
+                        : generated.recommendationReason();
         RecommendationGuideResponse response =
                 new RecommendationGuideResponse(
                         "recommendation-guide-v1",
@@ -102,6 +109,8 @@ public class RecommendationGuideService {
                         evaluation.durationSeconds(),
                         evaluation.fare(),
                         headline(evaluation),
+                        change.type(),
+                        recommendationReason,
                         generated == null ? fallbackRoute : generated.routeSummary(),
                         steps,
                         new RecommendationGuideResponse.Delay(
@@ -115,6 +124,53 @@ public class RecommendationGuideService {
                         generated == null ? "TEMPLATE" : "GMS:" + properties.model());
         cache(cacheKey, response, now);
         return response;
+    }
+
+    /**
+     * 선택·제안 차이는 서버가 확정하고 GMS에는 문장 작성에 필요한 최소 사실만 준다. 내부 route ID는 모델로 보내지 않으며, 같은 경로에서는 사용자가 실제로
+     * 적용할 수 있는 출발 변경을 ETA 단순 갱신보다 우선한다.
+     */
+    static GmsRecommendationGuideClient.ChangeFact change(ScheduleEvaluationV2 evaluation) {
+        boolean routeChanged =
+                evaluation.selectedRouteId() != null
+                        && evaluation.proposedRouteId() != null
+                        && !evaluation.selectedRouteId().equals(evaluation.proposedRouteId());
+        Long departureDelta = delta(evaluation.plannedDepartAt(), evaluation.proposedDepartAt());
+        Long arrivalDelta =
+                delta(evaluation.originalEstimatedArrivalAt(), evaluation.estimatedArrivalAt());
+        String type =
+                routeChanged
+                        ? "ROUTE_CHANGED"
+                        : departureDelta != null && departureDelta != 0
+                                ? "DEPARTURE_TIME_CHANGED"
+                                : arrivalDelta != null && arrivalDelta != 0
+                                        ? "ETA_UPDATED"
+                                        : "NO_CHANGE";
+        return new GmsRecommendationGuideClient.ChangeFact(
+                type,
+                value(evaluation.plannedDepartAt()),
+                value(evaluation.originalEstimatedArrivalAt()),
+                departureDelta,
+                arrivalDelta,
+                routeChanged);
+    }
+
+    private static Long delta(LocalDateTime before, LocalDateTime after) {
+        return before == null || after == null
+                ? null
+                : Duration.between(before, after).getSeconds();
+    }
+
+    private static String fallbackRecommendation(
+            String changeType, RecommendationGuideResponse.Delay delay) {
+        String cause = delay.reason();
+        return switch (changeType) {
+            case "ROUTE_CHANGED" ->
+                    cause == null ? "현재 이동 상황을 반영해 다른 경로를 제안해요." : cause + " 다른 경로를 제안해요.";
+            case "DEPARTURE_TIME_CHANGED" -> "같은 경로를 이용하되 출발시각 변경을 제안해요.";
+            case "ETA_UPDATED" -> "경로와 출발시각은 유지하고 예상 도착시간을 갱신했어요.";
+            default -> "현재 선택한 경로와 출발시각을 유지해도 돼요.";
+        };
     }
 
     private RecommendationGuideResponse cached(String key) {
@@ -167,7 +223,8 @@ public class RecommendationGuideService {
         return switch (segment.mode() == null ? "" : segment.mode()) {
             case "WALK" -> from + "에서 " + to + "까지 도보 이동";
             case "BUS" -> from + "에서 " + (route.isEmpty() ? "버스" : route) + " 탑승 후 " + to + "에서 하차";
-            case "SUBWAY" -> from + "에서 " + (route.isEmpty() ? "지하철" : route) + " 탑승 후 " + to + "에서 하차";
+            case "SUBWAY" ->
+                    from + "에서 " + (route.isEmpty() ? "지하철" : route) + " 탑승 후 " + to + "에서 하차";
             default -> from + "에서 " + to + "까지 이동";
         };
     }

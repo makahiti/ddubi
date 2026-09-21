@@ -116,13 +116,16 @@ class SegmentResult(BaseModel):
 
     segment_key: str
     status: Literal["PREVIEW", "PRODUCTION", "UNAVAILABLE"]
-    reason: Literal[
-        "MODEL_NOT_PRODUCTION_READY",
-        "UNSUPPORTED_PROVIDER",
-        "REFERENCE_DATE_UNSUPPORTED",
-        "UNSEEN_PROVIDER_ID",
-        "INVALID_DURATION",
-    ] | None
+    reason: (
+        Literal[
+            "MODEL_NOT_PRODUCTION_READY",
+            "UNSUPPORTED_PROVIDER",
+            "REFERENCE_DATE_UNSUPPORTED",
+            "UNSEEN_PROVIDER_ID",
+            "INVALID_DURATION",
+        ]
+        | None
+    )
     prediction: Prediction | None
 
     @model_validator(mode="after")

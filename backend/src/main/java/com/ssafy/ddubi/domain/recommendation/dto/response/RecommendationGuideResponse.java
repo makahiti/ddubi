@@ -16,6 +16,8 @@ public record RecommendationGuideResponse(
         Long durationSeconds,
         FareRange fare,
         String headline,
+        String changeType,
+        String recommendationReason,
         String routeSummary,
         List<RouteStep> routeSteps,
         Delay delay,

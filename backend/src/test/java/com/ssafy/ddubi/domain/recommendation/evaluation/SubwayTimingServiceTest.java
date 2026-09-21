@@ -522,7 +522,7 @@ class SubwayTimingServiceTest {
     }
 
     @Test
-    void previewAppliesTimetableOnlyWhenProviderTotalIsFullyExplained() {
+    void providerResidualPreventsDuplicatedTimetableWaitAndKeepsProviderTotal() {
         var trip = trip("T1", call("A", 60, true), call("B", 300, true));
         var bus = mock(BusPreviewClient.class);
         var evidence = new RouteEvidenceAssembler(redis, json);
@@ -549,21 +549,15 @@ class SubwayTimingServiceTest {
                                 List.of(segment(1, "A", "B")));
                 var result =
                         preview.compare(List.of(route), snapshot, now, now, now.plusSeconds(2000));
-                // 규칙이 바뀌었다(2026-09-21). provider 총시간 중 구간으로 분해되지 않은 몫이
-                // 있으면 그 안에 승강장 대기가 이미 들어 있을 수 있다고 보고 시각표를 적용하지
-                // 않는다. 같은 대기를 두 번 세지 않기 위해서다. 미분류 몫이 없을 때만 시각표를
-                // 쓴다.
                 boolean applied = residual == 0;
-                assertThat(result.subwayPredictions()).hasSize(applied ? 1 : 0);
-                if (applied) {
-                    assertThat(result.subwayPredictions().get(0).applied()).isTrue();
-                } else {
-                    assertThat(result.fastest().reasons())
-                            .anyMatch(r -> r.endsWith(":WAIT_TIME_COVERED_BY_PROVIDER_TOTAL"));
-                }
+                if (applied) assertThat(result.subwayPredictions().get(0).applied()).isTrue();
+                else assertThat(result.subwayPredictions()).isEmpty();
                 assertThat(result.candidates().get(0).subwaySteps()).isEqualTo(applied ? 1 : 0);
                 assertThat(result.fastest().estimatedArrivalAt())
                         .isEqualTo(now.plusSeconds(applied ? 300 : 999 + residual));
+                if (!applied)
+                    assertThat(result.fastest().reasons())
+                            .contains("step-1:WAIT_TIME_COVERED_BY_PROVIDER_TOTAL");
             }
         verifyNoInteractions(bus);
     }
