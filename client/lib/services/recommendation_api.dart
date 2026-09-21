@@ -156,7 +156,16 @@ class SavedRouteSummary {
         modes: RecommendationApi._strings(json['modes']),
       );
 
-  RouteOption toRouteOption(Schedule schedule) {
+  /// 요약 카드에 쓸 값.
+  ///
+  /// [evaluatedMinutes] 와 [fareLabel] 은 아래 추천 목록·안내 카드가 실제로 보여주는 값이다.
+  /// 같은 화면에서 이 카드만 경로 API 원본을 쓰는 바람에, 같은 경로가 위에서는 42분,
+  /// 아래에서는 51분으로 보였다(2026-09-22 확인). 값이 있으면 그것을 따른다.
+  RouteOption toRouteOption(
+    Schedule schedule, {
+    int? evaluatedMinutes,
+    String? fareLabel,
+  }) {
     return RouteOption(
       kind: selected ? RouteKind.recommended : RouteKind.candidate,
       label: selected ? '선택된 경로' : '경로 ${rankNo == 0 ? '-' : rankNo}',
@@ -168,8 +177,8 @@ class SavedRouteSummary {
           : RecommendationApi._time(schedule.plannedDepartAt!),
       arrival: '평가 필요',
       margin: '$segmentCount개 이동 구간',
-      detail: '약 $baseDurationMin분',
-      fare: '요금 정보 없음',
+      detail: '약 ${evaluatedMinutes ?? baseDurationMin}분',
+      fare: fareLabel ?? '요금 정보 없음',
     );
   }
 }
@@ -187,6 +196,21 @@ class SavedRouteSegment {
   final int seq;
   final String mode;
   final String? providerRouteKey;
+
+  /// 화면에 보여도 되는 노선 이름.
+  ///
+  /// `providerRouteKey` 는 버스 번호·지하철 호선을 담는 자리인데, 서버가 양 끝 도보를
+  /// 만들어 넣을 때 `EVALUATION_ENDPOINT_WALK` 라는 내부 표시를 같이 넣는다. 그대로
+  /// 찍으면 사용자에게 "도보 EVALUATION_ENDPOINT_WALK" 로 보인다(2026-09-22 확인).
+  /// 도보에는 노선이 없으므로 보여줄 것이 없다.
+  String? get displayRouteName {
+    final key = providerRouteKey?.trim();
+    if (key == null || key.isEmpty) return null;
+    if (mode == 'WALK') return null;
+    if (key == 'EVALUATION_ENDPOINT_WALK') return null;
+    return key;
+  }
+
   final String? fromName;
   final String? toName;
   final int baseDurationMin;

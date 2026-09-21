@@ -502,7 +502,7 @@ class _SavedRouteSegmentTile extends StatelessWidget {
             children: [
               Text(
                 '${segment.seq}. ${routeModeLabel(segment.mode)} '
-                        '${segment.providerRouteKey ?? ''}'
+                        '${segment.displayRouteName ?? ''}'
                     .trim(),
                 style: const TextStyle(
                   fontWeight: FontWeight.w900,

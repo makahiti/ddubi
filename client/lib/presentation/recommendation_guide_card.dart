@@ -89,6 +89,25 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 이 안내는 "지금 선택된 경로" 가 아니라 "가장 최근 계산 결과" 를 설명한다.
+          // 바로 위 카드가 선택 경로라서, 말머리를 달지 않으면 같은 경로 이야기로 읽힌다.
+          // 실제로 팀 안에서 그렇게 오해가 있었다(2026-09-22).
+          Row(
+            key: const Key('guideScopeLabel'),
+            children: const [
+              Icon(Icons.auto_awesome, size: 14, color: Color(0xFF52709B)),
+              SizedBox(width: 5),
+              Text(
+                '방금 계산한 결과 기준',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF52709B),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           if (guide.headline != null)
             Text(
               guide.headline!,

@@ -140,6 +140,26 @@ class ScheduleDetailScreen extends StatelessWidget {
     );
   }
 
+  /// 요약 카드가 보여줄 값. 선택된 경로의 평가 소요시간이 있으면 그것을 쓴다.
+  RouteOption _selectedRouteOption(
+    Schedule schedule,
+    RouteOption fallback,
+    List<SavedRouteSummary> savedRoutes,
+    ScheduleEvaluationV2? evaluation,
+  ) {
+    final selected = savedRoutes.where((route) => route.selected);
+    if (selected.isEmpty || evaluation == null) return fallback;
+    final numbers = RouteEvaluatedNumbers.of(
+      evaluation,
+      selected.first.routeId,
+    );
+    if (numbers.totalMinutes == null) return fallback;
+    return selected.first.toRouteOption(
+      schedule,
+      evaluatedMinutes: numbers.totalMinutes,
+    );
+  }
+
   Widget _content(
     BuildContext c,
     Schedule schedule,
@@ -281,7 +301,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                         Text(
                           route == null
                               ? '추천 출발 시간을 확인 중이에요.'
-                              : '선택한 경로의 기본 정보를\n확인해 주세요.',
+                              : '지금 선택한 경로와\n새로 계산한 결과를 비교해 보세요.',
                           style: const TextStyle(
                             fontSize: 19,
                             height: 1.28,
@@ -354,7 +374,20 @@ class ScheduleDetailScreen extends StatelessWidget {
                 ),
               )
             else ...[
-              _FinalRouteSummary(route: route),
+              // 같은 화면 안에서 숫자가 갈리지 않게, 아래 추천 목록이 쓰는 평가값을 그대로
+              // 쓴다. 예전에는 이 카드만 경로 API 원본을 써서 같은 경로가 위 42분 · 아래
+              // 51분으로 보였다(2026-09-22 확인).
+              ValueListenableBuilder<ScheduleEvaluationV2?>(
+                valueListenable: headline,
+                builder: (context, evaluation, _) => _FinalRouteSummary(
+                  route: _selectedRouteOption(
+                    schedule,
+                    route,
+                    savedRoutes,
+                    evaluation,
+                  ),
+                ),
+              ),
               const SizedBox(height: 10),
               // 계산 근거(내부 사유 코드) 대신 사용자가 행동할 수 있는 안내를 보여준다.
               // 시간과 순서는 서버 계산값이고 앱은 받은 값을 그대로 쓴다.

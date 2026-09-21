@@ -164,8 +164,8 @@ class _MovingScreenState extends State<MovingScreen> {
   /// 한 구간을 사람이 읽는 한 줄로. 모르는 값은 넣지 않는다.
   String _stepText(SavedRouteSegment step) {
     final mode = routeModeLabel(step.mode);
-    final route = step.providerRouteKey;
-    final head = route == null || route.isEmpty ? mode : '$mode $route';
+    final route = step.displayRouteName;
+    final head = route == null ? mode : '$mode $route';
     final to = step.toName;
     return to == null || to.isEmpty ? head : '$head · $to 까지';
   }
