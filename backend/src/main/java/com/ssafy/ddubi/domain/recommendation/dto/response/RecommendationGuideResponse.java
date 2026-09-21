@@ -1,6 +1,7 @@
 package com.ssafy.ddubi.domain.recommendation.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.ssafy.ddubi.domain.route.model.FareRange;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -13,6 +14,7 @@ public record RecommendationGuideResponse(
         LocalDateTime departureAt,
         LocalDateTime estimatedArrivalAt,
         Long durationSeconds,
+        FareRange fare,
         String headline,
         String routeSummary,
         List<RouteStep> routeSteps,
@@ -25,6 +27,7 @@ public record RecommendationGuideResponse(
     public record RouteStep(
             int sequence,
             String mode,
+            String routeLabel,
             String fromName,
             String toName,
             Long durationSeconds,

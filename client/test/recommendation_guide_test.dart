@@ -13,12 +13,14 @@ void main() {
         'departureAt': '2026-09-21T08:10:00',
         'estimatedArrivalAt': '2026-09-21T08:52:00',
         'durationSeconds': 2520,
+        'fare': {'minimumWon': 1550, 'maximumWon': 1650},
         'headline': '08:10 출발 · 08:52 도착 예정',
         'routeSummary': '강남역까지 걸은 뒤 잠실역까지 지하철로 이동하세요.',
         'routeSteps': [
           {
             'sequence': 1,
             'mode': 'WALK',
+            'routeLabel': null,
             'fromName': '출발지',
             'toName': '강남역',
             'durationSeconds': 300,
@@ -49,6 +51,8 @@ void main() {
     expect(guide.steps.single.mode, 'WALK');
     expect(guide.steps.single.instruction, '출발지에서 강남역까지 도보 이동');
     expect(guide.steps.single.durationSeconds, 300);
+    expect(guide.minimumFareWon, 1550);
+    expect(guide.maximumFareWon, 1650);
   });
 
   test('확인된 지연이 없으면 지연 영역을 숨긴다', () {

@@ -113,7 +113,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                         brief -> {
                             assertThat(brief.getStatus()).isEqualTo(NotificationStatus.SENT);
                             assertThat(brief.getTitle()).isEqualTo("오늘 일정 2건");
-                            assertThat(brief.getBody()).isEqualTo("09:00 회사 · 14:00 병원");
+                            assertThat(brief.getBody()).isEqualTo("09:00 회사 · 14:00 병원 · 오늘 일정을 확인해 보세요");
                         });
     }
 
@@ -134,7 +134,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                         brief -> {
                             assertThat(brief.getTitle()).isEqualTo("오늘 일정 5건");
                             assertThat(brief.getBody())
-                                    .isEqualTo("09:00 회사 · 12:00 점심 · 14:00 병원 외 2건");
+                                    .isEqualTo("09:00 회사 · 12:00 점심 · 14:00 병원 외 2건 · 오늘 일정을 확인해 보세요");
                         });
     }
 
@@ -153,7 +153,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                             assertThat(brief.getTitle())
                                     .as("07:01 기준으로 06:00 은 이미 지났다")
                                     .isEqualTo("오늘 일정 1건");
-                            assertThat(brief.getBody()).isEqualTo("09:00 회사");
+                            assertThat(brief.getBody()).isEqualTo("09:00 회사 · 오늘 일정을 확인해 보세요");
                         });
     }
 
@@ -286,11 +286,11 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         assertThat(briefs())
                 .filteredOn(brief -> brief.isOwnedBy(user.getId()))
                 .singleElement()
-                .satisfies(mine -> assertThat(mine.getBody()).isEqualTo("09:00 내 일정"));
+                .satisfies(mine -> assertThat(mine.getBody()).isEqualTo("09:00 내 일정 · 오늘 일정을 확인해 보세요"));
         assertThat(briefs())
                 .filteredOn(brief -> brief.isOwnedBy(other.getId()))
                 .singleElement()
-                .satisfies(theirs -> assertThat(theirs.getBody()).isEqualTo("15:00 남의 일정"));
+                .satisfies(theirs -> assertThat(theirs.getBody()).isEqualTo("15:00 남의 일정 · 오늘 일정을 확인해 보세요"));
     }
 
     /**

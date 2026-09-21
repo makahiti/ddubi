@@ -36,6 +36,11 @@ import java.util.Optional;
  * </pre>
  *
  * 지각이 더 급한 소식이라 먼저 본다. 둘 다 해당하면 지각을 알리되 대안이 있다는 것도 본문에 적는다.
+ *
+ * <h3>문구 규칙</h3>
+ * 제목은 무슨 일인지 한 줄로, 본문은 <b>시각 먼저 그다음 안내</b>로 적고 {@code ·} 로 잇는다.
+ * 잠금화면은 두세 줄만 보여주므로 마침표와 군더더기 말은 넣지 않는다. 알림을 열지 않아도
+ * 몇 시인지 알 수 있어야 한다.
  */
 @Service
 public class EvaluationNotificationPlanner {
@@ -76,8 +81,8 @@ public class EvaluationNotificationPlanner {
                 && outcome.conditional().decision()==com.ssafy.ddubi.domain.recommendation.evaluation.ConditionalDeparturePolicy.Decision.ADVANCE_DEPARTURE
                 && Duration.between(fastest.departureAt(),job.departure()).compareTo(meaningfulGain)>=0) {
             String key=shortKey("EARLY_DEPART", fastest.journeyKey()+":"+(fastest.departureAt().getEpochSecond()/300));
-            return Optional.of(new Planned(command(job,outcome,NotificationType.EARLY_DEPART,"출발 계획을 확인해 주세요",
-                    at(fastest.departureAt())+" 출발 시 "+at(fastest.estimatedArrivalAt())+" 도착 예상입니다.",key),key));
+            return Optional.of(new Planned(command(job,outcome,NotificationType.EARLY_DEPART,"조금 일찍 나서야 해요",
+                    at(fastest.departureAt())+" 출발 · "+at(fastest.estimatedArrivalAt())+" 도착 예상",key),key));
         }
         if (selected != null && late(selected.assessment())) {
             return Optional.of(lateness(job, outcome, selected, fastest));
@@ -111,9 +116,9 @@ public class EvaluationNotificationPlanner {
                              Result selected, Result fastest) {
         boolean hasAlternative = betterRouteExists(selected, fastest);
         String body = selected.estimatedArrivalAt() == null
-                ? "지금 경로로는 도착 시각을 계산할 수 없습니다. 앱에서 경로를 다시 확인해 주세요."
-                : "예상 도착 " + at(selected.estimatedArrivalAt()) + " · 목표 " + at(job.arriveBy())
-                        + (hasAlternative ? ". 더 빠른 경로가 있습니다." : "");
+                ? "도착 시각을 계산하지 못했어요 · 앱에서 경로를 다시 확인해 주세요"
+                : at(selected.estimatedArrivalAt()) + " 도착 예상 · 목표 " + at(job.arriveBy())
+                        + (hasAlternative ? " · 더 빠른 경로가 있어요" : "");
         // 키에 시각을 넣지 않는다. 분마다 1초씩 밀리는 값을 키에 넣으면 상황이 그대로인데도
         // 매 평가가 새 알림이 된다. 경로가 바뀌거나 종류가 바뀔 때만 다시 알린다.
         String key = shortKey("ON_TIME_UNLIKELY", selected.journeyKey());
@@ -126,8 +131,8 @@ public class EvaluationNotificationPlanner {
         long gainMinutes = Duration.between(fastest.estimatedArrivalAt(), selected.estimatedArrivalAt()).toMinutes();
         String key = shortKey("ROUTE_CHANGE", selected.journeyKey() + ">" + fastest.journeyKey());
         return new Planned(command(job, outcome, NotificationType.ROUTE_CHANGE,
-                "더 빠른 경로가 있어요", gainMinutes + "분 빠른 경로를 찾았습니다. 예상 도착 "
-                        + at(fastest.estimatedArrivalAt()) + ".", key),
+                "더 빠른 경로가 있어요",
+                gainMinutes + "분 빠름 · " + at(fastest.estimatedArrivalAt()) + " 도착 예상", key),
                 key);
     }
 

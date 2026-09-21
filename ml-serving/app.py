@@ -6,6 +6,7 @@ Spring 추천 결과를 자동 변경하지 않는다. 로컬은 127.0.0.1:8000�
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import time
@@ -22,7 +23,7 @@ from environment_schema import (
     OnlineFeatureBatchRequest,
     OnlineFeatureBatchResponse,
 )
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from online_feature_assembler import OnlineFeatureAssembler, OnlineFeatureSettings, OnlineFeatureStore
@@ -200,7 +201,7 @@ def create_app(predictor=None, settings=None, today=None, online_feature_assembl
         response_model=BatchResponse,
         responses={422: {"model": InvalidRequest}, 503: {"model": ServiceUnavailable}},
     )
-    async def predict(request: BatchRequest):
+    async def predict(raw_request: Request, request: BatchRequest):
         """스레드 실행 전에 제한된 FIFO에 입장한다. timeout 재시도는 호출자가 소유한다.
 
         대기열 초과/대기 만료는 MODEL_BUSY다. 모델 계산은 이벤트 루프 밖에서 실행하여
@@ -216,6 +217,9 @@ def create_app(predictor=None, settings=None, today=None, online_feature_assembl
         timings, start = {}, time.perf_counter()
         try:
             response = await application.state.inference_queue.run(model.predict, request, timings)
+            # Backend는 자신이 보낸 원문 바이트의 SHA-256을 검증한다. 파싱 후 재직렬화하면 키 순서와
+            # 공백이 달라질 수 있으므로 Starlette가 보관한 최초 body를 그대로 해시한다.
+            response["input_digest"] = hashlib.sha256(await raw_request.body()).hexdigest()
             _log_end(request.request_id, segments, timings, start, "SUCCESS")
             return response
         except QueueBusy:

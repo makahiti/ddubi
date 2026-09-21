@@ -1,6 +1,7 @@
 """데이터 없는 서비스를 정상으로 오인하거나 배치 입력이 조용히 변형되는 장애를 방어한다."""
 
 import json
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -80,6 +81,51 @@ def test_validation_response_does_not_echo_input():
         response = client.post("/v1/bus/predictions:batch", json=payload(provider_route_id="secret-marker"))
         assert response.status_code == 422
         assert "secret-marker" not in response.text
+
+
+def test_http_response_digest_uses_exact_request_bytes():
+    """운영 계약의 input_digest는 파싱 후 JSON이 아니라 Backend가 보낸 원문 바이트와 같아야 한다."""
+
+    class Preview:
+        def predict(self, request, timings=None):
+            return {
+                "request_id": request.request_id,
+                "model_version": "test",
+                "model_type": "lightgbm",
+                "target": "hourly_mean_bus_segment_seconds",
+                "production_ready": False,
+                "bundle_production_ready": False,
+                "feature_version": None,
+                "features_as_of": None,
+                "supported_from": "2026-09-10",
+                "supported_until": "2026-09-30",
+                "computed_at": "2026-09-21T12:00:00+09:00",
+                "valid_until": "2026-09-21T12:05:00+09:00",
+                "results": [
+                    {
+                        "segment_key": request.segments[0].segment_key,
+                        "status": "PREVIEW",
+                        "reason": "MODEL_NOT_PRODUCTION_READY",
+                        "prediction": {
+                            "mean_seconds": 30.0,
+                            "missing_feature_count": 0,
+                            "missing_features": [],
+                            "unseen_id_count": 0,
+                            "history_sample_count": 8,
+                            "data_insufficient": False,
+                            "training_ids_verified": False,
+                        },
+                    }
+                ],
+            }
+
+    raw = json.dumps(payload(), ensure_ascii=False, separators=(", ", ": ")).encode()
+    with TestClient(create_app(predictor=Preview())) as client:
+        response = client.post(
+            "/v1/bus/predictions:batch", content=raw, headers={"Content-Type": "application/json"}
+        )
+    assert response.status_code == 200
+    assert response.json()["input_digest"] == hashlib.sha256(raw).hexdigest()
 
 
 def test_bundle_path_must_stay_inside(tmp_path):

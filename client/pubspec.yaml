@@ -41,6 +41,8 @@ dependencies:
   cupertino_icons: ^1.0.9
   firebase_core: ^4.14.0
   firebase_messaging: ^16.6.0
+  # 앱이 켜져 있을 때는 안드로이드가 FCM 알림을 대신 띄워 주지 않는다. 직접 띄우려면 필요하다.
+  flutter_local_notifications: ^19.4.2
   image_picker: ^1.2.3
   webview_flutter: ^4.14.1
 

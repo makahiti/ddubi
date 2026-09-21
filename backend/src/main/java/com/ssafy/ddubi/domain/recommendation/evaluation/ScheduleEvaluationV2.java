@@ -35,6 +35,7 @@ public record ScheduleEvaluationV2(
         boolean departureMissed,
         Long selectedRouteId,
         Long proposedRouteId,
+        com.ssafy.ddubi.domain.route.model.FareRange fare,
         Quality quality,
         ConditionalDepartureEvaluator.Search search,
         String bestKnownDecision,
@@ -68,6 +69,7 @@ public record ScheduleEvaluationV2(
             String candidateKey,
             int sequence,
             String mode,
+            String routeLabel,
             String fromName,
             String toName,
             String legRole,
@@ -266,6 +268,15 @@ public record ScheduleEvaluationV2(
         var p = e.proposed();
         Instant eta = p == null ? null : p.estimatedArrivalAt();
         var comparison = e.proposedComparison();
+        var fare =
+                p == null || routes == null
+                        ? null
+                        : routes.stream()
+                                .filter(r -> RouteEvidenceAssembler.key(r).equals(p.journeyKey()))
+                                .map(com.ssafy.ddubi.domain.route.model.RouteCandidate::fare)
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
         var scopedIds =
                 routes == null
                         ? List.<String>of()
@@ -550,6 +561,7 @@ public record ScheduleEvaluationV2(
                 e.departureMissed(),
                 selectedRouteId,
                 proposedRouteId,
+                fare,
                 new Quality(
                         true,
                         false,
@@ -653,6 +665,7 @@ public record ScheduleEvaluationV2(
                             original == null && leg.legRole().endsWith("WALK")
                                     ? "WALK"
                                     : original == null ? null : original.mode().name(),
+                            original == null ? null : original.providerRouteKey(),
                             original == null ? null : original.fromName(),
                             original == null ? null : original.toName(),
                             leg.legRole(),

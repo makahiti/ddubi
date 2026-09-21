@@ -31,12 +31,13 @@ class RecommendationGuideServiceTest {
                           "proposedDepartAt":"2026-09-21T08:10:00",
                           "estimatedArrivalAt":"2026-09-21T08:52:00",
                           "durationSeconds":2520,
+                          "fare":{"minimumWon":1550,"maximumWon":1650},
                           "asOf":"2026-09-20T23:00:00Z",
                           "validUntil":"2026-09-20T23:10:00Z",
                           "causes":[],
                           "segments":[
-                            {"candidateKey":"candidate-0","sequence":1,"mode":"WALK","fromName":"집","toName":"강남역","durationSeconds":300},
-                            {"candidateKey":"candidate-0","sequence":2,"mode":"SUBWAY","fromName":"강남역","toName":"잠실역","durationSeconds":1800}
+                            {"candidateKey":"candidate-0","sequence":1,"mode":"WALK","routeLabel":null,"fromName":"집","toName":"강남역","durationSeconds":300},
+                            {"candidateKey":"candidate-0","sequence":2,"mode":"SUBWAY","routeLabel":"2호선","fromName":"강남역","toName":"잠실역","durationSeconds":1800}
                           ],
                           "candidateEstimates":[]
                         }
@@ -59,9 +60,9 @@ class RecommendationGuideServiceTest {
                 new RecommendationGuideProperties(
                         true,
                         "https://gms.ssafy.io/gmsapi",
-                        "/api.openai.com/v1/chat/completions",
+                        "/api.openai.com/v1/responses",
                         "synthetic",
-                        "gpt-5.4-nano",
+                        "gpt-5.5-pro",
                         1000);
         var service = new RecommendationGuideService(store, gms, properties, redis, json);
 
@@ -71,8 +72,10 @@ class RecommendationGuideServiceTest {
         assertThat(result.estimatedArrivalAt())
                 .isEqualTo(LocalDateTime.parse("2026-09-21T08:52:00"));
         assertThat(result.routeSteps()).hasSize(2);
+        assertThat(result.routeSteps().get(1).routeLabel()).isEqualTo("2호선");
+        assertThat(result.fare().minimumWon()).isEqualTo(1550);
         assertThat(result.routeSummary()).contains("잠실역");
         assertThat(result.delay().status()).isEqualTo("NO_CONFIRMED_DELAY");
-        assertThat(result.generatedBy()).isEqualTo("GMS:gpt-5.4-nano");
+        assertThat(result.generatedBy()).isEqualTo("GMS:gpt-5.5-pro");
     }
 }

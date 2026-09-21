@@ -107,6 +107,28 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
               style: const TextStyle(fontSize: 13, color: Color(0xFF52677B)),
             ),
           ],
+          if (guide.minimumFareWon != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              key: const Key('guideFare'),
+              children: [
+                const Icon(
+                  Icons.payments_outlined,
+                  size: 16,
+                  color: Color(0xFF6E8193),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '예상 요금 ${_fare(guide.minimumFareWon!, guide.maximumFareWon)}',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: DdubiColors.navy,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (guide.steps.isNotEmpty) ...[
             const SizedBox(height: 12),
             for (final step in guide.steps) _stepRow(step),
@@ -196,10 +218,11 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
   static String _stepText(GuideStep step) {
     if (step.instruction != null) return step.instruction!;
     final label = _modeLabel(step.mode);
+    final route = step.routeLabel == null ? label : '$label ${step.routeLabel}';
     final from = step.fromName ?? '';
     final to = step.toName ?? '';
-    if (from.isEmpty && to.isEmpty) return label;
-    return '$label  $from → $to';
+    if (from.isEmpty && to.isEmpty) return route;
+    return '$route  $from → $to';
   }
 
   static String _modeLabel(String mode) => switch (mode) {
@@ -236,4 +259,17 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     return '${local.hour.toString().padLeft(2, '0')}:'
         '${local.minute.toString().padLeft(2, '0')}';
   }
+
+  /// 단일 요금과 범위 요금을 구분한다. 최대값이 없으면 확인된 최소값만 표시한다.
+  static String _fare(int minimum, int? maximum) {
+    final value = maximum == null || maximum == minimum
+        ? _number(minimum)
+        : '${_number(minimum)}~${_number(maximum)}';
+    return '$value원';
+  }
+
+  static String _number(int value) => value.toString().replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
 }

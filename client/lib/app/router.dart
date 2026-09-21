@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -156,8 +158,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/notifications',
-            builder: (context, state) =>
-                NotificationsScreen(api: notificationApi),
+            builder: (context, state) => NotificationsScreen(
+              api: notificationApi,
+              onInboxChanged: () =>
+                  unawaited(ref.read(unreadNotificationsProvider).refresh()),
+            ),
             routes: [
               GoRoute(
                 path: ':id',
@@ -215,7 +220,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class _ResponsiveNavigationShell extends StatelessWidget {
+class _ResponsiveNavigationShell extends ConsumerWidget {
   const _ResponsiveNavigationShell({
     required this.location,
     required this.child,
@@ -244,16 +249,31 @@ class _ResponsiveNavigationShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    const destinations = [
-      NavigationDestination(
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 안 읽은 알림 개수. 푸시가 오면 이 값이 바뀌고 아래 ListenableBuilder 가 다시 그린다.
+    final unreadNotifications = ref.watch(unreadNotificationsProvider);
+    return ListenableBuilder(
+      listenable: unreadNotifications,
+      builder: (context, _) => _shell(context, unreadNotifications.count),
+    );
+  }
+
+  Widget _shell(BuildContext context, int unread) {
+    final destinations = [
+      const NavigationDestination(
         icon: Icon(Icons.calendar_today_outlined),
         label: '일정',
       ),
-      NavigationDestination(icon: Icon(Icons.route_outlined), label: '경로'),
-      NavigationDestination(icon: Icon(Icons.home_outlined), label: '홈'),
-      NavigationDestination(icon: Icon(Icons.notifications_none), label: '알림'),
-      NavigationDestination(icon: Icon(Icons.menu), label: '더보기'),
+      const NavigationDestination(
+        icon: Icon(Icons.route_outlined),
+        label: '경로',
+      ),
+      const NavigationDestination(icon: Icon(Icons.home_outlined), label: '홈'),
+      NavigationDestination(
+        icon: _BellIcon(unread: unread),
+        label: '알림',
+      ),
+      const NavigationDestination(icon: Icon(Icons.menu), label: '더보기'),
     ];
 
     return LayoutBuilder(
@@ -310,24 +330,24 @@ class _ResponsiveNavigationShell extends StatelessWidget {
                           child: _WebUserSummary(),
                         )
                       : null,
-                  destinations: const [
-                    NavigationRailDestination(
+                  destinations: [
+                    const NavigationRailDestination(
                       icon: Icon(Icons.calendar_today_outlined),
                       label: Text('일정'),
                     ),
-                    NavigationRailDestination(
+                    const NavigationRailDestination(
                       icon: Icon(Icons.route_outlined),
                       label: Text('경로'),
                     ),
-                    NavigationRailDestination(
+                    const NavigationRailDestination(
                       icon: Icon(Icons.home_outlined),
                       label: Text('홈'),
                     ),
                     NavigationRailDestination(
-                      icon: Icon(Icons.notifications_none),
-                      label: Text('알림'),
+                      icon: _BellIcon(unread: unread),
+                      label: const Text('알림'),
                     ),
-                    NavigationRailDestination(
+                    const NavigationRailDestination(
                       icon: Icon(Icons.menu),
                       label: Text('더보기'),
                     ),
@@ -375,4 +395,25 @@ class _WebUserSummary extends StatelessWidget {
       ),
     ],
   );
+}
+
+/// 안 읽은 알림이 있으면 종 위에 숫자를 붙인다.
+///
+/// 종은 지금까지 아무 표시가 없어서, 알림이 와도 앱 안에서는 알 길이 없었다.
+/// 숫자는 99까지만 적는다 — 그보다 많으면 정확한 수보다 "많다" 가 필요한 정보다.
+class _BellIcon extends StatelessWidget {
+  const _BellIcon({required this.unread});
+
+  final int unread;
+
+  @override
+  Widget build(BuildContext context) {
+    const icon = Icon(Icons.notifications_none);
+    if (unread <= 0) return icon;
+    return Badge(
+      key: const Key('unreadNotificationBadge'),
+      label: Text(unread > 99 ? '99+' : '$unread'),
+      child: icon,
+    );
+  }
 }

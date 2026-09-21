@@ -10,6 +10,8 @@ class RecommendationGuide {
     required this.routeSummary,
     required this.steps,
     required this.delay,
+    this.minimumFareWon,
+    this.maximumFareWon,
     this.departureAt,
     this.estimatedArrivalAt,
     this.durationSeconds,
@@ -28,6 +30,10 @@ class RecommendationGuide {
   final DateTime? estimatedArrivalAt;
   final int? durationSeconds;
 
+  /// 카카오 대중교통 경로가 제공한 예상 요금 범위다. null이면 앱이 0원으로 추측하지 않는다.
+  final int? minimumFareWon;
+  final int? maximumFareWon;
+
   /// 이 안내가 어느 시점의 교통정보를 본 것인지.
   final DateTime? dataAsOf;
 
@@ -37,37 +43,41 @@ class RecommendationGuide {
   bool isExpiredAt(DateTime now) =>
       validUntil != null && !now.isBefore(validUntil!);
 
-  factory RecommendationGuide.fromJson(Map<String, dynamic> json) =>
-      RecommendationGuide(
-        evaluationId: json['evaluationId']?.toString(),
-        headline: _text(json['headline']),
-        routeSummary: _text(json['routeSummary']),
-        steps: (json['routeSteps'] as List? ?? const [])
-            .whereType<Map>()
-            .map(
-              (item) => GuideStep.fromJson(
-                item.map((key, value) => MapEntry(key.toString(), value)),
-              ),
-            )
-            .toList(growable: false),
-        delay: GuideDelay.fromJson(
-          (json['delay'] as Map?)?.map(
-                (key, value) => MapEntry(key.toString(), value),
-              ) ??
-              const <String, dynamic>{},
-        ),
-        departureAt: _date(json['departureAt']),
-        estimatedArrivalAt: _date(json['estimatedArrivalAt']),
-        durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
-        dataAsOf: _date(json['dataAsOf']),
-        validUntil: _date(json['validUntil']),
-      );
+  factory RecommendationGuide.fromJson(
+    Map<String, dynamic> json,
+  ) => RecommendationGuide(
+    evaluationId: json['evaluationId']?.toString(),
+    headline: _text(json['headline']),
+    routeSummary: _text(json['routeSummary']),
+    steps: (json['routeSteps'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => GuideStep.fromJson(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
+        .toList(growable: false),
+    delay: GuideDelay.fromJson(
+      (json['delay'] as Map?)?.map(
+            (key, value) => MapEntry(key.toString(), value),
+          ) ??
+          const <String, dynamic>{},
+    ),
+    departureAt: _date(json['departureAt']),
+    estimatedArrivalAt: _date(json['estimatedArrivalAt']),
+    durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
+    minimumFareWon: ((json['fare'] as Map?)?['minimumWon'] as num?)?.toInt(),
+    maximumFareWon: ((json['fare'] as Map?)?['maximumWon'] as num?)?.toInt(),
+    dataAsOf: _date(json['dataAsOf']),
+    validUntil: _date(json['validUntil']),
+  );
 }
 
 class GuideStep {
   const GuideStep({
     required this.sequence,
     required this.mode,
+    this.routeLabel,
     this.fromName,
     this.toName,
     this.durationSeconds,
@@ -76,6 +86,7 @@ class GuideStep {
 
   final int sequence;
   final String mode;
+  final String? routeLabel;
   final String? fromName;
   final String? toName;
   final int? durationSeconds;
@@ -84,6 +95,7 @@ class GuideStep {
   factory GuideStep.fromJson(Map<String, dynamic> json) => GuideStep(
     sequence: (json['sequence'] as num?)?.toInt() ?? 0,
     mode: json['mode']?.toString() ?? 'UNKNOWN',
+    routeLabel: _text(json['routeLabel']),
     fromName: _text(json['fromName']),
     toName: _text(json['toName']),
     durationSeconds: (json['durationSeconds'] as num?)?.toInt(),

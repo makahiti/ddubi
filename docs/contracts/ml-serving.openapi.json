@@ -66,7 +66,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -113,7 +113,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -320,12 +320,50 @@
           },
           "production_ready": {
             "type": "boolean",
-            "const": false,
             "title": "Production Ready"
           },
           "bundle_production_ready": {
             "type": "boolean",
             "title": "Bundle Production Ready"
+          },
+          "feature_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Version"
+          },
+          "features_as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Features As Of"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Valid Until"
+          },
+          "input_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Digest"
           },
           "supported_from": {
             "type": "string",
@@ -358,6 +396,7 @@
           "target",
           "production_ready",
           "bundle_production_ready",
+          "valid_until",
           "supported_from",
           "supported_until",
           "computed_at",
@@ -718,7 +757,8 @@
         "properties": {
           "mean_seconds": {
             "type": "number",
-            "minimum": 0.0,
+            "maximum": 86400.0,
+            "exclusiveMinimum": 0.0,
             "title": "Mean Seconds"
           },
           "missing_feature_count": {
@@ -750,7 +790,6 @@
           },
           "training_ids_verified": {
             "type": "boolean",
-            "const": false,
             "title": "Training Ids Verified"
           }
         },
@@ -839,17 +878,26 @@
             "type": "string",
             "enum": [
               "PREVIEW",
+              "PRODUCTION",
               "UNAVAILABLE"
             ],
             "title": "Status"
           },
           "reason": {
-            "type": "string",
-            "enum": [
-              "MODEL_NOT_PRODUCTION_READY",
-              "UNSUPPORTED_PROVIDER",
-              "REFERENCE_DATE_UNSUPPORTED",
-              "UNSEEN_PROVIDER_ID"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "MODEL_NOT_PRODUCTION_READY",
+                  "UNSUPPORTED_PROVIDER",
+                  "REFERENCE_DATE_UNSUPPORTED",
+                  "UNSEEN_PROVIDER_ID",
+                  "INVALID_DURATION"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "title": "Reason"
           },
@@ -872,19 +920,19 @@
           "prediction"
         ],
         "title": "SegmentResult",
-        "description": "미지원 입력은 null이며 정상 모델 수치는 PREVIEW로만 노출한다."
+        "description": "미지원 입력은 null이다. 운영 승인 묶음만 PRODUCTION 상태를 사용할 수 있다."
       },
       "ServiceUnavailable": {
         "properties": {
           "detail": {
             "type": "string",
-          "enum": [
-            "MODEL_NOT_READY",
-            "MODEL_BUSY",
-            "MODEL_UNAVAILABLE",
-            "FEATURE_STORE_NOT_READY",
-            "FEATURE_STORE_UNAVAILABLE"
-          ],
+            "enum": [
+              "MODEL_NOT_READY",
+              "MODEL_BUSY",
+              "MODEL_UNAVAILABLE",
+              "FEATURE_STORE_NOT_READY",
+              "FEATURE_STORE_UNAVAILABLE"
+            ],
             "title": "Detail"
           }
         },

@@ -137,7 +137,12 @@ public class NightBriefService {
         return "NIGHT_BRIEF:" + now.toLocalDate();
     }
 
-    /** {@code 09:00 회사 · 14:00 병원 · 19:00 저녁약속 외 2건} */
+    /**
+     * {@code 09:00 회사 · 14:00 병원 외 2건 · 내일 일정을 확인해 보세요}
+     *
+     * <p>시각을 앞에 둔다. 알림을 열지 않아도 "내일 아홉 시" 를 바로 알 수 있는 것이 푸시의
+     * 값어치다. 뒤에 붙는 안내는 이 알림이 확인용임을 분명히 한다.
+     */
     private String body(List<Schedule> tomorrow) {
         String listed =
                 tomorrow.stream()
@@ -149,7 +154,8 @@ public class NightBriefService {
                                                 + schedule.getTitle())
                         .collect(Collectors.joining(" · "));
         int remaining = tomorrow.size() - LISTED;
-        return remaining > 0 ? listed + " 외 " + remaining + "건" : listed;
+        String times = remaining > 0 ? listed + " 외 " + remaining + "건" : listed;
+        return times + " · 내일 일정을 확인해 보세요";
     }
 
     /** 브리핑 시각이 한참 지났는가. 자정을 넘긴 경우는 조회 단계에서 이미 걸러진다. */

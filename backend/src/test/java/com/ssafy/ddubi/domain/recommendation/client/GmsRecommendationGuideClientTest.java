@@ -2,6 +2,7 @@ package com.ssafy.ddubi.domain.recommendation.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -26,9 +27,9 @@ class GmsRecommendationGuideClientTest {
                 new RecommendationGuideProperties(
                         true,
                         "https://gms.ssafy.io/gmsapi",
-                        "/api.openai.com/v1/chat/completions",
+                        "/api.openai.com/v1/responses",
                         "synthetic-key",
-                        "gpt-5.4-nano",
+                        "gpt-5.5-pro",
                         1000);
         String content =
                 json.writeValueAsString(
@@ -40,13 +41,18 @@ class GmsRecommendationGuideClientTest {
         String response =
                 json.writeValueAsString(
                         java.util.Map.of(
-                                "choices",
+                                "output",
                                 List.of(
                                         java.util.Map.of(
-                                                "message", java.util.Map.of("content", content)))));
-        server.expect(requestTo("https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions"))
+                                                "type", "message",
+                                                "content", List.of(java.util.Map.of("type", "output_text", "text", content))))));
+        server.expect(requestTo("https://gms.ssafy.io/gmsapi/api.openai.com/v1/responses"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer synthetic-key"))
+                .andExpect(jsonPath("$.model").value("gpt-5.5-pro"))
+                .andExpect(jsonPath("$.input").isString())
+                .andExpect(jsonPath("$.messages").doesNotExist())
+                .andExpect(jsonPath("$.text.format.type").value("json_schema"))
                 .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
         var client =
                 new GmsRecommendationGuideClient(
@@ -66,9 +72,9 @@ class GmsRecommendationGuideClientTest {
                 new RecommendationGuideProperties(
                         false,
                         "https://gms.ssafy.io/gmsapi",
-                        "/api.openai.com/v1/chat/completions",
+                        "/api.openai.com/v1/responses",
                         "",
-                        "gpt-5.4-nano",
+                        "gpt-5.5-pro",
                         1000);
         assertThat(
                         new GmsRecommendationGuideClient(
@@ -82,7 +88,9 @@ class GmsRecommendationGuideClientTest {
         return new GmsRecommendationGuideClient.Facts(
                 "2026-09-21T08:10",
                 "2026-09-21T08:52",
-                List.of(new GmsRecommendationGuideClient.StepFact(1, "WALK", "집", "강남역")),
+                List.of(new GmsRecommendationGuideClient.StepFact(1, "WALK", null, "집", "강남역", 300L)),
+                2520L,
+                new com.ssafy.ddubi.domain.route.model.FareRange(1550, 1650),
                 new GmsRecommendationGuideClient.DelayFact(
                         confirmed ? "DELAYED" : "POSSIBLE",
                         confirmed ? "공식 사고 영향" : "영향 가능성",

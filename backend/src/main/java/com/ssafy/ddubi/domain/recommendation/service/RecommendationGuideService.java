@@ -79,9 +79,13 @@ public class RecommendationGuideService {
                                                 new GmsRecommendationGuideClient.StepFact(
                                                         step.sequence(),
                                                         step.mode(),
+                                                        step.routeLabel(),
                                                         step.fromName(),
-                                                        step.toName()))
+                                                        step.toName(),
+                                                        step.durationSeconds()))
                                 .toList(),
+                        evaluation.durationSeconds(),
+                        evaluation.fare(),
                         new GmsRecommendationGuideClient.DelayFact(
                                 delay.status(), delay.reason(), delay.source(), delay.confirmed()));
         var generated = gms.generate(facts).orElse(null);
@@ -96,6 +100,7 @@ public class RecommendationGuideService {
                         evaluation.proposedDepartAt(),
                         evaluation.estimatedArrivalAt(),
                         evaluation.durationSeconds(),
+                        evaluation.fare(),
                         headline(evaluation),
                         generated == null ? fallbackRoute : generated.routeSummary(),
                         steps,
@@ -147,6 +152,7 @@ public class RecommendationGuideService {
                                 new RecommendationGuideResponse.RouteStep(
                                         segment.sequence(),
                                         segment.mode(),
+                                        segment.routeLabel(),
                                         name(segment.fromName(), "이전 지점"),
                                         name(segment.toName(), "다음 지점"),
                                         segment.durationSeconds(),
@@ -157,10 +163,11 @@ public class RecommendationGuideService {
     private static String instruction(ScheduleEvaluationV2.Segment segment) {
         String from = name(segment.fromName(), "이전 지점");
         String to = name(segment.toName(), "다음 지점");
+        String route = name(segment.routeLabel(), "");
         return switch (segment.mode() == null ? "" : segment.mode()) {
             case "WALK" -> from + "에서 " + to + "까지 도보 이동";
-            case "BUS" -> from + "에서 버스를 타고 " + to + "에서 하차";
-            case "SUBWAY" -> from + "에서 지하철을 타고 " + to + "에서 하차";
+            case "BUS" -> from + "에서 " + (route.isEmpty() ? "버스" : route) + " 탑승 후 " + to + "에서 하차";
+            case "SUBWAY" -> from + "에서 " + (route.isEmpty() ? "지하철" : route) + " 탑승 후 " + to + "에서 하차";
             default -> from + "에서 " + to + "까지 이동";
         };
     }

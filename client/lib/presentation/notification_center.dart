@@ -12,10 +12,18 @@ enum _NotificationFilter { all, departure, delay, schedule }
 enum _NotificationKind { departure, delay, schedule, info }
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key, required this.api, this.go});
+  const NotificationsScreen({
+    super.key,
+    required this.api,
+    this.go,
+    this.onInboxChanged,
+  });
 
   final NotificationApi api;
   final ValueChanged<int>? go;
+
+  /// 읽음·삭제로 안 읽은 개수가 달라졌을 때 알린다. 종 아이콘 숫자를 바로 맞추기 위해서다.
+  final VoidCallback? onInboxChanged;
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -34,7 +42,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _inbox = widget.api.getInbox();
   }
 
-  void _reload() => setState(() => _inbox = widget.api.getInbox());
+  void _reload() {
+    setState(() => _inbox = widget.api.getInbox());
+    widget.onInboxChanged?.call();
+  }
 
   void _toggleSelectionMode() {
     setState(() {

@@ -102,30 +102,39 @@ class BatchRequest(BaseModel):
 class Prediction(BaseModel):
     """실제 모델이 계산한 평균 초와 입력 품질. 운영 사용 승인은 이 값에 포함되지 않는다."""
 
-    mean_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+    mean_seconds: Annotated[float, Field(gt=0, le=86400, allow_inf_nan=False)]
     missing_feature_count: Annotated[int, Field(ge=0)]
     missing_features: list[str]
     unseen_id_count: Literal[0]
     history_sample_count: Annotated[int, Field(ge=0, le=8)]
     data_insufficient: bool
-    training_ids_verified: Literal[False]
+    training_ids_verified: bool
 
 
 class SegmentResult(BaseModel):
-    """미지원 입력은 null이며 정상 모델 수치는 PREVIEW로만 노출한다."""
+    """미지원 입력은 null이다. 운영 승인 묶음만 PRODUCTION 상태를 사용할 수 있다."""
 
     segment_key: str
-    status: Literal["PREVIEW", "UNAVAILABLE"]
+    status: Literal["PREVIEW", "PRODUCTION", "UNAVAILABLE"]
     reason: Literal[
-        "MODEL_NOT_PRODUCTION_READY", "UNSUPPORTED_PROVIDER", "REFERENCE_DATE_UNSUPPORTED", "UNSEEN_PROVIDER_ID"
-    ]
+        "MODEL_NOT_PRODUCTION_READY",
+        "UNSUPPORTED_PROVIDER",
+        "REFERENCE_DATE_UNSUPPORTED",
+        "UNSEEN_PROVIDER_ID",
+        "INVALID_DURATION",
+    ] | None
     prediction: Prediction | None
 
     @model_validator(mode="after")
     def result_consistency(self):
         """모델 실패가 성공 상태나 null 없는 결과로 직렬화되는 것을 차단한다."""
-        if (self.status == "PREVIEW") != (self.prediction is not None):
+        successful = self.status in {"PREVIEW", "PRODUCTION"}
+        if successful != (self.prediction is not None):
             raise ValueError("결과 상태와 prediction 유무가 일치하지 않습니다.")
+        if self.status == "PREVIEW" and self.reason != "MODEL_NOT_PRODUCTION_READY":
+            raise ValueError("PREVIEW 결과에는 미승인 사유가 필요합니다.")
+        if self.status == "PRODUCTION" and self.reason is not None:
+            raise ValueError("PRODUCTION 결과에는 실패 사유를 넣지 않습니다.")
         return self
 
 
@@ -136,8 +145,12 @@ class BatchResponse(BaseModel):
     model_version: str
     model_type: Literal["lightgbm"]
     target: Literal["hourly_mean_bus_segment_seconds"]
-    production_ready: Literal[False]
+    production_ready: bool
     bundle_production_ready: bool
+    feature_version: str | None = None
+    features_as_of: AwareDatetime | None = None
+    valid_until: AwareDatetime
+    input_digest: str | None = None
     supported_from: date
     supported_until: date
     computed_at: AwareDatetime

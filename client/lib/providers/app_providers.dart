@@ -12,6 +12,7 @@ import '../services/api_ddubi_repository.dart';
 import '../services/api_schedule_repository.dart';
 import '../services/api_auth_repository.dart';
 import '../services/app_api.dart';
+import 'unread_notifications.dart';
 import '../services/device_token_service.dart';
 import '../services/kakao_login_service.dart';
 import '../services/google_login_service.dart';
@@ -110,6 +111,16 @@ final repeatScheduleRepositoryProvider = Provider<RepeatScheduleRepository>((
 ) {
   if (_useMockData) return MockDdubiRepository();
   return RepeatScheduleApi(ref.watch(dioProvider));
+});
+
+/// 종 아이콘의 안 읽은 알림 개수. 앱 전체가 같은 값을 본다.
+final unreadNotificationsProvider = Provider<UnreadNotifications>((ref) {
+  final counter = UnreadNotifications(
+    ref.watch(notificationApiProvider),
+    pushes: ref.watch(deviceTokenServiceProvider),
+  );
+  ref.onDispose(counter.dispose);
+  return counter;
 });
 
 final notificationApiProvider = Provider<NotificationApi>((ref) {

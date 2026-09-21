@@ -66,7 +66,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-    </application>
+            <!-- 백그라운드에서 FCM 이 자동으로 띄우는 알림이 쓸 채널. 앱이 직접 띄우는 것과
+             같은 채널이어야 설정에서 스위치가 하나로 보인다. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="ddubi_default" />
+</application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

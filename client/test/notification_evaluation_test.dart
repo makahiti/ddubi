@@ -102,7 +102,7 @@ void main() {
 
     await _pumpDetail(tester, api: api, repository: repository);
 
-    expect(find.text('현재 최신 평가와 같은 알림입니다.'), findsOneWidget);
+    expect(find.text('지금 최신 계산과 같은 내용이에요.'), findsOneWidget);
     expect(repository.latestCalls, 1);
     expect(api.readCalls, 1);
   });
@@ -113,7 +113,7 @@ void main() {
 
     await _pumpDetail(tester, api: api, repository: repository);
 
-    expect(find.textContaining('이 알림 이후 추천이 변경됐을 수 있습니다.'), findsOneWidget);
+    expect(find.textContaining('이 알림 뒤로 추천이 바뀌었을 수 있어요.'), findsOneWidget);
     expect(find.text('이 제안 적용'), findsNothing);
   });
 
@@ -125,8 +125,8 @@ void main() {
 
     await _pumpDetail(tester, api: api, repository: repository);
 
-    expect(find.textContaining('이 알림의 평가는 만료됐습니다.'), findsOneWidget);
-    expect(find.text('현재 최신 평가와 같은 알림입니다.'), findsNothing);
+    expect(find.textContaining('이 알림의 계산은 유효 기간이 지났어요.'), findsOneWidget);
+    expect(find.text('지금 최신 계산과 같은 내용이에요.'), findsNothing);
   });
 
   testWidgets('최신 평가 접근 실패를 과거 알림의 수락 가능 상태로 오인하지 않는다', (tester) async {
@@ -140,7 +140,7 @@ void main() {
 
     await _pumpDetail(tester, api: api, repository: repository);
 
-    expect(find.textContaining('이 알림 이후 추천이 변경됐을 수 있습니다.'), findsOneWidget);
+    expect(find.textContaining('이 알림 뒤로 추천이 바뀌었을 수 있어요.'), findsOneWidget);
     expect(find.text('이 제안 적용'), findsNothing);
   });
 }

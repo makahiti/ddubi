@@ -234,4 +234,52 @@ class ScheduleEvaluationV2ContractTest {
         assertThat(value.path("computedAt").asText()).endsWith("Z");
         assertThat(value.path("validUntil").asText()).endsWith("Z");
     }
+
+    @Test
+    void proposedRouteKeepsKakaoFareForGuideConsumers() {
+        var fixture = new ConditionalDepartureEvaluatorTest();
+        var result =
+                fixture.engine(256)
+                        .evaluate(
+                                1,
+                                fixture.now,
+                                fixture.p,
+                                fixture.d,
+                                List.of(),
+                                at -> fixture.comparison(at, fixture.d.minusSeconds(1)));
+        var route =
+                new com.ssafy.ddubi.domain.route.model.RouteCandidate(
+                        0,
+                        com.ssafy.ddubi.domain.route.model.RouteType.SUBWAY,
+                        1000,
+                        1200,
+                        0,
+                        new com.ssafy.ddubi.domain.route.model.FareRange(1550, 1650),
+                        0,
+                        0,
+                        List.of());
+
+        var dto =
+                ScheduleEvaluationV2.from(
+                        result,
+                        "fare-contract",
+                        null,
+                        null,
+                        0,
+                        "READ_ONLY",
+                        fixture.p,
+                        fixture.p,
+                        fixture.d,
+                        fixture.now,
+                        fixture.now.plusSeconds(60),
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        List.of(route));
+
+        assertThat(dto.fare().minimumWon()).isEqualTo(1550);
+        assertThat(dto.fare().maximumWon()).isEqualTo(1650);
+    }
 }

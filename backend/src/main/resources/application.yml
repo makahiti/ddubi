@@ -211,10 +211,12 @@ ddubi:
     # GMS는 계산기가 아니라 최신 추천 사실을 짧은 한국어 안내로 바꾸는 표현 계층이다.
     enabled: ${DDUBI_RECOMMENDATION_GUIDE_ENABLED:true}
     base-url: ${GMS_BASE_URL:https://gms.ssafy.io/gmsapi}
-    path: /api.openai.com/v1/chat/completions
+    # gpt-5.5-pro는 Chat Completions가 아니라 Responses API 계약을 사용한다.
+    path: /api.openai.com/v1/responses
     api-key: ${GMS_API_KEY:}
-    model: ${GMS_RECOMMENDATION_MODEL:gpt-5.4-nano}
-    timeout-millis: ${GMS_RECOMMENDATION_TIMEOUT_MILLIS:1500}
+    model: ${GMS_RECOMMENDATION_MODEL:gpt-5.5-pro}
+    # Pro 모델은 추론 시간이 길 수 있다. 카드 결과는 evaluationId 단위 Redis 캐시로 재호출을 막는다.
+    timeout-millis: ${GMS_RECOMMENDATION_TIMEOUT_MILLIS:20000}
   external:
     kakao:
       # 장소 검색과 대중교통 길찾기에 사용하는 카카오맵 REST API 주소

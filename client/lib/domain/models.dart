@@ -457,6 +457,14 @@ class AppNotification {
 
   bool get isUnread => readAt == null;
 
+  /// 추천 평가에 연결되는 종류인가.
+  ///
+  /// 브리핑은 그날(또는 내일) 일정을 요약할 뿐이라 평가가 없다. 그런데 알림 상세가
+  /// 모든 알림에 평가가 있다고 보고 "평가 연결 정보를 확인할 수 없습니다" 를 띄워서,
+  /// 정상인 브리핑이 고장난 것처럼 보였다(2026-09-21 확인).
+  bool get expectsEvaluation =>
+      type != 'MORNING_BRIEF' && type != 'NIGHT_BRIEF';
+
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
       AppNotification(
         id: json['id'].toString(),
