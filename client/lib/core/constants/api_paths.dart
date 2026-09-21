@@ -40,6 +40,10 @@ class ApiPaths {
       '${schedule(scheduleId)}/recommendations';
   static String latestRecommendation(String scheduleId) =>
       '${scheduleRecommendations(scheduleId)}/latest';
+
+  /// 추천 카드 전용. 계산 결과를 짧은 한국어 안내로 바꿔 준다(표현 계층).
+  static String latestRecommendationGuide(String scheduleId) =>
+      '${latestRecommendation(scheduleId)}/guide';
   static String scheduleRoutes(String scheduleId) =>
       '${schedule(scheduleId)}/routes';
   static String recommendationExplanation(String recommendationId) =>

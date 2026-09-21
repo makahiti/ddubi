@@ -459,6 +459,20 @@ public class ScheduleEvaluationStore {
         return status;
     }
 
+    /**
+     * AI 이동 안내처럼 현재 계산이 완료된 결과만 소비하는 기능에 타입이 보장된 v2 평가를 제공한다. PENDING·FAILED·STALE을 과거 정상 결과처럼
+     * 문장화하지 않도록 READY 상태를 먼저 확인한다.
+     */
+    @Transactional(readOnly = true)
+    public ScheduleEvaluationV2 latestReadyV2(long scheduleId, long userId) {
+        var status = latest(scheduleId, userId);
+        if (!"READY".equals(status.get("state"))
+                || !(status.get("result") instanceof ScheduleEvaluationWorkflow.Outcome outcome)
+                || outcome.conditional() == null)
+            throw new BusinessException(ErrorCode.INVALID_STATE, "최신 추천 계산이 완료된 뒤 이동 안내를 조회해 주세요.");
+        return response(outcome, userId);
+    }
+
     /** DB 경로 ID와 입력 원본을 서버 저장값으로만 보충한다. 후보 순번을 DB ID처럼 노출하지 않는다. */
     @Transactional(readOnly = true)
     public ScheduleEvaluationV2 response(ScheduleEvaluationWorkflow.Outcome outcome, long userId) {

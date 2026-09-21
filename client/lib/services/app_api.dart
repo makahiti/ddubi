@@ -278,6 +278,7 @@ class UserApi {
         nickname: '뚜비 사용자',
         notifyLeadMin: 20,
         alarmEnabled: true,
+        briefingTime: null,
       );
     }
     return UserProfile.fromJson(
@@ -289,6 +290,8 @@ class UserApi {
     String? nickname,
     int? notifyLeadMin,
     bool? alarmEnabled,
+    // "07:00" 형식. 빈 문자열을 보내면 서버가 "브리핑 안 받음" 으로 지운다.
+    String? briefingTime,
   }) async {
     if (_sessionStore.session == null) return getMe();
     return UserProfile.fromJson(
@@ -299,6 +302,8 @@ class UserApi {
             'nickname': ?nickname,
             'notifyLeadMin': ?notifyLeadMin,
             'alarmEnabled': ?alarmEnabled,
+            if (briefingTime != null)
+              'briefingTime': briefingTime.isEmpty ? null : briefingTime,
           },
         ),
       ),

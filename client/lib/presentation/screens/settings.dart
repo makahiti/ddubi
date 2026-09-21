@@ -45,6 +45,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool? _locationAllowed;
   bool? _notificationAllowed;
 
+  /// 저장 직후의 아침 브리핑 시각. 서버 값을 다시 읽기 전까지 화면이 되돌아가지 않게 둔다.
+  String? _briefingTime;
+  bool _briefingBusy = false;
+
   @override
   void initState() {
     super.initState();
@@ -131,6 +135,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: _mobileAccountCard(context, user),
             ),
             const SizedBox(height: 2),
+            const SizedBox(height: 14),
+            _briefingCard(context, user),
             const SizedBox(height: 14),
             _mobileServiceStatus(context),
             const SizedBox(height: 14),
@@ -258,6 +264,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _permissionCard(),
                 const SizedBox(height: 16),
+                _briefingCard(context, user),
                 const SizedBox(height: 16),
                 _serviceStatus(context),
                 const SizedBox(height: 16),
@@ -928,6 +935,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _locationAllowed = allowed);
   }
 
+  /// 알림 권한을 요청한다.
+  ///
+  /// 안드로이드는 알림 권한 창을 한 번 거절당하면 **다시 띄우지 않는다.** 그때 요청하면
+  /// 창 없이 거부로 돌아오므로, 화면만 갱신하면 사용자 눈에는 버튼이 고장 난 것처럼
+  /// 보인다(2026-09-21 확인). 요청해도 안 되면 설정 화면을 열어 직접 켜게 안내한다.
   Future<void> _changeNotificationPermission() async {
     if (_notificationAllowed == true) {
       await AppPermissionController.openSettings();
@@ -935,7 +947,103 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     final allowed =
         await AppPermissionController.requestNotificationPermission();
-    if (mounted) setState(() => _notificationAllowed = allowed);
+    if (!mounted) return;
+    setState(() => _notificationAllowed = allowed);
+    if (allowed) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        key: Key('notificationPermissionBlocked'),
+        content: Text('알림이 꺼져 있어요. 설정에서 켜주세요.'),
+      ),
+    );
+    await AppPermissionController.openSettings();
+  }
+
+  /// 아침 브리핑 시각.
+  ///
+  /// 서버는 이 값이 비어 있으면 "브리핑을 받지 않겠다" 는 뜻으로 보고 대상에서 뺀다.
+  /// 앱에 정하는 곳이 없어서 지금까지 모든 사용자가 비어 있었고, 아침 브리핑이 한 번도
+  /// 나가지 않았다(2026-09-21 확인).
+  Widget _briefingCard(BuildContext context, UserProfile user) {
+    final time = _briefingTime ?? user.briefingTime;
+    return InfoCard(
+      key: const Key('briefingCard'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('아침 브리핑'),
+          const SizedBox(height: 6),
+          const Text(
+            '정한 시각에 그날 남은 일정을 한 번에 알려드려요.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  time == null ? '받지 않음' : '$time 에 받기',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: DdubiColors.navy,
+                  ),
+                ),
+              ),
+              if (time != null)
+                TextButton(
+                  key: const Key('briefingClearButton'),
+                  onPressed: _briefingBusy ? null : () => _saveBriefing(''),
+                  child: const Text('끄기'),
+                ),
+              OutlinedButton(
+                key: const Key('briefingPickButton'),
+                onPressed: _briefingBusy ? null : () => _pickBriefingTime(time),
+                child: Text(time == null ? '시각 정하기' : '변경'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickBriefingTime(String? current) async {
+    final parts = (current ?? '07:00').split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.tryParse(parts.first) ?? 7,
+        minute: int.tryParse(parts.last) ?? 0,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final value =
+        '${picked.hour.toString().padLeft(2, '0')}:'
+        '${picked.minute.toString().padLeft(2, '0')}';
+    await _saveBriefing(value);
+  }
+
+  /// 빈 문자열을 보내면 서버가 값을 지워 "브리핑 안 받음" 이 된다.
+  Future<void> _saveBriefing(String value) async {
+    setState(() => _briefingBusy = true);
+    try {
+      final updated = await widget.userApi.update(briefingTime: value);
+      if (!mounted) return;
+      setState(() => _briefingTime = updated.briefingTime);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value.isEmpty ? '아침 브리핑을 끕니다.' : '$value 에 아침 브리핑을 보내드릴게요.',
+          ),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('아침 브리핑 설정을 저장하지 못했어요.')));
+    } finally {
+      if (mounted) setState(() => _briefingBusy = false);
+    }
   }
 
   Widget _mobileServiceStatus(BuildContext context) => _settingsCard(

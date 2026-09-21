@@ -30,7 +30,11 @@ void main() {
     final lines = routeMapLines(
       map([
         segment(1, 'WALK', coordinates: walk),
-        segment(2, 'BUS', coordinates: [at(37.502, 127.002), at(37.51, 127.01)]),
+        segment(
+          2,
+          'BUS',
+          coordinates: [at(37.502, 127.002), at(37.51, 127.01)],
+        ),
       ]),
     );
 
@@ -44,7 +48,11 @@ void main() {
       map([
         segment(1, 'BUS', coordinates: [at(37.50, 127.00), at(37.51, 127.01)]),
         segment(2, 'WALK'),
-        segment(3, 'SUBWAY', coordinates: [at(37.52, 127.02), at(37.53, 127.03)]),
+        segment(
+          3,
+          'SUBWAY',
+          coordinates: [at(37.52, 127.02), at(37.53, 127.03)],
+        ),
       ]),
     );
 

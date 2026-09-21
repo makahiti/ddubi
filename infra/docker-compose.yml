@@ -392,6 +392,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:-}
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      # 최신 추천 카드 문장화. 계산 자체는 이 기능과 무관하며 GMS 장애 시 템플릿으로 fallback한다.
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URL: ${GMS_BASE_URL:-https://gms.ssafy.io/gmsapi/}
+      GMS_RECOMMENDATION_MODEL: ${GMS_RECOMMENDATION_MODEL:-gpt-5.4-nano}
+      DDUBI_RECOMMENDATION_GUIDE_ENABLED: ${DDUBI_RECOMMENDATION_GUIDE_ENABLED:-true}
       # 소셜 로그인 — 서버의 infra/.env 에서 온다 (PM 이 관리).
       # 값이 없으면 해당 provider 로그인만 실패하고 기동은 된다.
       KAKAO_APP_ID: ${KAKAO_APP_ID:-}

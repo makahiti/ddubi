@@ -201,6 +201,14 @@ ddubi:
     cache-seconds: 60
     endpoint-max-meters: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:0}
     master-coordinate-path: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:}
+  recommendation-guide:
+    # GMS는 계산기가 아니라 최신 추천 사실을 짧은 한국어 안내로 바꾸는 표현 계층이다.
+    enabled: ${DDUBI_RECOMMENDATION_GUIDE_ENABLED:true}
+    base-url: ${GMS_BASE_URL:https://gms.ssafy.io/gmsapi}
+    path: /api.openai.com/v1/chat/completions
+    api-key: ${GMS_API_KEY:}
+    model: ${GMS_RECOMMENDATION_MODEL:gpt-5.4-nano}
+    timeout-millis: ${GMS_RECOMMENDATION_TIMEOUT_MILLIS:1500}
   external:
     kakao:
       # 장소 검색과 대중교통 길찾기에 사용하는 카카오맵 REST API 주소

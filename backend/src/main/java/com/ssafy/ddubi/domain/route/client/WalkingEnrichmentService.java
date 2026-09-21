@@ -418,8 +418,8 @@ public class WalkingEnrichmentService {
     }
 
     /**
-     * 원본 대중교통 후보에 빠진 양 끝 도보를 저장 가능한 구간으로 만든다. 도보 API가 성공하면 이 구간도
-     * {@code route_segment}에 영속화되므로, DB의 NOT NULL 계약에 맞춰 출발·도착 이름을 생성 시점부터 보존한다.
+     * 원본 대중교통 후보에 빠진 양 끝 도보를 저장 가능한 구간으로 만든다. 도보 API가 성공하면 이 구간도 {@code route_segment}에 영속화되므로, DB의
+     * NOT NULL 계약에 맞춰 출발·도착 이름을 생성 시점부터 보존한다.
      */
     private static RouteSegment syntheticWalk(int sequence, String fromName, String toName) {
         return new RouteSegment(
