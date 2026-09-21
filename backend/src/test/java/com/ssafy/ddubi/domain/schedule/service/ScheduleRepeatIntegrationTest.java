@@ -10,6 +10,7 @@ import com.ssafy.ddubi.domain.schedule.dto.request.RepeatUpdateRequest;
 import com.ssafy.ddubi.domain.schedule.dto.request.ScheduleUpdateRequest;
 import com.ssafy.ddubi.domain.schedule.dto.response.RepeatCreateResponse;
 import com.ssafy.ddubi.domain.schedule.entity.Schedule;
+import com.ssafy.ddubi.domain.schedule.entity.ScheduleStatus;
 import com.ssafy.ddubi.domain.schedule.repository.ScheduleRepository;
 import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
@@ -18,6 +19,7 @@ import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -404,5 +406,149 @@ class ScheduleRepeatIntegrationTest extends IntegrationTestSupport {
         // 틀리게 적어도 이 테스트가 통과해 버린다.
         assertThat(parsed.origin().lat()).isEqualByComparingTo("37.5013068");
         assertThat(parsed.destination().lng()).isEqualByComparingTo("126.9767879");
+    }
+
+    // ------------------------------------------------------------------
+    // 수정·삭제 범위 (B8) — "이 일정만" 은 일정 API 가 맡고, 여기는 "이후 전체" 다
+    // ------------------------------------------------------------------
+
+    /**
+     * 사용자가 3일 뒤 일정을 열어 "이후 일정 전체" 를 고르면 그 날짜부터 바뀌길 기대한다. 기준이 없으면 오늘·내일 일정까지 같이 바뀐다 — "다음 주부터 바꿀게요"
+     * 라고 했는데 오늘 것이 바뀌는 셈이다.
+     */
+    @Test
+    @DisplayName("effectiveFrom 을 주면 그 시각 이전 인스턴스는 건드리지 않는다")
+    void effectiveFromLimitsRegeneration() {
+        RepeatCreateResponse created = createDaily();
+        LocalDateTime boundary = BusinessTime.now().plusDays(3).withHour(0).withMinute(0);
+        List<Long> untouched =
+                instancesOf(created.repeatId()).stream()
+                        .filter(s -> s.getArriveBy().isBefore(boundary))
+                        .map(Schedule::getId)
+                        .toList();
+        assertThat(untouched).as("경계 이전 인스턴스가 있어야 의미 있는 검증이다").isNotEmpty();
+
+        RepeatUpdateRequest update = new RepeatUpdateRequest();
+        update.setLocalTime(LocalTime.of(23, 58));
+        update.setEffectiveFrom(boundary);
+        repeatService.update(ownerId, created.repeatId(), update);
+
+        List<Schedule> after = instancesOf(created.repeatId());
+        assertThat(after)
+                .filteredOn(s -> untouched.contains(s.getId()))
+                .as("경계 이전은 id 도 시각도 그대로여야 한다")
+                .hasSize(untouched.size())
+                .allSatisfy(
+                        s ->
+                                assertThat(s.getArriveBy().toLocalTime())
+                                        .isEqualTo(LocalTime.of(23, 59)));
+        assertThat(after)
+                .filteredOn(s -> !s.getArriveBy().isBefore(boundary))
+                .isNotEmpty()
+                .allSatisfy(
+                        s ->
+                                assertThat(s.getArriveBy().toLocalTime())
+                                        .isEqualTo(LocalTime.of(23, 58)));
+    }
+
+    /** 기존 앱은 effectiveFrom 을 보내지 않는다. 예전과 똑같이 동작해야 한다. */
+    @Test
+    @DisplayName("effectiveFrom 을 안 보내면 예전처럼 지금부터 다시 만든다")
+    void updateWithoutEffectiveFromKeepsOldBehaviour() {
+        RepeatCreateResponse created = createDaily();
+
+        RepeatUpdateRequest update = new RepeatUpdateRequest();
+        update.setLocalTime(LocalTime.of(23, 58));
+        repeatService.update(ownerId, created.repeatId(), update);
+
+        assertThat(instancesOf(created.repeatId()))
+                .isNotEmpty()
+                .allSatisfy(
+                        s ->
+                                assertThat(s.getArriveBy().toLocalTime())
+                                        .isEqualTo(LocalTime.of(23, 58)));
+    }
+
+    /** 과거를 그대로 받으면 이미 지난 일정을 다시 만들게 된다. */
+    @Test
+    @DisplayName("과거 effectiveFrom 은 지금으로 당긴다")
+    void pastEffectiveFromIsClampedToNow() {
+        RepeatCreateResponse created = createDaily();
+
+        RepeatUpdateRequest update = new RepeatUpdateRequest();
+        update.setLocalTime(LocalTime.of(23, 58));
+        update.setEffectiveFrom(BusinessTime.now().minusDays(30));
+        repeatService.update(ownerId, created.repeatId(), update);
+
+        assertThat(instancesOf(created.repeatId()))
+                .isNotEmpty()
+                .allSatisfy(
+                        instance -> {
+                            assertThat(instance.getArriveBy())
+                                    .as("과거 일정이 새로 생기면 안 된다")
+                                    .isAfter(BusinessTime.now().minusMinutes(1));
+                            assertThat(instance.getArriveBy().toLocalTime())
+                                    .isEqualTo(LocalTime.of(23, 58));
+                        });
+    }
+
+    /** 규칙 11 — 삭제는 soft(CANCELED) 다. 물리 삭제는 탈퇴 CASCADE 뿐이다. 행이 사라지면 이미 그 일정을 참조한 알림·추천이 고아가 된다. */
+    @Test
+    @DisplayName("cancelFutureInstances=true 면 미래 인스턴스를 지우지 않고 CANCELED 로 바꾼다")
+    void deactivateCancelsFutureInstancesWithoutDeleting() {
+        RepeatCreateResponse created = createDaily();
+        int before = instancesOf(created.repeatId()).size();
+
+        repeatService.deactivate(ownerId, created.repeatId(), true);
+
+        assertThat(instancesOf(created.repeatId()))
+                .as("행은 남아 있어야 한다")
+                .hasSize(before)
+                .allSatisfy(
+                        instance -> {
+                            assertThat(instance.getStatus()).isEqualTo(ScheduleStatus.CANCELED);
+                            assertThat(instance.getJourneyState())
+                                    .as("status 만 바꾸면 journey_state 가 어긋난 채 남는다")
+                                    .isEqualTo("CANCELED");
+                        });
+    }
+
+    /** 기존 앱은 이 값을 보내지 않는다. 기본이 true 였다면 일정이 통째로 사라졌을 것이다. */
+    @Test
+    @DisplayName("cancelFutureInstances 를 안 주면 미래 인스턴스는 그대로다")
+    void deactivateKeepsFutureInstancesByDefault() {
+        RepeatCreateResponse created = createDaily();
+        int before = instancesOf(created.repeatId()).size();
+
+        repeatService.deactivate(ownerId, created.repeatId());
+
+        assertThat(instancesOf(created.repeatId()))
+                .hasSize(before)
+                .allSatisfy(
+                        instance ->
+                                assertThat(instance.getStatus())
+                                        .isEqualTo(ScheduleStatus.UPCOMING));
+    }
+
+    /** 도메인 규칙 5 — 개별 수정한 인스턴스는 사용자가 손댄 것이라 취소 대상이 아니다. */
+    @Test
+    @DisplayName("개별 수정한 인스턴스는 취소하지 않는다")
+    void cancelSkipsCustomizedInstances() {
+        RepeatCreateResponse created = createDaily();
+        Schedule customTarget = instancesOf(created.repeatId()).get(3);
+        ScheduleUpdateRequest custom = new ScheduleUpdateRequest();
+        custom.setTitle("이날만 재택");
+        custom.setUpdatedAt(customTarget.getUpdatedAt());
+        scheduleService.update(ownerId, customTarget.getId(), custom);
+
+        repeatService.deactivate(ownerId, created.repeatId(), true);
+
+        Schedule survived =
+                instancesOf(created.repeatId()).stream()
+                        .filter(s -> s.getId().equals(customTarget.getId()))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(survived.getStatus()).isEqualTo(ScheduleStatus.UPCOMING);
+        assertThat(survived.getTitle()).isEqualTo("이날만 재택");
     }
 }

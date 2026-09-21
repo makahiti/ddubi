@@ -178,25 +178,57 @@ public class ScheduleRepeatService {
 
         int regenerated = 0;
         if (request.affectsInstances()) {
-            LocalDateTime now = BusinessTime.now();
+            LocalDateTime from = effectiveFrom(request);
             // 규칙 5: customized=true 인스턴스는 사용자가 손댄 것 — 지우지도 다시 만들지도 않는다.
-            int deleted = scheduleRepository.deleteRegenerableInstances(repeatId, now);
-            regenerated = materialize(repeat, now);
-            log.info("반복 일정 수정 — repeatId={}, 삭제 {}건 → 재생성 {}건", repeatId, deleted, regenerated);
+            int deleted = scheduleRepository.deleteRegenerableInstances(repeatId, from);
+            regenerated = materialize(repeat, from);
+            log.info(
+                    "반복 일정 수정 — repeatId={}, 기준={}, 삭제 {}건 → 재생성 {}건",
+                    repeatId,
+                    from,
+                    deleted,
+                    regenerated);
         }
         return new RepeatUpdateResponse(
                 RepeatResponse.of(repeat, nextOccurrenceAt(repeat)), regenerated);
     }
 
+    /**
+     * "이후 일정 전체" 의 기준 시각 (B8).
+     *
+     * <p>안 보내면 지금부터다 — 기존 앱은 이 값을 보내지 않으므로 예전과 똑같이 동작해야 한다. 과거를 보내면 지금으로 당긴다. 이미 지난 일정을 다시 만들 수는
+     * 없고, 그걸 허용하면 "지난주부터 바꿔 줘" 같은 요청이 조용히 과거 데이터를 만들어 낸다.
+     */
+    private LocalDateTime effectiveFrom(RepeatUpdateRequest request) {
+        LocalDateTime now = BusinessTime.now();
+        LocalDateTime requested = BusinessTime.normalize(request.getEffectiveFrom());
+        return requested == null || requested.isBefore(now) ? now : requested;
+    }
+
     // ------------------------------------------------------------------
-    // REPEAT-005 중지 — 행 삭제가 아니라 비활성화. 기존 인스턴스는 유지(규칙 5)
+    // REPEAT-005 중지 — 규칙은 비활성화. 미래 인스턴스 취소는 선택이다(B8)
     // ------------------------------------------------------------------
 
+    /** 기존 호출용 — 미래 인스턴스를 건드리지 않는다. */
     @Transactional
     public void deactivate(Long userId, Long repeatId) {
+        deactivate(userId, repeatId, false);
+    }
+
+    /**
+     * @param cancelFutureInstances true 면 아직 시작하지 않은 미래 인스턴스를 CANCELED 로 바꾼다. <b>기본은 false 다</b> —
+     *     기존 앱은 이 값을 보내지 않는데 기본을 true 로 두면 "중지" 만 누른 사용자의 2주치 일정이 통째로 사라진다. 되돌릴 수 없다.
+     */
+    @Transactional
+    public void deactivate(Long userId, Long repeatId, boolean cancelFutureInstances) {
         ScheduleRepeat repeat = findOwned(userId, repeatId);
         repeat.deactivate();
-        log.info("반복 일정 중지 — repeatId={}", repeatId);
+        int canceled =
+                cancelFutureInstances
+                        ? scheduleRepository.cancelRegenerableInstances(
+                                repeatId, BusinessTime.now())
+                        : 0;
+        log.info("반복 일정 중지 — repeatId={}, 미래 인스턴스 취소 {}건", repeatId, canceled);
     }
 
     // ------------------------------------------------------------------

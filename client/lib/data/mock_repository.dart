@@ -180,10 +180,16 @@ class MockDdubiRepository implements DdubiRepository {
       throw StateError('반복 일정을 찾을 수 없습니다.');
 
   @override
-  Future<void> updateRepeatSchedule(RepeatScheduleRule rule) async {}
+  Future<void> updateRepeatSchedule(
+    RepeatScheduleRule rule, {
+    DateTime? effectiveFrom,
+  }) async {}
 
   @override
-  Future<void> deactivateRepeatSchedule(String id) async {}
+  Future<void> deactivateRepeatSchedule(
+    String id, {
+    bool cancelFutureInstances = false,
+  }) async {}
 
   static String _repeatLabel(Set<int> weekdays) {
     if (weekdays.length == 7) return '매일';

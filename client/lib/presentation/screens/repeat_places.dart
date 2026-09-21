@@ -133,26 +133,41 @@ class _RepeatSchedulesScreenState extends State<RepeatSchedulesScreen> {
   }
 
   Future<void> _deactivate(RepeatScheduleRule rule) async {
-    final confirmed = await showDialog<bool>(
+    // 이미 만들어진 앞으로의 일정을 어떻게 할지 물어본다. 예전에는 묻지 않고 남겨 뒀는데,
+    // 반복을 중지했는데 다음 주 일정이 그대로 있으면 중지된 것으로 보이지 않는다.
+    final cancelFuture = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        key: const Key('repeatDeactivateDialog'),
         title: const Text('반복을 중지할까요?'),
-        content: Text('${rule.title}의 새 일정 생성을 중지합니다.'),
+        content: Text(
+          '${rule.title}의 새 일정 생성을 중지합니다.\n'
+          '이미 만들어 둔 앞으로의 일정은 어떻게 할까요?',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('취소'),
           ),
+          TextButton(
+            key: const Key('repeatDeactivateKeepFuture'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('그대로 두기'),
+          ),
           FilledButton(
+            key: const Key('repeatDeactivateCancelFuture'),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('중지'),
+            child: const Text('함께 취소'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (cancelFuture == null) return;
     try {
-      await widget.repository.deactivateRepeatSchedule(rule.id);
+      await widget.repository.deactivateRepeatSchedule(
+        rule.id,
+        cancelFutureInstances: cancelFuture,
+      );
       if (mounted) setState(_reload);
     } on Object {
       if (!mounted) return;

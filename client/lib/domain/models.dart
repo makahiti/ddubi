@@ -704,8 +704,22 @@ abstract interface class RepeatScheduleRepository {
   Future<void> addRepeatSchedule(RepeatScheduleRule rule);
   Future<List<RepeatScheduleRule>> repeatSchedules({bool activeOnly = false});
   Future<RepeatScheduleRule> repeatScheduleById(String id);
-  Future<void> updateRepeatSchedule(RepeatScheduleRule rule);
-  Future<void> deactivateRepeatSchedule(String id);
+
+  /// [effectiveFrom] 부터의 일정만 다시 만든다. null 이면 지금부터 — 예전 동작 그대로다.
+  ///
+  /// 3일 뒤 일정을 보다가 규칙을 고쳤는데 오늘·내일 일정까지 바뀌면 사용자가 놀란다.
+  /// 언제부터 적용할지 물어보고 그 값을 그대로 보낸다.
+  Future<void> updateRepeatSchedule(
+    RepeatScheduleRule rule, {
+    DateTime? effectiveFrom,
+  });
+
+  /// [cancelFutureInstances] 가 true 면 이미 만들어 둔 앞으로의 일정도 함께 취소한다.
+  /// false 면 새로 만드는 것만 멈추고 이미 만들어진 일정은 남는다.
+  Future<void> deactivateRepeatSchedule(
+    String id, {
+    bool cancelFutureInstances = false,
+  });
 }
 
 abstract interface class DdubiRepository

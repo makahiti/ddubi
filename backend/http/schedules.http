@@ -168,3 +168,24 @@ Authorization: Bearer {{token}}
 # requiredMin 은 Phase 3 전까지 직선거리 추정치다.
 GET {{host}}/api/v1/schedules/conflicts?from=2026-09-01T00:00:00&to=2026-09-30T23:59:59
 Authorization: Bearer {{token}}
+
+### ⑬ 반복 수정 — "이후 일정 전체" 기준 시각 지정 (B8)
+# effectiveFrom 이전 인스턴스는 건드리지 않는다. 안 보내면 지금부터(기존 동작).
+PATCH {{host}}/api/v1/schedule-repeats/{{repeatId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "localTime": "08:30",
+  "departTime": "07:40",
+  "effectiveFrom": "2026-09-24T00:00:00"
+}
+
+### ⑭ 반복 중지 — 미래 인스턴스는 그대로 (기존 앱 동작)
+DELETE {{host}}/api/v1/schedule-repeats/{{repeatId}}
+Authorization: Bearer {{token}}
+
+### ⑮ 반복 중지 — 미래 인스턴스까지 취소 (B8)
+# 지우지 않고 status=CANCELED 로 바꾼다. 개별 수정한 일정은 남는다.
+DELETE {{host}}/api/v1/schedule-repeats/{{repeatId}}?cancelFutureInstances=true
+Authorization: Bearer {{token}}

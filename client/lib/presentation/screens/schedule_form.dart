@@ -293,6 +293,51 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
     ),
   );
 
+  /// 고친 내용을 언제부터 적용할지 묻는다.
+  ///
+  /// 3일 뒤 일정을 보다가 규칙을 고쳤는데 오늘·내일 일정까지 바뀌면 사용자가 놀란다.
+  /// 서버는 값을 안 보내면 지금부터로 본다 — 예전 동작이다.
+  ///
+  /// 반환값이 null 이면 사용자가 취소한 것이고, 값 안의 [value] 가 null 이면 "지금부터" 다.
+  Future<({DateTime? value})?> _askEffectiveFrom() async {
+    final now = DateTime.now();
+    return showDialog<({DateTime? value})>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('repeatEffectiveFromDialog'),
+        title: const Text('언제부터 바꿀까요?'),
+        content: const Text('이미 지나간 일정은 바뀌지 않아요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            key: const Key('repeatEffectiveFromPick'),
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: dialogContext,
+                initialDate: now,
+                firstDate: now,
+                lastDate: now.add(const Duration(days: 365)),
+              );
+              if (picked == null) return;
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext, (value: picked));
+              }
+            },
+            child: const Text('날짜 고르기'),
+          ),
+          FilledButton(
+            key: const Key('repeatEffectiveFromNow'),
+            onPressed: () => Navigator.pop(dialogContext, (value: null)),
+            child: const Text('지금부터'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 시계 단추로 고른 값을 칸에 넣는다. 직접 쳐도 되고 골라도 된다.
   Future<void> _pickTimeInto(TextEditingController controller) async {
     final current = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
@@ -437,7 +482,13 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
       if (widget.rule == null) {
         await widget.repository.addRepeatSchedule(rule);
       } else {
-        await widget.repository.updateRepeatSchedule(rule);
+        final from = await _askEffectiveFrom();
+        // 취소를 고르면 아무것도 바꾸지 않는다.
+        if (from == null) return;
+        await widget.repository.updateRepeatSchedule(
+          rule,
+          effectiveFrom: from.value,
+        );
       }
       if (mounted) context.pop(true);
     } on Object {

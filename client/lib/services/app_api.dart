@@ -90,16 +90,30 @@ class RepeatScheduleApi implements RepeatScheduleRepository {
       );
 
   @override
-  Future<void> updateRepeatSchedule(RepeatScheduleRule rule) async {
+  Future<void> updateRepeatSchedule(
+    RepeatScheduleRule rule, {
+    DateTime? effectiveFrom,
+  }) async {
     await _dio.patch<Map<String, dynamic>>(
       ApiPaths.scheduleRepeat(rule.id),
-      data: rule.toUpdateRequestJson(),
+      data: {
+        ...rule.toUpdateRequestJson(),
+        // 안 보내면 서버가 지금부터로 본다. 예전 동작과 같다.
+        if (effectiveFrom != null)
+          'effectiveFrom': effectiveFrom.toIso8601String(),
+      },
     );
   }
 
   @override
-  Future<void> deactivateRepeatSchedule(String id) async {
-    await _dio.delete<void>(ApiPaths.scheduleRepeat(id));
+  Future<void> deactivateRepeatSchedule(
+    String id, {
+    bool cancelFutureInstances = false,
+  }) async {
+    await _dio.delete<void>(
+      ApiPaths.scheduleRepeat(id),
+      queryParameters: {'cancelFutureInstances': cancelFutureInstances},
+    );
   }
 }
 
