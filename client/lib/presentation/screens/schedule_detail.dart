@@ -464,7 +464,7 @@ class ScheduleDetailScreen extends StatelessWidget {
               // 네 칸 모두 "확인 필요"만 나오던 자리다. 값이 붙기 전까지는 한 줄로만 알린다.
               const InfoCard(
                 child: Text(
-                  '오늘의 이동 변수(날씨·혼잡도·도로 통제·지하철 지연)는 아직 확인되지 않았어요.',
+                  '오늘의 이동 변수(혼잡도·도로 통제·지하철 지연)는 아직 확인되지 않았어요.',
                   style: TextStyle(fontSize: 13, color: Color(0xFF5A6B85)),
                 ),
               ),

@@ -103,6 +103,25 @@ class AppPermissionController {
         false;
   }
 
+  /// 지금 위치. 권한이 없거나 못 구하면 null 이다.
+  ///
+  /// 못 구했을 때 임의의 좌표로 대신하지 않는다. 엉뚱한 곳에서 출발하는 경로를 만들어
+  /// 주는 것보다 "못 구했다" 고 말하는 편이 낫다.
+  static Future<({double lat, double lng})?> currentLocation() async {
+    if (kIsWeb) return null;
+    try {
+      final value = await _channel.invokeMapMethod<String, double>(
+        'currentLocation',
+      );
+      final lat = value?['latitude'];
+      final lng = value?['longitude'];
+      if (lat == null || lng == null) return null;
+      return (lat: lat, lng: lng);
+    } on Object {
+      return null;
+    }
+  }
+
   static Future<bool> hasNotificationPermission() async {
     final settings = await FirebaseMessaging.instance.getNotificationSettings();
     return settings.authorizationStatus == AuthorizationStatus.authorized ||

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
@@ -292,6 +293,25 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
     ),
   );
 
+  /// 시계 단추로 고른 값을 칸에 넣는다. 직접 쳐도 되고 골라도 된다.
+  Future<void> _pickTimeInto(TextEditingController controller) async {
+    final current = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
+    final text = controller.text.trim();
+    final initial = current.hasMatch(text)
+        ? TimeOfDay(
+            hour: int.parse(text.substring(0, 2)),
+            minute: int.parse(text.substring(3, 5)),
+          )
+        : const TimeOfDay(hour: 8, minute: 0);
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked == null || !mounted) return;
+    setState(() {
+      controller.text =
+          '${picked.hour.toString().padLeft(2, '0')}:'
+          '${picked.minute.toString().padLeft(2, '0')}';
+    });
+  }
+
   Widget _field(
     String label,
     TextEditingController controller, {
@@ -308,7 +328,11 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
         TextFormField(
           key: key,
           controller: controller,
-          keyboardType: timeField ? TextInputType.datetime : TextInputType.text,
+          keyboardType: timeField ? TextInputType.number : TextInputType.text,
+          // 숫자만 치면 콜론을 대신 넣어 준다. 예전에는 사용자가 "08:10" 을 직접 쳐야 했는데,
+          // 삼성 키보드는 이 칸에서 콜론 없는 숫자판을 띄워 입력 자체가 불가능했다
+          // (2026-09-22 기기 확인). 옆의 시계 단추로 골라도 된다.
+          inputFormatters: timeField ? [_HourMinuteFormatter()] : null,
           validator: (value) {
             final text = (value ?? '').trim();
             if (text.isEmpty) return '필수 입력 항목입니다.';
@@ -319,7 +343,15 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
             return null;
           },
           decoration: InputDecoration(
-            suffixIcon: icon == null ? null : Icon(icon),
+            hintText: timeField ? '예: 0810' : null,
+            suffixIcon: timeField
+                ? IconButton(
+                    key: Key('${key.toString()}-picker'),
+                    tooltip: '시간 고르기',
+                    icon: const Icon(Icons.access_time),
+                    onPressed: () => _pickTimeInto(controller),
+                  )
+                : (icon == null ? null : Icon(icon)),
           ),
         ),
       ],
@@ -1079,4 +1111,27 @@ class _ScheduleHeroBubble extends StatelessWidget {
       shape: BoxShape.circle,
     ),
   );
+}
+
+/// 숫자만 받아 `HH:mm` 으로 만들어 준다.
+///
+/// 시간 칸이 숫자 키패드를 띄우는데 거기엔 콜론이 없다. 그래서 사용자가 형식을 맞출 수
+/// 없었다(2026-09-22 기기 확인). 네 자리까지만 받고 두 자리 뒤에 콜론을 넣는다.
+/// 이미 "08:10" 처럼 맞게 들어온 값은 그대로 남는다.
+class _HourMinuteFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final kept = digits.length > 4 ? digits.substring(0, 4) : digits;
+    final formatted = kept.length <= 2
+        ? kept
+        : '${kept.substring(0, 2)}:${kept.substring(2)}';
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
 }

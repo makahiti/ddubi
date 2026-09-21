@@ -195,6 +195,7 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
   PlaceLocation? _destination;
   late DateTime _plannedDepartAt;
   bool _departureConfirmed = false;
+  bool _locating = false;
   late DateTime _desiredArrivalAt;
   late final TextEditingController _departure;
   late final TextEditingController _arrival;
@@ -342,7 +343,7 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
   );
 
   Widget _placeField(bool departure) {
-    return PlaceSearchField(
+    final field = PlaceSearchField(
       key: Key(departure ? 'routeDepartureField' : 'routeDestinationField'),
       label: departure ? '출발지' : '도착지',
       value: departure ? _origin : _destination,
@@ -355,6 +356,64 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
         }
       }),
     );
+    if (!departure) return field;
+    // 일정과 달리 경로 찾기는 "지금 여기서" 가 가장 흔한 출발지다. 그때마다 주소를
+    // 검색해 고르게 하는 것은 번거롭다(2026-09-22 요청).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        field,
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const Key('routeUseCurrentLocation'),
+            onPressed: _locating ? null : _useCurrentLocation,
+            icon: _locating
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location, size: 18),
+            label: Text(_locating ? '위치를 확인하는 중...' : '현재 위치로 설정'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 지금 위치를 출발지로 넣는다.
+  ///
+  /// 못 구하면 그렇다고 알리고 아무것도 바꾸지 않는다. 임의의 좌표로 채우면 엉뚱한
+  /// 곳에서 출발하는 경로가 만들어진다.
+  Future<void> _useCurrentLocation() async {
+    setState(() => _locating = true);
+    try {
+      if (!await AppPermissionController.hasLocationPermission()) {
+        final allowed =
+            await AppPermissionController.requestLocationPermission();
+        if (!allowed) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('위치 권한이 필요해요. 더보기에서 켜주세요.')),
+          );
+          return;
+        }
+      }
+      final here = await AppPermissionController.currentLocation();
+      if (!mounted) return;
+      if (here == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('지금 위치를 확인하지 못했어요. 주소로 검색해 주세요.')),
+        );
+        return;
+      }
+      setState(() {
+        _origin = PlaceLocation(name: '현재 위치', lat: here.lat, lng: here.lng);
+      });
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
   }
 
   Future<void> _pickArrival() async {
