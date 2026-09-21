@@ -94,7 +94,7 @@ compose-validate:
     - export MYSQL_PASSWORD=ci-dummy MYSQL_ROOT_PASSWORD=ci-dummy REDIS_PASSWORD=ci-dummy GRAFANA_ADMIN_PASSWORD=ci-dummy
     - docker compose --profile core --profile collect --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
-      --profile exporters config -q
+      --profile exporters --profile topis-ai config -q
     # 서버 오버레이 검증 (IP 는 필수 변수라 더미 값 주입)
     - export SERVER1_PRIVATE_IP=10.0.0.1 SERVER2_PRIVATE_IP=10.0.0.2
     - docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile spark --profile archive config -q
@@ -379,6 +379,7 @@ deploy-server1:
       "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server1.yml
        --profile core --profile collect --profile spark --profile archive --profile hdfs --profile exporters
+       --profile topis-ai
        up -d --build
        && bash scripts/post-deploy.sh server1"
 
