@@ -1,5 +1,9 @@
 package com.ssafy.ddubi.domain.schedule.service;
 
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.ssafy.ddubi.domain.recommendation.service.ScheduleInputChanged;
 import com.ssafy.ddubi.domain.schedule.entity.LocationSnapshot;
 import com.ssafy.ddubi.domain.schedule.entity.Schedule;
@@ -9,19 +13,16 @@ import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 /**
- * 일정 취소(SCH-005) 규칙을 DB 없이 고정한다.
- * 취소는 soft(status=CANCELED)이며 재평가 중단 이벤트를 낸다. 남의 일정·없는 일정·완료된 일정은 거절한다.
+ * 일정 취소(SCH-005) 규칙을 DB 없이 고정한다. 취소는 soft(status=CANCELED)이며 재평가 중단 이벤트를 낸다. 남의 일정·없는 일정·완료된 일정은
+ * 거절한다.
  */
 class ScheduleCancelServiceTest {
     final ScheduleRepository schedules = mock(ScheduleRepository.class);
@@ -32,13 +33,24 @@ class ScheduleCancelServiceTest {
     Schedule owned(long userId) {
         User user = User.builder().email("owner@ddubi.com").nickname("주인").build();
         ReflectionTestUtils.setField(user, "id", userId);
-        LocationSnapshot origin = new LocationSnapshot("강남역", new BigDecimal("37.4979526"), new BigDecimal("127.0276241"));
-        LocationSnapshot destination = new LocationSnapshot("광화문", new BigDecimal("37.5716229"), new BigDecimal("126.9767879"));
-        return Schedule.builder().user(user).title("회의").origin(origin).destination(destination)
-                .arriveBy(LocalDateTime.now().plusDays(1)).considerLastTrip(false).build();
+        LocationSnapshot origin =
+                new LocationSnapshot(
+                        "강남역", new BigDecimal("37.4979526"), new BigDecimal("127.0276241"));
+        LocationSnapshot destination =
+                new LocationSnapshot(
+                        "광화문", new BigDecimal("37.5716229"), new BigDecimal("126.9767879"));
+        return Schedule.builder()
+                .user(user)
+                .title("회의")
+                .origin(origin)
+                .destination(destination)
+                .arriveBy(BusinessTime.now().plusDays(1))
+                .considerLastTrip(false)
+                .build();
     }
 
-    @Test void ownerCancelIsSoftAndStopsEvaluationThroughEvent() {
+    @Test
+    void ownerCancelIsSoftAndStopsEvaluationThroughEvent() {
         Schedule schedule = owned(1L);
         when(schedules.findForUpdate(10L)).thenReturn(Optional.of(schedule));
 
@@ -52,7 +64,8 @@ class ScheduleCancelServiceTest {
         assertThat(schedule.getStatus()).isEqualTo(ScheduleStatus.CANCELED);
     }
 
-    @Test void strangerCannotCancelAndNothingChanges() {
+    @Test
+    void strangerCannotCancelAndNothingChanges() {
         Schedule schedule = owned(1L);
         when(schedules.findForUpdate(10L)).thenReturn(Optional.of(schedule));
 
@@ -65,7 +78,8 @@ class ScheduleCancelServiceTest {
         verify(schedules, never()).flush();
     }
 
-    @Test void missingScheduleIsNotFoundAndDoneScheduleIsConflict() {
+    @Test
+    void missingScheduleIsNotFoundAndDoneScheduleIsConflict() {
         when(schedules.findForUpdate(99L)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.cancel(1L, 99L))
                 .isInstanceOf(BusinessException.class)

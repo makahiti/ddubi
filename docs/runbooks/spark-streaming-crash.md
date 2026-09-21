@@ -1,6 +1,6 @@
 # Spark 스트리밍 잡이 죽었다
 
-대상: `spark-streaming-weather`(날씨 최신값), `spark-streaming-realtime`(비기상 최신값). 둘 다 서버1.
+대상: `spark-streaming-weather`(날씨 최신값), `spark-streaming-realtime`(비기상 최신값), `spark-streaming-city-realtime`(도시 실시간 정규화, 2026-09-18 추가). 셋 다 서버1. 아래 명령은 weather 로 적었지만 잡 이름만 바꾸면 같다.
 
 ## 증상
 

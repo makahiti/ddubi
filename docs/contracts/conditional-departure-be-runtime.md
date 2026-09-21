@@ -79,7 +79,6 @@ DT는 `redis-keys.yaml`, `events/*.schema.json`, 기존 transit/time-table 계�
 | `ddubi.recommendation.auto-notify-enabled` | false | 자동 알림 |
 | `ddubi.recommendation.shadow-preview-notify-enabled` | false | 검증용 알림 허용. 켜면 `[검증용]` 본문 |
 | `ddubi.walking.enabled` | false | 공식 카카오맵 도보 사용. 키/좌표/비용 검증까지 통과해야 적용 |
-| `ddubi.walking.max-calls` | 4 | 일정 평가 전체 호출 예산, 최대 32. 후보 재검색도 같은 session/cache 사용 |
 | `ddubi.walking.endpoint-max-meters` | 0 | 0이면 검증 비활성. corpus로 합의한 값만 설정 |
 | `ddubi.walking.master-coordinate-path` | 빈 값 | DT transit-coordinate-v1 객체 또는 이전 MasterPoint 배열. 32 MiB 상한 |
 | `ddubi.bus-waiting.decomposition-verified` | false | 이동/대기 비용 분해 검증 후 켬 |
@@ -152,7 +151,7 @@ MR !146 (`d9a2bac` 기준)의 GitLab 병합 검사는 draft 외 충돌이 없었
 
 `GET https://dapi.kakao.com/v2/routing/walk`에 `start_x/start_y/end_x/end_y`, `input_coord=output_coord=WGS84`, `route_mode=SHORTEST`를 전송한다. 기존 `KAKAO_REST_API_KEY`를 KakaoAK 헤더로 재사용한다. 과거 계획서의 affiliate endpoint와 service/priority/default_speed는 사용하지 않는다.
 
-추가 설정은 `ddubi.walking.timeout-millis=1500`(연결/읽기 각각), `cache-seconds=60`(BE 정책 TTL, provider 보장 아님)이다. `DDUBI_WALKING_ENABLED`, `DDUBI_WALKING_ENDPOINT_MAX_METERS`, `DDUBI_WALKING_MASTER_COORDINATE_PATH` 환경변수로 켠다. 승인되지 않은 거리 임계값을 코드에서 자동 선택하지 않는다. 좌표 반올림 없는 session cache를 사용하며 재검색도 호출 예산 4회를 공유한다.
+추가 설정은 `ddubi.walking.timeout-millis=1500`(연결/읽기 각각), `cache-seconds=60`(외부 응답을 최초 평가 안에서 검증하는 TTL, provider 보장 아님)이다. `DDUBI_WALKING_ENABLED`, `DDUBI_WALKING_ENDPOINT_MAX_METERS`, `DDUBI_WALKING_MASTER_COORDINATE_PATH` 환경변수로 켠다. 승인되지 않은 거리 임계값을 코드에서 자동 선택하지 않는다. 좌표 반올림 없는 session cache로 최초 평가의 동일 요청을 재사용하며, 후보 수에 따른 호출 횟수 상한은 두지 않는다. 성공한 도보시간과 보강 후보는 `schedule_evaluation.candidates_json`에 저장하고 일정의 `arriveBy`까지 재사용한다. 일정 입력 revision이 같으면 자동·수동 재평가에서 도보 API를 다시 호출하지 않는다. 외부 429·timeout·오류는 기존 WALK fallback 사유로 보존한다.
 
 403·429·timeout·5xx·비정상 status·빈/깨진 응답은 기존 WALK로 돌아간다. 429는 Retry-After(초/HTTP date)까지 이후 호출을 생략하고 즉시 재시도하지 않는다. `ddubi.walking.requests{result}`와 actuator `kakaoWalkingRouteClient` health 상세에 상태를 제공한다. 선택적 도보 장애가 전체 대중교통 readiness를 내리지 않는다. 실제 유료 API 호출과 운영 활성화는 이 변경의 테스트에 포함하지 않았다.
 
@@ -189,7 +188,8 @@ MR !146 (`d9a2bac` 기준)의 GitLab 병합 검사는 draft 외 충돌이 없었
 
 - 제한 격자의 출발 후보는 최신 시각부터 평가한다. 예산 내에서 목표에 도착하는 첫 해를 찾으면 `ADVANCE_DEPARTURE` 또는 `DEPART_NOW`로 완료한다. 그보다 이른 후보를 메모리 제한으로 제거한 사실만으로 `SEARCH_INCOMPLETE`로 바꾸지 않는다. 실제 시간·호출 예산 초과나 해를 찾지 못한 잘린 탐색은 계속 미완료다.
 - 버스 `Estimate`와 공통 `WaitPrediction`에 원천 `validUntil`을 보존한다. 지하철 `Estimate.validUntil`은 선택 열차의 시간표와 실제 적용한 도착·위치 증거 중 가장 이른 만료시각이다. 조회했지만 폐기한 도착정보는 시간표 fallback의 유효시간을 제한하지 않는다.
-- 최종 유효시간은 기존 구간 상태·도보·다음 평가시각 제한에 더해, 최초 비교와 제안 비교에서 `applied=true`인 대기·지하철 예측 만료시각도 넘지 않는다. 이 값은 응답, 평가 DB, outbox에서 공유한다. 구형 저장 JSON의 적용 예측에 만료시각이 없으면 해당 평가의 `asOf`로 만료시키며 기본 60초를 부여하지 않는다. 이는 저장 JSON의 추가 필드이며 공개 v2 DTO 필드 변경은 아니다.
+- 최초 평가에서 받은 대중교통 후보와 도보시간은 같은 일정 입력 revision 동안 고정한다. 후보의 fetchedAt 경과, 지각·통제 전환은 외부 경로 재조회 조건이 아니며 저장 후보들의 실시간 소요시간과 이용 가능성만 다시 비교한다. 출발지·목적지·일정 시각 변경으로 revision이 바뀌면 캐시를 폐기하고 새 후보를 한 번 조회한다.
+- 최종 유효시간은 기존 구간 상태·일정 종료까지 보존한 도보·다음 평가시각 제한에 더해, 최초 비교와 제안 비교에서 `applied=true`인 대기·지하철 예측 만료시각도 넘지 않는다. 이 값은 응답, 평가 DB, outbox에서 공유한다. 구형 저장 JSON의 적용 예측에 만료시각이 없으면 해당 평가의 `asOf`로 만료시키며 기본 60초를 부여하지 않는다. 이는 저장 JSON의 추가 필드이며 공개 v2 DTO 필드 변경은 아니다.
 - 일정 응답의 `causes`에는 실제 사용자 선택 후보의 영향도 포함한다. 선택 경로가 차단되어 다른 정상 후보를 제안해도 원인을 유지하고, 선택·원래 최선·제안 후보와 무관한 다른 후보의 사건은 섞지 않는다. 읽기 전용 평가에는 사용자 선택 후보를 임의로 만들지 않는다.
 - 동일 dedup의 미발송 outbox가 새 평가로 교체되면, 재시도 준비 트랜잭션에서 기존 `notificationId`를 유지하며 알림 제목·본문·종류·추천 참조를 최신 명령과 맞춘다. 이미 `SENT`인 이력과 읽음 시각은 변경하지 않는다.
 - DB 컬럼이나 마이그레이션은 추가하지 않는다. FE 파싱·표시 변경은 이 보완의 범위에 포함하지 않는다.

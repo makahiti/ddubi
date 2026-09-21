@@ -13,6 +13,16 @@ class PlaceApi implements PlaceSearchService {
     String query, {
     int page = 0,
     int size = 10,
+  }) async => (await searchPage(query, page: page, size: size)).items;
+
+  /// 서버가 수도권과 부산 결과를 한 페이지에 섞어서 내려준다. 받은 순서를 그대로 쓰고
+  /// 주소나 지역명으로 다시 정렬하지 않는다. 다음 페이지 여부는 hasNext 로만 판단한다 —
+  /// 받은 개수가 요청한 size 보다 적어도 마지막 페이지가 아닐 수 있다.
+  @override
+  Future<PlaceSearchPage> searchPage(
+    String query, {
+    int page = 0,
+    int size = 10,
   }) async {
     final response = await _dio.get<Map<String, dynamic>>(
       ApiPaths.placeSearch,
@@ -23,15 +33,19 @@ class PlaceApi implements PlaceSearchService {
       throw const FormatException('장소 검색 응답 형식을 확인할 수 없습니다.');
     }
     final content = data['content'];
-    if (content is! List) return const [];
-    return content
-        .whereType<Map>()
-        .map(
-          (item) => PlaceLocation.fromJson(
-            item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-        )
-        .toList(growable: false);
+    if (content is! List) return PlaceSearchPage.empty;
+    return PlaceSearchPage(
+      items: content
+          .whereType<Map>()
+          .map(
+            (item) => PlaceLocation.fromJson(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+          )
+          .toList(growable: false),
+      hasNext: data['hasNext'] == true,
+      totalElements: (data['totalElements'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<List<SavedPlace>> list({int page = 0, int size = 100}) async {

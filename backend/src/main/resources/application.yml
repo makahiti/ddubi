@@ -7,7 +7,12 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:prod}
 
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ddubi}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    # connectionTimeZone=LOCAL&preserveInstants=false 는 "드라이버는 시각 값을 변환하지 마라" 는 뜻이다.
+    # 예전 serverTimezone=Asia/Seoul 은 Timestamp 를 JVM 기본 시간대로 해석한 뒤 Asia/Seoul 로 다시
+    # 렌더링해서, JVM 이 UTC 인 CI 에서만 저장값이 +9h 밀렸다. 우리 엔티티 시각은 전부
+    # LocalDateTime/LocalTime 이라 애초에 변환할 대상이 아니다.
+    # MySQL 세션 시간대(+09:00)는 건드리지 않는다 — 서버가 직접 찍는 CURRENT_TIMESTAMP(6) 는 KST 여야 한다.
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ddubi}?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=LOCAL&preserveInstants=false&characterEncoding=UTF-8
     username: ${MYSQL_USER:ddubi}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -23,7 +28,12 @@ spring:
     properties:
       hibernate:
         jdbc:
-          time_zone: Asia/Seoul
+          # hibernate.jdbc.time_zone 을 두지 않는다. 엔티티 시각은 전부 LocalDateTime/LocalTime,
+          # 즉 시간대가 없는 타입이라 변환할 것이 없는데, 그 설정이 있으면 Hibernate 가
+          # "JVM 기본 시간대로 해석 → Asia/Seoul 로 다시 렌더링" 을 끼워 넣는다. JVM 이 KST 면
+          # 차이가 0 이라 조용하지만, CI 처럼 UTC 면 저장값이 +9h 밀린다. TIME 컬럼은 거기에
+          # 더해 자정을 넘기며 한 바퀴 돌아 대소 비교까지 뒤집힌다(브리핑 대상 조회).
+          # "지금이 몇 시인가" 는 저장 계층이 아니라 BusinessTime 이 KST 로 정한다.
           batch_size: 50
         order_inserts: true
         order_updates: true
@@ -189,7 +199,6 @@ ddubi:
     path: /v2/routing/walk
     timeout-millis: 1500
     cache-seconds: 60
-    max-calls: ${DDUBI_WALKING_MAX_CALLS:10}
     endpoint-max-meters: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:0}
     master-coordinate-path: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:}
   external:

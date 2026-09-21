@@ -8,15 +8,15 @@
   "state" : "READY",
   "decision" : "KEEP_DEPARTURE",
   "triggerReason" : "READ_ONLY",
-  "userInputDepartAt" : "2026-09-16T00:01:00Z",
-  "plannedDepartAt" : "2026-09-16T00:01:00Z",
-  "effectiveDepartAt" : "2026-09-16T00:01:00Z",
-  "arriveBy" : "2026-09-16T01:00:00Z",
-  "originalEstimatedArrivalAt" : "2026-09-16T00:15:00Z",
-  "targetArriveAt" : "2026-09-16T01:00:00Z",
+  "userInputDepartAt" : "2026-09-16T09:01:00",
+  "plannedDepartAt" : "2026-09-16T09:01:00",
+  "effectiveDepartAt" : "2026-09-16T09:01:00",
+  "arriveBy" : "2026-09-16T10:00:00",
+  "originalEstimatedArrivalAt" : "2026-09-16T09:15:00",
+  "targetArriveAt" : "2026-09-16T10:00:00",
   "appliedBufferSeconds" : 0,
-  "proposedDepartAt" : "2026-09-16T00:01:00Z",
-  "estimatedArrivalAt" : "2026-09-16T00:15:00Z",
+  "proposedDepartAt" : "2026-09-16T09:01:00",
+  "estimatedArrivalAt" : "2026-09-16T09:15:00",
   "durationSeconds" : 840,
   "latenessSeconds" : 0,
   "arrivesBeforeSchedule" : true,
@@ -31,7 +31,7 @@
     "walkingApiApplied" : true,
     "walkingApiCoverage" : "BOTH",
     "costCoverage" : "COMPLETE",
-    "missingInputs" : [ "SYNTHETIC_FIXTURE", "CROSSWALK_VERSION_NOT_REPORTED", "FEATURE_SNAPSHOT_VERSION_NOT_REPORTED" ],
+    "missingInputs" : [ "SYNTHETIC_FIXTURE" ],
     "fallbackReasons" : [ "SYNTHETIC_FIXTURE", "step-1:MISSING_STALE_OR_OUTSIDE_HORIZON", "step-2:MISSING_STALE_OR_OUTSIDE_HORIZON", "step-3:MISSING_STALE_OR_OUTSIDE_HORIZON" ]
   },
   "search" : {
@@ -50,9 +50,9 @@
   "validUntil" : "2026-09-16T00:01:00Z",
   "nextEvaluationAt" : null,
   "versions" : {
-    "policy" : "cdep-v1",
-    "walkingApi" : "kakaomap-walk-v2",
     "walkingEndpointPolicy" : "walk-endpoint-v2",
+    "walkingApi" : "kakaomap-walk-v2",
+    "policy" : "cdep-v1",
     "master" : "master"
   },
   "segments" : [ {
@@ -105,5 +105,22 @@
       "judgment" : "EXACT",
       "reason" : null
     }
+  } ],
+  "guidance" : {
+    "canDisplayEstimate" : true,
+    "canAccept" : true,
+    "source" : "PROVIDER_ESTIMATE",
+    "reasons" : [ ]
+  },
+  "candidateEstimates" : [ {
+    "candidateKey" : "candidate-0",
+    "routeId" : null,
+    "rank" : 1,
+    "assessment" : "ON_TIME_ESTIMATE",
+    "departAt" : "2026-09-16T09:01:00",
+    "estimatedArrivalAt" : "2026-09-16T09:15:00",
+    "durationSeconds" : 840,
+    "selected" : false,
+    "proposed" : true
   } ]
 }

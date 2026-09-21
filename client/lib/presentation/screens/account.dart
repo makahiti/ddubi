@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -112,7 +113,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
                       '회원 탈퇴',
                       style: TextStyle(color: DdubiColors.red),
                     ),
-                    onTap: _withdraw,
+                    onTap: () => _withdraw(user),
                   ),
                 ],
               ),
@@ -445,7 +446,7 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
     }
   }
 
-  Future<void> _withdraw() async {
+  Future<void> _withdraw(UserProfile user) async {
     final confirmed = await showDialog<bool>(
       context: context,
       barrierColor: const Color(0x730B1C2E),
@@ -630,15 +631,85 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
         ),
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
+
+    // 서버는 LOCAL 인증 수단이 있는 계정에 비밀번호를 요구한다(토큰만으로 남이 지우지
+    // 못하게 막는 장치다). 예전에는 앱이 비밀번호를 보내지 않아 이메일 가입자는 탈퇴가
+    // 항상 실패했다. 소셜 전용 계정은 비밀번호 자체가 없어 그대로 보낸다.
+    if (user.provider != null && user.provider != 'LOCAL') {
+      await _submitWithdraw(null);
+      return;
+    }
+
+    final password = TextEditingController();
+    final done = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => _AccountFormSheet(
+        title: '회원 탈퇴',
+        icon: Icons.person_remove_outlined,
+        description: '본인 확인을 위해 비밀번호를 입력해주세요. 탈퇴하면 되돌릴 수 없어요.',
+        submitLabel: '탈퇴하기',
+        fields: [
+          _AccountFormField(
+            controller: password,
+            label: user.provider == 'LOCAL'
+                ? '현재 비밀번호'
+                : '현재 비밀번호 (소셜 전용 계정은 비워두세요)',
+            obscure: true,
+          ),
+        ],
+        // 로그인 수단을 모를 때(provider 미제공)는 비워두는 것을 허용한다. 소셜 전용
+        // 계정이라면 서버가 비밀번호 확인을 건너뛴다.
+        validate: () => user.provider == 'LOCAL' && password.text.isEmpty
+            ? '비밀번호를 입력해주세요.'
+            : null,
+        onSubmit: () =>
+            _requestWithdraw(password.text.isEmpty ? null : password.text),
+      ),
+    );
+    password.dispose();
+    if (done == true && mounted) context.go('/login');
+  }
+
+  /// 비밀번호 없이 보내는 경로(소셜 전용 계정). 실패하면 이유를 구분해 알린다.
+  Future<void> _submitWithdraw(String? password) async {
     try {
-      await widget.userApi.withdraw();
+      await _requestWithdraw(password);
       if (mounted) context.go('/login');
-    } on Object {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('회원 탈퇴를 처리하지 못했어요.')));
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? '회원 탈퇴를 처리하지 못했어요.')),
+      );
+    }
+  }
+
+  /// 탈퇴 요청 한 번. 실패 이유를 사용자 문구로 옮겨 [AuthException] 으로 올린다 —
+  /// 입력 시트가 그 문구를 그대로 보여주고 시트를 닫지 않는다.
+  Future<void> _requestWithdraw(String? password) async {
+    try {
+      await widget.userApi.withdraw(password: password);
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (status == 401) {
+        throw const AuthException(
+          AuthErrorCode.invalidCredentials,
+          message: '비밀번호가 맞지 않아요.',
+        );
       }
+      if (status == null) {
+        throw const AuthException(
+          AuthErrorCode.connectionFailed,
+          message: '연결 상태를 확인해주세요.',
+        );
+      }
+      throw const AuthException(
+        AuthErrorCode.serverError,
+        message: '회원 탈퇴를 처리하지 못했어요. 잠시 뒤 다시 시도해주세요.',
+      );
     }
   }
 }

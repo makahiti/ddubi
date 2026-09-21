@@ -18,20 +18,18 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 일정 인스턴스 — 추천의 출발점 (F-01, F-03, F-05).
  *
- * 이 엔티티가 지키는 도메인 규칙:
- *  - 규칙 5: 반복 인스턴스를 개별 수정하면 {@code customized=true} → 반복 전체 수정이 건너뛴다
- *  - 규칙 11: 삭제는 soft(CANCELED). 물리 삭제는 탈퇴 CASCADE 뿐
- *  - 규칙 12: updated_at 이 낙관적 잠금 비교값이다 — SCH-004 가 요청의 updatedAt 과 대조한다
+ * <p>이 엔티티가 지키는 도메인 규칙: - 규칙 5: 반복 인스턴스를 개별 수정하면 {@code customized=true} → 반복 전체 수정이 건너뛴다 - 규칙 11:
+ * 삭제는 soft(CANCELED). 물리 삭제는 탈퇴 CASCADE 뿐 - 규칙 12: updated_at 이 낙관적 잠금 비교값이다 — SCH-004 가 요청의
+ * updatedAt 과 대조한다
  */
 @Entity
 @Table(name = "schedule")
@@ -57,17 +55,29 @@ public class Schedule extends BaseTimeEntity {
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "name", column = @Column(name = "origin_name", nullable = false, length = 100)),
-            @AttributeOverride(name = "lat", column = @Column(name = "origin_lat", nullable = false, precision = 10, scale = 7)),
-            @AttributeOverride(name = "lng", column = @Column(name = "origin_lng", nullable = false, precision = 10, scale = 7))
+        @AttributeOverride(
+                name = "name",
+                column = @Column(name = "origin_name", nullable = false, length = 100)),
+        @AttributeOverride(
+                name = "lat",
+                column = @Column(name = "origin_lat", nullable = false, precision = 10, scale = 7)),
+        @AttributeOverride(
+                name = "lng",
+                column = @Column(name = "origin_lng", nullable = false, precision = 10, scale = 7))
     })
     private LocationSnapshot origin;
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "name", column = @Column(name = "dest_name", nullable = false, length = 100)),
-            @AttributeOverride(name = "lat", column = @Column(name = "dest_lat", nullable = false, precision = 10, scale = 7)),
-            @AttributeOverride(name = "lng", column = @Column(name = "dest_lng", nullable = false, precision = 10, scale = 7))
+        @AttributeOverride(
+                name = "name",
+                column = @Column(name = "dest_name", nullable = false, length = 100)),
+        @AttributeOverride(
+                name = "lat",
+                column = @Column(name = "dest_lat", nullable = false, precision = 10, scale = 7)),
+        @AttributeOverride(
+                name = "lng",
+                column = @Column(name = "dest_lng", nullable = false, precision = 10, scale = 7))
     })
     private LocationSnapshot destination;
 
@@ -81,29 +91,42 @@ public class Schedule extends BaseTimeEntity {
 
     /** 사용자 등록/수정 또는 명시적 제안 수락에서만 변경한다. 추천 계산 자체는 호출하지 않는다. */
     public void changePlannedDepartAt(LocalDateTime value) {
-        this.plannedDepartAt = value; this.userInputDepartAt = value; this.planSource = "USER_INPUT"; inputRevision++;
+        this.plannedDepartAt = value;
+        this.userInputDepartAt = value;
+        this.planSource = "USER_INPUT";
+        inputRevision++;
     }
 
-    @Column(name="user_input_depart_at")
+    @Column(name = "user_input_depart_at")
     private LocalDateTime userInputDepartAt;
-    @Column(name="plan_source", nullable=false)
+
+    @Column(name = "plan_source", nullable = false)
     private String planSource = "LEGACY_UNKNOWN";
-    @Column(name="actual_depart_at")
+
+    @Column(name = "actual_depart_at")
     private LocalDateTime actualDepartAt;
-    @Column(name="journey_state", nullable=false)
+
+    @Column(name = "journey_state", nullable = false)
     private String journeyState = "NOT_STARTED";
+
     /** 입력 수정의 논리 버전. 동일 DB 시각 안의 변경도 반드시 구분한다. */
-    @Column(name="input_revision", nullable=false)
+    @Column(name = "input_revision", nullable = false)
     private long inputRevision;
 
     /** 추천 수락은 최초 사용자 P를 보존하고 실행 계획만 바꾼다. */
     public void acceptDeparture(LocalDateTime value) {
-        plannedDepartAt=value; planSource="ACCEPTED_RECOMMENDATION"; inputRevision++;
+        plannedDepartAt = value;
+        planSource = "ACCEPTED_RECOMMENDATION";
+        inputRevision++;
     }
+
     /** 최초 출발 사실만 보존한다. 동일 출발 요청의 재전송은 멱등이다. */
     public void depart(LocalDateTime now) {
-        if (actualDepartAt!=null) return;
-        requireEditable(); actualDepartAt=now; journeyState="IN_PROGRESS"; inputRevision++;
+        if (actualDepartAt != null) return;
+        requireEditable();
+        actualDepartAt = now;
+        journeyState = "IN_PROGRESS";
+        inputRevision++;
     }
 
     @Enumerated(EnumType.STRING)
@@ -123,16 +146,22 @@ public class Schedule extends BaseTimeEntity {
     private ScheduleStatus status;
 
     @Builder
-    private Schedule(User user, ScheduleRepeat repeat, String title,
-                     LocationSnapshot origin, LocationSnapshot destination,
-                     LocalDateTime arriveBy, Importance importance, boolean considerLastTrip) {
+    private Schedule(
+            User user,
+            ScheduleRepeat repeat,
+            String title,
+            LocationSnapshot origin,
+            LocationSnapshot destination,
+            LocalDateTime arriveBy,
+            Importance importance,
+            boolean considerLastTrip) {
         this.user = user;
         this.repeat = repeat;
         this.title = title;
         this.origin = origin;
         this.destination = destination;
         this.arriveBy = arriveBy;
-        this.importance = importance == null ? Importance.NORMAL : importance;
+        this.importance = Importance.stored(importance);
         this.considerLastTrip = considerLastTrip;
         this.customized = false;
         this.status = ScheduleStatus.UPCOMING;
@@ -147,36 +176,37 @@ public class Schedule extends BaseTimeEntity {
     }
 
     /**
-     * SCH-005 취소. 이미 취소된 일정은 그대로 둔다(멱등) —
-     * 같은 요청이 두 번 와도 두 번째가 실패하면 클라이언트 재시도가 불가능해진다.
-     * DONE 은 되돌릴 수 없는 사실이므로 취소를 거부한다.
+     * SCH-005 취소. 이미 취소된 일정은 그대로 둔다(멱등) — 같은 요청이 두 번 와도 두 번째가 실패하면 클라이언트 재시도가 불가능해진다. DONE 은 되돌릴 수
+     * 없는 사실이므로 취소를 거부한다.
      */
     public void cancel() {
         if (status == ScheduleStatus.DONE) {
             throw new BusinessException(ErrorCode.INVALID_STATE, "이미 완료된 일정은 취소할 수 없습니다.");
         }
-        this.status = ScheduleStatus.CANCELED; this.journeyState="CANCELED"; inputRevision++;
+        this.status = ScheduleStatus.CANCELED;
+        this.journeyState = "CANCELED";
+        inputRevision++;
     }
 
     /**
      * 도착 보고가 들어오면 완료 처리한다 (ARRIVAL-001).
      *
-     * 이미 DONE 이어도 예외를 던지지 않는다 — 같은 일정을 두 번 보고하는 일은
-     * 앱 재시도로 실제로 생기고, 여기서 막으면 클라이언트가 재시도할 방법이 없다.
+     * <p>이미 DONE 이어도 예외를 던지지 않는다 — 같은 일정을 두 번 보고하는 일은 앱 재시도로 실제로 생기고, 여기서 막으면 클라이언트가 재시도할 방법이 없다.
      * 취소한 일정에 도착이 있을 수는 없으므로 그때만 거부한다.
      */
     public void markDone() {
         if (status == ScheduleStatus.CANCELED) {
             throw new BusinessException(ErrorCode.INVALID_STATE, "취소된 일정은 도착을 기록할 수 없습니다.");
         }
-        this.status = ScheduleStatus.DONE; this.journeyState="ARRIVED"; inputRevision++;
+        this.status = ScheduleStatus.DONE;
+        this.journeyState = "ARRIVED";
+        inputRevision++;
     }
 
     /** UPCOMING 이 아니면 수정을 거부한다 — 끝난·취소된 일정의 수정은 의미가 없다. */
     public void requireEditable() {
         if (status != ScheduleStatus.UPCOMING) {
-            throw new BusinessException(ErrorCode.INVALID_STATE,
-                    "진행 예정(UPCOMING) 일정만 수정할 수 있습니다.");
+            throw new BusinessException(ErrorCode.INVALID_STATE, "진행 예정(UPCOMING) 일정만 수정할 수 있습니다.");
         }
     }
 
@@ -188,26 +218,32 @@ public class Schedule extends BaseTimeEntity {
     }
 
     public void changeTitle(String title) {
-        this.title = title; inputRevision++;
+        this.title = title;
+        inputRevision++;
     }
 
     public void changeOrigin(LocationSnapshot origin) {
-        this.origin = origin; inputRevision++;
+        this.origin = origin;
+        inputRevision++;
     }
 
     public void changeDestination(LocationSnapshot destination) {
-        this.destination = destination; inputRevision++;
+        this.destination = destination;
+        inputRevision++;
     }
 
     public void changeArriveBy(LocalDateTime arriveBy) {
-        this.arriveBy = arriveBy; inputRevision++;
+        this.arriveBy = arriveBy;
+        inputRevision++;
     }
 
     public void changeImportance(Importance importance) {
-        this.importance = importance; inputRevision++;
+        this.importance = Importance.stored(importance);
+        inputRevision++;
     }
 
     public void changeConsiderLastTrip(boolean considerLastTrip) {
-        this.considerLastTrip = considerLastTrip; inputRevision++;
+        this.considerLastTrip = considerLastTrip;
+        inputRevision++;
     }
 }

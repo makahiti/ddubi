@@ -3,25 +3,21 @@ package com.ssafy.ddubi.domain.user.service;
 import com.ssafy.ddubi.domain.auth.entity.AuthProvider;
 import com.ssafy.ddubi.domain.auth.repository.UserAuthRepository;
 import com.ssafy.ddubi.domain.auth.service.RefreshTokenStore;
-import com.ssafy.ddubi.domain.user.dto.request.TransportPrefRequest;
 import com.ssafy.ddubi.domain.user.dto.request.UserUpdateRequest;
 import com.ssafy.ddubi.domain.user.dto.request.UserWithdrawRequest;
 import com.ssafy.ddubi.domain.user.dto.response.UserResponse;
 import com.ssafy.ddubi.domain.user.entity.User;
-import com.ssafy.ddubi.domain.user.entity.UserTransportPref;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
-import com.ssafy.ddubi.domain.user.repository.UserTransportPrefRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.global.security.RevokedAccessTokenStore;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-import java.util.List;
 
 /** USER-001~003. */
 @Service
@@ -34,26 +30,23 @@ public class UserService {
     private final RefreshTokenStore refreshTokenStore;
     private final PasswordEncoder passwordEncoder;
     private final RevokedAccessTokenStore revokedStore;
-    private final UserTransportPrefRepository transportPrefRepository;
 
-    public UserService(UserRepository userRepository,
-                       UserAuthRepository userAuthRepository,
-                       RefreshTokenStore refreshTokenStore,
-                       PasswordEncoder passwordEncoder,
-                       RevokedAccessTokenStore revokedStore,
-                       UserTransportPrefRepository transportPrefRepository) {
+    public UserService(
+            UserRepository userRepository,
+            UserAuthRepository userAuthRepository,
+            RefreshTokenStore refreshTokenStore,
+            PasswordEncoder passwordEncoder,
+            RevokedAccessTokenStore revokedStore) {
         this.userRepository = userRepository;
         this.userAuthRepository = userAuthRepository;
         this.refreshTokenStore = refreshTokenStore;
         this.passwordEncoder = passwordEncoder;
         this.revokedStore = revokedStore;
-        this.transportPrefRepository = transportPrefRepository;
     }
 
     @Transactional(readOnly = true)
     public UserResponse getMe(Long userId) {
-        return UserResponse.of(findUser(userId), representativeProvider(userId),
-                transportPrefRepository.findAllByUserId(userId));
+        return UserResponse.of(findUser(userId), representativeProvider(userId));
     }
 
     @Transactional
@@ -82,47 +75,19 @@ public class UserService {
         if (request.isMobilityNotePresent()) {
             user.changeMobilityNote(request.getMobilityNote());
         }
-        if (request.getTransportPrefs() != null) {
-            replaceTransportPrefs(user, request.getTransportPrefs());
-        }
-        return UserResponse.of(user, representativeProvider(userId),
-                transportPrefRepository.findAllByUserId(userId));
-    }
-
-    /**
-     * 선호 교통수단 전체 교체.
-     *
-     * orphanRemoval 을 쓰지 않기로 했으므로(3.1장 규칙 12) 비우고 다시 넣는다.
-     * 삭제를 즉시 반영하지 않으면 뒤이은 INSERT 가 UK_UTPREF_USER_MODE 에 걸린다 —
-     * JPA 는 flush 순서를 보장하지 않아 delete 가 insert 뒤로 밀릴 수 있다.
-     */
-    private void replaceTransportPrefs(User user, List<TransportPrefRequest> requested) {
-        long distinctModes = requested.stream().map(TransportPrefRequest::mode).distinct().count();
-        if (distinctModes != requested.size()) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST,
-                    "같은 교통수단을 두 번 지정할 수 없습니다.");
-        }
-
-        transportPrefRepository.deleteAllByUserId(user.getId());
-        transportPrefRepository.flush();
-
-        requested.forEach(pref -> transportPrefRepository.save(UserTransportPref.builder()
-                .user(user)
-                .mode(pref.mode())
-                .preference(pref.preference())
-                .build()));
+        return UserResponse.of(user, representativeProvider(userId));
     }
 
     /**
      * USER-003 탈퇴 — 되돌릴 수 없다.
      *
-     * user 행 하나를 지우면 일정·경로·추천·알림·리포트가 DB 의 ON DELETE CASCADE 로
-     * 함께 사라진다. 보관본은 없다(도메인 규칙 4).
+     * <p>user 행 하나를 지우면 일정·경로·추천·알림·리포트가 DB 의 ON DELETE CASCADE 로 함께 사라진다. 보관본은 없다(도메인 규칙 4).
      */
     @Transactional
     public void withdraw(Long userId, UserWithdrawRequest request) {
         if (!request.isConfirmed()) {
-            throw new BusinessException(ErrorCode.INVALID_REQUEST,
+            throw new BusinessException(
+                    ErrorCode.INVALID_REQUEST,
                     "탈퇴하려면 confirmation 에 %s 를 보내야 합니다."
                             .formatted(UserWithdrawRequest.CONFIRM_KEYWORD));
         }
@@ -143,8 +108,8 @@ public class UserService {
     /**
      * LOCAL 인증 수단이 있으면 비밀번호를 확인한다. 소셜 전용 계정은 비밀번호가 없어 건너뛴다.
      *
-     * 엔티티가 아니라 해시 문자열만 가져오는 이유: UserAuth 를 영속 상태로 들고 있으면
-     * 뒤에서 User 를 삭제할 때 그 참조 때문에 커밋이 실패한다(TransientObjectException).
+     * <p>엔티티가 아니라 해시 문자열만 가져오는 이유: UserAuth 를 영속 상태로 들고 있으면 뒤에서 User 를 삭제할 때 그 참조 때문에 커밋이
+     * 실패한다(TransientObjectException).
      */
     private void verifyPasswordIfLocal(Long userId, String rawPassword) {
         String passwordHash = userAuthRepository.findLocalPasswordHash(userId).orElse(null);
@@ -158,8 +123,8 @@ public class UserService {
     }
 
     /**
-     * 응답의 provider 는 단일값인데 계정에는 여러 수단이 붙을 수 있다(계정 통합).
-     * 가입 경로를 대표값으로 보아 LOCAL 을 우선하고, 없으면 첫 소셜 수단을 쓴다.
+     * 응답의 provider 는 단일값인데 계정에는 여러 수단이 붙을 수 있다(계정 통합). 가입 경로를 대표값으로 보아 LOCAL 을 우선하고, 없으면 첫 소셜 수단을
+     * 쓴다.
      */
     private AuthProvider representativeProvider(Long userId) {
         List<AuthProvider> providers = userAuthRepository.findProvidersByUserId(userId);
@@ -174,13 +139,15 @@ public class UserService {
     /**
      * 인증된 본인을 찾는다. 없으면 404 가 아니라 <b>401</b> 이다.
      *
-     * 탈퇴 직후에도 액세스 토큰은 만료 전까지 서명이 유효해 필터를 통과한다.
-     * 그 경우 "리소스를 못 찾았다"가 아니라 "토큰이 가리키는 계정이 사라졌다"이므로
+     * <p>탈퇴 직후에도 액세스 토큰은 만료 전까지 서명이 유효해 필터를 통과한다. 그 경우 "리소스를 못 찾았다"가 아니라 "토큰이 가리키는 계정이 사라졌다"이므로
      * 클라이언트가 재로그인해야 한다는 신호를 줘야 한다.
      */
     private User findUser(Long userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED,
-                        "계정을 찾을 수 없습니다. 다시 로그인해 주세요."));
+        return userRepository
+                .findById(userId)
+                .orElseThrow(
+                        () ->
+                                new BusinessException(
+                                        ErrorCode.UNAUTHORIZED, "계정을 찾을 수 없습니다. 다시 로그인해 주세요."));
     }
 }

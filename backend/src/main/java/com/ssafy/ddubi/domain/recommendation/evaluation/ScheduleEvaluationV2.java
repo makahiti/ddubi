@@ -19,15 +19,15 @@ public record ScheduleEvaluationV2(
         String state,
         String decision,
         String triggerReason,
-        Instant userInputDepartAt,
-        Instant plannedDepartAt,
-        Instant effectiveDepartAt,
-        Instant arriveBy,
-        Instant originalEstimatedArrivalAt,
-        Instant targetArriveAt,
+        LocalDateTime userInputDepartAt,
+        LocalDateTime plannedDepartAt,
+        LocalDateTime effectiveDepartAt,
+        LocalDateTime arriveBy,
+        LocalDateTime originalEstimatedArrivalAt,
+        LocalDateTime targetArriveAt,
         int appliedBufferSeconds,
-        Instant proposedDepartAt,
-        Instant estimatedArrivalAt,
+        LocalDateTime proposedDepartAt,
+        LocalDateTime estimatedArrivalAt,
         Long durationSeconds,
         Long latenessSeconds,
         Boolean arrivesBeforeSchedule,
@@ -48,13 +48,15 @@ public record ScheduleEvaluationV2(
         EvaluationGuidance guidance,
         List<CandidateEstimate> candidateEstimates) {
     /** 같은 평가·같은 출발시각에서 비교한 순위다. 원본 route.baseDurationMin과 구별한다. */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
     public record CandidateEstimate(
             String candidateKey,
             Long routeId,
             int rank,
             String assessment,
-            Instant departAt,
-            Instant estimatedArrivalAt,
+            LocalDateTime departAt,
+            LocalDateTime estimatedArrivalAt,
             Long durationSeconds,
             boolean selected,
             boolean proposed) {}
@@ -511,8 +513,8 @@ public record ScheduleEvaluationV2(
                             routeIds.get(candidate.journeyKey()),
                             candidateEstimates.size() + 1,
                             candidate.assessment().name(),
-                            candidate.departureAt(),
-                            candidate.estimatedArrivalAt(),
+                            kst(candidate.departureAt()),
+                            kst(candidate.estimatedArrivalAt()),
                             candidate.estimatedArrivalAt() == null
                                     ? null
                                     : Duration.between(
@@ -532,15 +534,15 @@ public record ScheduleEvaluationV2(
                 "READY",
                 e.decision().name(),
                 trigger,
-                userInput,
-                planned,
-                planned.isBefore(now) ? now : planned,
-                deadline,
-                e.original() == null ? null : e.original().estimatedArrivalAt(),
-                e.targetArriveAt() == null ? deadline : e.targetArriveAt(),
+                kst(userInput),
+                kst(planned),
+                kst(planned.isBefore(now) ? now : planned),
+                kst(deadline),
+                e.original() == null ? null : kst(e.original().estimatedArrivalAt()),
+                kst(e.targetArriveAt() == null ? deadline : e.targetArriveAt()),
                 e.appliedBufferSeconds(),
-                p == null ? null : p.departureAt(),
-                eta,
+                p == null ? null : kst(p.departureAt()),
+                kst(eta),
                 eta == null ? null : Duration.between(p.departureAt(), eta).getSeconds(),
                 eta == null ? null : Math.max(0, Duration.between(deadline, eta).getSeconds()),
                 eta == null ? null : eta.isBefore(deadline),
@@ -570,6 +572,14 @@ public record ScheduleEvaluationV2(
                 legs,
                 EvaluationGuidance.from(e),
                 List.copyOf(candidateEstimates));
+    }
+
+    /**
+     * 사용자에게 보여 주는 일정 시각은 기존 일정 API와 같은 Asia/Seoul 업무시각으로 직렬화한다. 내부 계산과 만료 판정은 계속 {@link Instant}를
+     * 사용하며, 응답 경계에서만 변환한다. 서버 JVM의 기본 시간대에 기대면 배포 환경에 따라 다시 9시간이 어긋날 수 있으므로 고정 ZoneId를 사용한다.
+     */
+    private static LocalDateTime kst(Instant value) {
+        return value == null ? null : LocalDateTime.ofInstant(value, ZoneId.of("Asia/Seoul"));
     }
 
     /** 호출 성공만으로 applied를 만들지 않는다. 최종 타임라인에 해당 WALK와 교체 시간이 실제 남아 있어야 한다. */

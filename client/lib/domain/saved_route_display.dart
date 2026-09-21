@@ -3,7 +3,11 @@ import '../services/recommendation_api.dart';
 /// 저장된 추천 경로를 사용자 화면에 보여줄 만큼만 추린 결과.
 ///
 /// 서버는 진단·재평가를 위해 후보를 전부 저장하고 전부 내려준다(오늘 실측 33개).
-/// 화면에는 사용자가 실제로 구분해 고를 수 있는 경로만, 선택된 추천을 포함해 최대 5개를 보여준다.
+/// 화면에는 제일 추천하는 경로 <b>하나만</b> 보여준다. 여러 개를 늘어놓으면 사용자가 무엇을
+/// 골라야 하는지 알 수 없고, 후보끼리 도착 시각이 같은 경우가 많아 고를 근거도 없다.
+///
+/// 예외는 하나다. 서버가 지금 선택된 경로 대신 <b>다른 경로를 제안</b>하면 그 하나를 함께 둔다.
+/// 바꾸라는 안내는 바꾸기 전과 후를 나란히 봐야 판단할 수 있다.
 class SavedRouteDisplay {
   const SavedRouteDisplay({
     required this.visible,
@@ -26,7 +30,8 @@ class SavedRouteDisplay {
       '전체 후보 $total · 중복 제거 후 $distinct · 표시 ${visible.length}'
       ' · 서버 순위 ${visible.map((r) => r.rankNo).join(',')}';
 
-  static const int maxVisible = 5;
+  /// 평소에 보여 주는 카드 수. 제안이 있을 때만 여기에 한 장이 더 붙는다.
+  static const int maxVisible = 1;
 
   /// 사용자가 카드에서 구분할 수 있는 정보만으로 만든 동일성 기준.
   ///
@@ -43,17 +48,34 @@ class SavedRouteDisplay {
   ].join('|');
 
   /// 원본 목록을 바꾸지 않고 표시용 목록을 만든다.
-  factory SavedRouteDisplay.from(List<SavedRouteSummary> routes) {
+  ///
+  /// [proposedRouteId] 는 이번 평가에서 서버가 "이 경로로 바꾸라"고 제안한 경로다.
+  /// 제안된 경로는 중복 묶기에서도, 표시 상한에서도 빠지지 않는다 — 접히면 사용자가
+  /// 무엇으로 바꾸라는 것인지 볼 수 없고, 누를 카드도 사라진다.
+  factory SavedRouteDisplay.from(
+    List<SavedRouteSummary> routes, {
+    String? proposedRouteId,
+  }) {
     final ordered = [...routes]..sort(_compare);
     final seen = <String>{};
     final distinct = <SavedRouteSummary>[];
     for (final route in ordered) {
       // 선택된 추천이 맨 앞이므로 그 묶음 키가 먼저 등록된다. 뒤에 오는 같은 묶음은 접힌다.
       final fresh = seen.add(groupKey(route));
-      if (route.selected || fresh) distinct.add(route);
+      final kept = route.selected || route.routeId == proposedRouteId;
+      if (kept || fresh) distinct.add(route);
+    }
+    final visible = [...distinct.take(maxVisible)];
+    if (proposedRouteId != null &&
+        !visible.any((route) => route.routeId == proposedRouteId)) {
+      for (final route in distinct) {
+        if (route.routeId != proposedRouteId) continue;
+        visible.add(route);
+        break;
+      }
     }
     return SavedRouteDisplay(
-      visible: List.unmodifiable(distinct.take(maxVisible)),
+      visible: List.unmodifiable(visible),
       total: routes.length,
       distinct: distinct.length,
     );

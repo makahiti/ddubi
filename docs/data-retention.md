@@ -156,6 +156,14 @@ docker restart mysqld-exporter
 
 복구는 서버2 의 **예비 네임노드**(`hdfs-namenode-standby`, hdfs-standby 프로필, 평소 꺼져 있음)를 `infra/scripts/failover-namenode.sh` 로 켜서 사본으로 시작하는 것입니다. 사람이 "서버1 이 정말 죽었다" 를 확인한 뒤 명령 한 줄로 실행하며, 최대 1시간치 파일 이름표를 잃지만 그 파일들은 Kafka 21일 보관에서 다시 아카이브할 수 있습니다. 자세한 절차와 되돌리기는 [runbooks/hdfs-namenode-metadata-loss.md](runbooks/hdfs-namenode-metadata-loss.md) 에 있습니다.
 
+### 7-1. 손으로 잘못 지운 HDFS 파일 되살리기 (휴지통, 2026-09-21 적용)
+
+- 네임노드 `core-site.xml` 의 `fs.trash.interval=1440` 으로 HDFS 휴지통이 켜져 있습니다. 사람이 `hdfs dfs -rm` / `-rm -r` 로 지운 것은 바로 사라지지 않고 **원래 경로 그대로** `/user/root/.Trash/Current/` 아래로 옮겨집니다. 예: `/ddubi/archive/city.raw/date=2026-09-20` 을 지우면 `/user/root/.Trash/Current/ddubi/archive/city.raw/date=2026-09-20` 에 있습니다.
+- 되살리기: `hdfs dfs -mv /user/root/.Trash/Current/<원래 경로> /<원래 경로>`. 휴지통 안 파일은 24시간마다 돌아가는 청소기가 시각 이름 폴더로 옮긴 뒤 다시 24시간이 지나면 실제로 지우므로, **지운 뒤 24~48시간 안**에만 되살릴 수 있습니다.
+- 휴지통을 거치지 않는 것: 아카이버(WebHDFS)와 Spark 프로그램이 API 로 하는 삭제, 그리고 `-skipTrash` 를 붙인 명령. 자동화된 삭제는 전과 같고, 사람의 실수만 막는 장치입니다.
+- 공간: 휴지통에 있는 동안은 원래 파일의 공간을 그대로 차지합니다. 큰 폴더를 지워 공간을 바로 비워야 하면 `-skipTrash` 를 씁니다. 지금 HDFS 사용량(2.2GB/309GB)에서는 문제가 되지 않습니다.
+- 적용 방법(참고): 이 값은 네임노드와 shell 만 읽으므로 설정을 바꾸면 네임노드 컨테이너만 `--force-recreate` 합니다. 2026-09-21 실측 세이프모드 44초, Spark 잡·아카이버 재시작 0.
+
 ## 8. 이 문서를 갱신해야 하는 때
 
 - 토픽·보존·복제 값을 바꿀 때(1절 표와 topics.yaml 을 같은 MR 에서).

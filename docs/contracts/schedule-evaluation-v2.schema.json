@@ -11,56 +11,57 @@
             "string",
             "null"
           ],
-          "format": "date-time"
+          "description": "사용자 표시용 Asia/Seoul 업무시각. UTC 접미사나 오프셋을 붙이지 않는다.",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "plannedDepartAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "effectiveDepartAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "arriveBy": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "originalEstimatedArrivalAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "targetArriveAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "proposedDepartAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "estimatedArrivalAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "computedAt": {
           "type": [
@@ -569,14 +570,14 @@
               },
               "departAt": {
                 "type": "string",
-                "format": "date-time"
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
               },
               "estimatedArrivalAt": {
                 "type": [
                   "string",
                   "null"
                 ],
-                "format": "date-time"
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
               },
               "durationSeconds": {
                 "type": [

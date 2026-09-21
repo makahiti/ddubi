@@ -164,7 +164,6 @@ class MockDdubiRepository implements DdubiRepository {
           ),
           importance: rule.importance,
           considerLastTrip: rule.considerLastTrip,
-          preferredTransport: rule.preferredTransport,
           repeatLabel: _repeatLabel(rule.weekdays),
         ),
       );
@@ -227,9 +226,16 @@ class MockPlaceSearchService implements PlaceSearchService {
     String query, {
     int page = 0,
     int size = 10,
+  }) async => (await searchPage(query, page: page, size: size)).items;
+
+  @override
+  Future<PlaceSearchPage> searchPage(
+    String query, {
+    int page = 0,
+    int size = 10,
   }) async {
     final normalized = query.replaceAll(' ', '').toLowerCase();
-    return _places
+    final matched = _places
         .where(
           (place) =>
               place.name
@@ -241,7 +247,13 @@ class MockPlaceSearchService implements PlaceSearchService {
                   .toLowerCase()
                   .contains(normalized),
         )
-        .take(size)
         .toList(growable: false);
+    final start = (page * size).clamp(0, matched.length);
+    final end = (start + size).clamp(0, matched.length);
+    return PlaceSearchPage(
+      items: matched.sublist(start, end),
+      hasNext: end < matched.length,
+      totalElements: matched.length,
+    );
   }
 }

@@ -20,6 +20,10 @@ String evaluationMissingInputLabel(String value) => switch (value) {
   _ when value.startsWith('SUB:') || value.contains(':SUB:') =>
     '일부 지하철 구간의 운행정보가 부족해요',
   _ when value.contains('ML_NOT_CONFIGURED') => '기본 경로 소요시간을 쓰고 있어요',
+  // 아래 두 가지는 "실시간 정보가 없다" 와 뜻이 다르다. 학습에 쓸 과거 기록이 모자라거나,
+  // 한 번에 부를 수 있는 예측 횟수를 다 쓴 경우다(2026-09-21 운영 응답 확인).
+  _ when value.contains('ML_HISTORY_INSUFFICIENT') => '이 구간은 예측에 쓸 기록이 아직 적어요',
+  _ when value.contains('ML_BUDGET_EXHAUSTED') => '예측 횟수를 다 써서 과거 평균으로 계산했어요',
   _ when value.contains('PLANNED_DEPART_AT') => '출발 예정시각이 없어요',
   _ when value.contains('BUS_ARRIVAL') => '버스 도착 정보가 부족해요',
   _ when value.contains('ROUTE_PROVIDER') => '경로 정보가 부족해요',
@@ -74,6 +78,12 @@ String? evaluationShortfallReason(ScheduleEvaluationV2 evaluation) {
   if (has('PROVIDER_TOTAL_FALLBACK') ||
       evaluation.quality.costCoverage != 'COMPLETE') {
     return '이동 시간 일부를 아직 확인하지 못해서예요.';
+  }
+  if (has('ML_HISTORY_INSUFFICIENT')) {
+    return '일부 버스 구간은 예측에 쓸 과거 기록이 아직 적어서예요.';
+  }
+  if (has('ML_BUDGET_EXHAUSTED')) {
+    return '예측 횟수를 다 써서 일부 구간은 과거 평균으로 계산했어요.';
   }
   if (has('ML_NOT_APPLIED') ||
       has('API_FALLBACK') ||

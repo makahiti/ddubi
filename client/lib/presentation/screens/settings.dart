@@ -12,7 +12,6 @@ import '../../domain/auth.dart';
 import '../../domain/models.dart';
 import '../../services/app_api.dart';
 import '../help_inquiry_screen.dart';
-import '../more_page_widgets.dart';
 import '../widgets.dart';
 import '../../core/diagnostics/developer_diagnostics.dart';
 import '../../core/config/app_environment.dart';
@@ -132,7 +131,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: _mobileAccountCard(context, user),
             ),
             const SizedBox(height: 2),
-            _weeklyStampBoardCard(context),
             const SizedBox(height: 14),
             _mobileServiceStatus(context),
             const SizedBox(height: 14),
@@ -260,7 +258,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _permissionCard(),
                 const SizedBox(height: 16),
-                _weeklyStampBoardCard(context),
                 const SizedBox(height: 16),
                 _serviceStatus(context),
                 const SizedBox(height: 16),
@@ -941,26 +938,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _notificationAllowed = allowed);
   }
 
-  Widget _weeklyStampBoardCard(BuildContext context) => const Card(
-    key: Key('weeklyStampBoardCard'),
-    child: Padding(
-      padding: EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Icon(Icons.workspace_premium_outlined, color: Color(0xFF10B8A5)),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '도장판은 실제 미션 데이터 연동 후 제공될 예정이에요.',
-              key: Key('stampBoardPreparing'),
-              style: TextStyle(color: Color(0xFF64708B), fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-
   Widget _mobileServiceStatus(BuildContext context) => _settingsCard(
     color: const Color(0xFFFFFCFA),
     child: Stack(
@@ -971,11 +948,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Opacity(
             opacity: .92,
             child: Image.asset(
-              'assets/images/ttubee/concerned.png',
+              'assets/images/ttubee/route-guide.png',
               width: 88,
               height: 88,
               fit: BoxFit.contain,
-              semanticLabel: '서비스 상태를 안내하는 뚜비',
+              semanticLabel: '일정별 교통 상황을 안내하는 뚜비',
             ),
           ),
         ),
@@ -984,22 +961,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionHeader('서비스 연결 안내'),
+              // 제목·아이콘·그림을 들어가는 화면(일정별 교통 상황)과 맞춘다. 예전에는
+              // 제목이 '서비스 연결 안내' 이고 연결 끊김 아이콘에 걱정하는 뚜비까지 붙어
+              // 있어서, 기능 안내가 아니라 고장 알림으로 보였다.
+              const SectionHeader('일정별 교통 상황'),
               const SizedBox(height: 10),
               const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    Icons.cloud_off_outlined,
-                    color: Color(0xFFFF6B35),
+                    Icons.directions_transit_outlined,
+                    color: DdubiColors.blue,
                     size: 20,
                   ),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      '일정별 최신 교통 상황을 확인하세요.',
+                      '등록한 일정마다 교통 상황을 확인할 수 있어요.',
                       style: TextStyle(
-                        color: Color(0xFFFF5A2A),
+                        color: DdubiColors.navy,
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
                       ),
@@ -1009,7 +989,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 7),
               const Text(
-                '등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.',
+                '일정별로 계산 결과와 마지막 확인 시각을 볼 수 있어요.',
                 style: TextStyle(
                   color: Color(0xFF64708B),
                   fontSize: 12,
@@ -1041,26 +1021,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ],
     ),
   );
-
-  // ignore: unused_element
-  Future<void> _showStampBoardGuide(BuildContext context) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => const StampBoardGuideSheet(),
-      );
-
-  // ignore: unused_element
-  Future<void> _showStampBoardDetails(BuildContext context) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => const StampBoardDetailSheet(),
-      );
 
   Widget _logoutCard(BuildContext context) => Material(
     color: const Color(0xFFFFF3F5),
@@ -1277,15 +1237,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader('서비스 연결 안내'),
+        const SectionHeader('일정별 교통 상황'),
         const SizedBox(height: 10),
         const StatusBadge(
-          '일정별 최신 교통 상황을 확인하세요.',
-          tone: DdubiColors.orange,
-          icon: Icons.cloud_off_outlined,
+          '등록한 일정마다 교통 상황을 확인할 수 있어요.',
+          tone: DdubiColors.blue,
+          icon: Icons.directions_transit_outlined,
         ),
         const SizedBox(height: 6),
-        const Text('등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.'),
+        const Text('일정별로 계산 결과와 마지막 확인 시각을 볼 수 있어요.'),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,
@@ -1858,53 +1818,6 @@ class _MoreMenuRow extends StatelessWidget {
         const SizedBox(width: 6),
         const Icon(Icons.chevron_right_rounded, color: Color(0xFF425273)),
       ],
-    ),
-  );
-}
-
-// ignore: unused_element
-class _SettingsAccountAction extends StatelessWidget {
-  const _SettingsAccountAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFFF2F8FC),
-    borderRadius: BorderRadius.circular(14),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        height: 54,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: const Color(0xFF17243F), size: 20),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF17243F),
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(width: 3),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFF62708B),
-              size: 18,
-            ),
-          ],
-        ),
-      ),
     ),
   );
 }

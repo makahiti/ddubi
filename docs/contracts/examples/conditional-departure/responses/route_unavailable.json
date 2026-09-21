@@ -8,12 +8,12 @@
   "state" : "READY",
   "decision" : "ROUTE_UNAVAILABLE",
   "triggerReason" : "READ_ONLY",
-  "userInputDepartAt" : "2026-09-16T00:30:00Z",
-  "plannedDepartAt" : "2026-09-16T00:30:00Z",
-  "effectiveDepartAt" : "2026-09-16T00:30:00Z",
-  "arriveBy" : "2026-09-16T01:00:00Z",
+  "userInputDepartAt" : "2026-09-16T09:30:00",
+  "plannedDepartAt" : "2026-09-16T09:30:00",
+  "effectiveDepartAt" : "2026-09-16T09:30:00",
+  "arriveBy" : "2026-09-16T10:00:00",
   "originalEstimatedArrivalAt" : null,
-  "targetArriveAt" : "2026-09-16T00:50:00Z",
+  "targetArriveAt" : "2026-09-16T09:50:00",
   "appliedBufferSeconds" : 600,
   "proposedDepartAt" : null,
   "estimatedArrivalAt" : null,
@@ -31,7 +31,7 @@
     "walkingApiApplied" : false,
     "walkingApiCoverage" : "NONE",
     "costCoverage" : "UNKNOWN",
-    "missingInputs" : [ "SYNTHETIC_FIXTURE", "CROSSWALK_VERSION_NOT_REPORTED", "FEATURE_SNAPSHOT_VERSION_NOT_REPORTED", "MASTER_VERSION_UNAVAILABLE" ],
+    "missingInputs" : [ "SYNTHETIC_FIXTURE", "MASTER_VERSION_UNAVAILABLE" ],
     "fallbackReasons" : [ "SYNTHETIC_FIXTURE" ]
   },
   "search" : {
@@ -52,5 +52,12 @@
   "versions" : {
     "policy" : "cdep-v1"
   },
-  "segments" : [ ]
+  "segments" : [ ],
+  "guidance" : {
+    "canDisplayEstimate" : false,
+    "canAccept" : false,
+    "source" : "UNAVAILABLE",
+    "reasons" : [ "NO_USABLE_ROUTE_ESTIMATE" ]
+  },
+  "candidateEstimates" : [ ]
 }

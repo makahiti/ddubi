@@ -332,6 +332,16 @@ class _ScheduleSummaryCard extends StatelessWidget {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
+                      // 반복에서 만들어진 일정임을 밝힌다. 표시가 없으면 하나를 지워도
+                      // 다음 주에 또 생기는 이유를 알 수 없다.
+                      if (schedule.isRepeating) ...[
+                        const SizedBox(width: 6),
+                        const StatusBadge(
+                          '반복',
+                          tone: DdubiColors.blue,
+                          icon: Icons.event_repeat,
+                        ),
+                      ],
                     ],
                   ),
                 ],

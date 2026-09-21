@@ -317,7 +317,7 @@ completeIfCurrent(job, result, pendingNotification)
 | `service/RouteSearchService.java`, `recommendation/service/ScheduleEvaluationWorkflow.java` | 후보 획득 뒤 도보 보강 session 호출, 후보별 호출 한도·캐시·실패 격리 |
 | `evaluation/RouteEvidenceAssembler.java` | 역할별 교체, provider total/step 비용 범위, fallback reason 조립 |
 
-제휴 도보 API는 후보당 최대 두 번이라 후보 15개면 최대 30회다. 모든 후보를 무조건 호출하지 않는다. 먼저 BUS/SUBWAY 마스터 매핑·기본 품질로 후보를 제한하고, 선택 경로와 상위 평가 후보를 우선하여 평가 세션별 호출 예산을 적용한다. 호출하지 않은 후보는 원본 WALK fallback을 유지한다. 초기 상한값은 실제 제휴 쿼터·latency를 확인한 뒤 설정으로 정한다.
+제휴 도보 API는 후보당 최대 두 번 호출될 수 있다. 현재 정책은 후보 수에 따른 인위적인 호출 횟수 상한을 두지 않고 모든 계산 대상 후보를 보강한다. 동일 좌표 요청은 평가 세션 캐시로 재사용하며, 외부 429·timeout·오류는 해당 후보의 원본 WALK fallback으로 격리한다.
 
 도보 API 장애가 전체 대중교통 후보 검색을 503으로 만들지 않는다. 권한 없음/403은 운영 설정 오류로 지표·health에 표시하고 해당 평가에서는 원본 WALK fallback을 사용한다. 429는 retry-after/제휴 정책을 따르고 같은 평가에서 폭주 재시도하지 않는다. 좌표 불일치는 API 장애가 아니라 `WALK_ENDPOINT_UNVERIFIED` 품질 사유다.
 

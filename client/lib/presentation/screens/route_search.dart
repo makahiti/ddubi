@@ -32,7 +32,6 @@ class RouteResultsScreen extends StatelessWidget {
     webSubtitle: '도착 시간과 이동 조건을 기준으로 가장 알맞은 경로를 안내해요.',
     index: go == null ? null : 1,
     onNav: go,
-    actions: const [IconButton(onPressed: null, icon: Icon(Icons.refresh))],
     child: FutureBuilder<RouteEvaluationResult>(
       future: condition == null
           ? repository.routes().then(RouteEvaluationResult.candidates)
@@ -57,7 +56,9 @@ class RouteResultsScreen extends StatelessWidget {
             ],
           );
         }
-        final routes = result.candidates;
+        // 평가 결과가 없을 때도 화면에는 한 개만 남긴다. 후보를 늘어놓아도 고를 근거가
+        // 없고, 여기 숫자는 우리 계산이 아니라 경로 API 원본이다(목록은 그 시간이 짧은 순).
+        final routes = result.candidates.take(1).toList(growable: false);
         if (routes.isEmpty) {
           return const Center(child: Text('표시할 경로 후보가 없어요.'));
         }
@@ -115,7 +116,7 @@ class RouteResultsScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-          Text('경로 후보', style: Theme.of(context).textTheme.titleLarge),
+          Text('경로', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           Wrap(
             key: const Key('webRouteResultsGrid'),
@@ -147,7 +148,7 @@ class RouteResultsScreen extends StatelessWidget {
   );
 
   static const _candidateGuide = TtubeeGuideCard(
-    '서버 평가 기능이 준비 중이라 경로 후보만 보여드려요.',
+    '서버 평가 기능이 준비 중이라 경로 API 가 알려 준 경로만 보여드려요.',
     compact: true,
     character: TtubeeEntrance(
       asset: 'assets/images/ttubee/route-guide.png',
@@ -163,12 +164,12 @@ class RouteResultsScreen extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         StatusBadge(
-          '단순 경로 후보',
+          '원본 경로 기준',
           tone: DdubiColors.blue,
           icon: Icons.lightbulb_outline,
         ),
         SizedBox(height: 10),
-        Text('출발 추천과 예상 도착은 서버 평가 결과가 준비된 뒤 표시합니다.'),
+        Text('여기 시간은 경로 API 가 준 값이에요. 출발 추천과 예상 도착은 서버 평가 결과가 준비된 뒤 표시합니다.'),
       ],
     ),
   );

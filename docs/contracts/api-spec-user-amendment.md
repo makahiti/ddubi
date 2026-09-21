@@ -1,5 +1,8 @@
 # API 명세서 개정안 — USER-001 / USER-002
 
+> 2026-09-21 결정: 교통수단 선호 기능은 사용자 API와 앱에서 제거한다.
+> `user_transport_pref` 테이블은 호환성과 향후 정책 검토를 위해 유지하지만 현재 API 계약에는 노출하지 않는다.
+
 작성: 백엔드(서비스) 손정민 · 대상 문서: Notion「DDUBI_APP_API」명세서 v2.1.1 § 사용자
 
 ---
@@ -11,7 +14,7 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 | # | 문제 | 근거 |
 | --- | --- | --- |
 | A | `USER-001` 응답의 **`withdrawnAt` 을 줄 수 없다** | ERD_master 의 `user` 테이블에 해당 컬럼이 없다. 탈퇴는 하드 삭제라 "탈퇴한 사용자"라는 상태 자체가 존재하지 않는다(도메인 규칙 4) |
-| B | `USER-002` 로 **설정할 수 없는 컬럼이 3개** 있다 | `briefing_time`, `mobility_note`, `user_transport_pref` 가 ERD 에 있는데 이를 변경하는 API 가 없다 |
+| B | `USER-002` 로 **설정할 수 없는 컬럼이 2개** 있다 | `briefing_time`, `mobility_note` 가 ERD 에 있는데 이를 변경하는 API 가 없다 |
 
 **B 가 막는 기능**
 
@@ -19,9 +22,8 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 | --- | --- | --- |
 | `user.briefing_time` | REQ-NTF-003 아침 브리핑 시각 | 값이 항상 NULL → **브리핑이 아무에게도 발송되지 않는다** (Phase 4 스케줄러가 이 컬럼으로 대상을 고른다) |
 | `user.mobility_note` | REQ-SCH-004 이동 시 어려운 점 | 추천 여유시간 가중에 쓸 입력이 들어오지 않는다 |
-| `user_transport_pref` | REQ-SCH-004 선호·회피 교통수단 | 추천 순위 가중이 항상 기본값으로 동작한다 |
 
-세 컬럼 모두 ERD_master 에 이미 있고 마이그레이션에도 반영되어 있다. **API 만 없다.**
+두 컬럼은 ERD_master 에 이미 있고 마이그레이션에도 반영되어 있다. **API 만 없다.**
 
 ---
 
@@ -36,7 +38,7 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 - **관련 화면·요구사항:** DDB-016, 내 정보
 - **필요한 이유:** DDB-016, 내 정보 기능을 앱 또는 운영 흐름에서 일관된 서버 계약으로 제공하기 위해 필요하다.
 - **Request:** 요청 본문 없음.
-- **Response:** 200: id, provider, email, nickname, notifyLeadMin, alarmEnabled, historyConsentedAt, briefingTime, mobilityNote, transportPrefs, createdAt, updatedAt.
+- **Response:** 200: id, provider, email, nickname, notifyLeadMin, alarmEnabled, historyConsentedAt, briefingTime, mobilityNote, createdAt, updatedAt.
 - **주요 예외:** 400 INVALID_REQUEST · 401 UNAUTHORIZED · 403 FORBIDDEN_RESOURCE · 409 INVALID_STATE
 
 **원문 대비 변경**
@@ -44,7 +46,6 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 - ~~`withdrawnAt`~~ **삭제** — `user` 테이블에 컬럼이 없다. 탈퇴는 하드 삭제라 조회 시점에 탈퇴한 사용자가 존재할 수 없다.
 - **`briefingTime`** 추가 — `HH:mm:ss` 또는 null(브리핑 끔)
 - **`mobilityNote`** 추가 — 문자열 또는 null
-- **`transportPrefs`** 추가 — `[{ "mode": "BUS|SUBWAY", "preference": "PREFER|AVOID" }]`, 없으면 빈 배열
 - `provider` 는 단일값 유지. 계정 통합으로 LOCAL·KAKAO 가 함께 있으면 **LOCAL 을 대표값**으로 반환한다.
 
 ---
@@ -57,17 +58,16 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 - **처리 주체:** 뚜비 API 서버
 - **관련 화면·요구사항:** DDB-015~016, 지원 가능한 설정
 - **필요한 이유:** DDB-015~016, 지원 가능한 설정 기능을 앱 또는 운영 흐름에서 일관된 서버 계약으로 제공하기 위해 필요하다.
-- **Request:** Body: nickname, notifyLeadMin, alarmEnabled, historyConsent, briefingTime, mobilityNote, transportPrefs 중 변경할 필드만 전달.
+- **Request:** Body: nickname, notifyLeadMin, alarmEnabled, historyConsent, briefingTime, mobilityNote 중 변경할 필드만 전달.
 - **Response:** 200: 변경된 사용자 정보 전체(USER-001 과 동일 형태).
 - **주요 예외:** 400 INVALID_REQUEST · 401 UNAUTHORIZED · 403 FORBIDDEN_RESOURCE · 409 INVALID_STATE
 
-**원문 대비 변경 — 요청 필드 3개 추가**
+**원문 대비 변경 — 요청 필드 2개 추가**
 
 | 필드 | 타입 | 규칙 |
 | --- | --- | --- |
 | `briefingTime` | `HH:mm:ss` \| null | null 을 보내면 브리핑 끔. 필드를 생략하면 기존값 유지 |
 | `mobilityNote` | string \| null | 최대 100자 |
-| `transportPrefs` | array | `[{ mode, preference }]`. **보낸 배열로 전체 교체**(부분 병합 아님). 빈 배열이면 전부 삭제. `mode` 는 중복 불가 |
 
 기존 4개 필드 규칙은 그대로.
 
@@ -87,11 +87,7 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 ```json
 {
   "briefingTime": "07:00:00",
-  "mobilityNote": "계단 이동이 어렵습니다",
-  "transportPrefs": [
-    { "mode": "SUBWAY", "preference": "PREFER" },
-    { "mode": "BUS", "preference": "AVOID" }
-  ]
+  "mobilityNote": "계단 이동이 어렵습니다"
 }
 ```
 
@@ -110,10 +106,6 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
     "historyConsentedAt": "2026-09-01T09:00:00",
     "briefingTime": "07:00:00",
     "mobilityNote": "계단 이동이 어렵습니다",
-    "transportPrefs": [
-      { "mode": "SUBWAY", "preference": "PREFER" },
-      { "mode": "BUS", "preference": "AVOID" }
-    ],
     "createdAt": "2026-08-31T17:54:13",
     "updatedAt": "2026-09-01T09:10:00"
   },
@@ -129,8 +121,8 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 | 변경 | 영향 |
 | --- | --- |
 | `withdrawnAt` 삭제 | 이 필드를 읽는 코드가 있으면 제거. 어차피 서버가 보낸 적이 없다 |
-| 응답 필드 3개 추가 | **기존 코드는 그대로 동작**한다. 새 필드를 안 읽으면 그만이다 |
-| 요청 필드 3개 추가 | 선택 필드라 **기존 요청도 그대로 유효**하다 |
+| 응답 필드 2개 추가 | **기존 코드는 그대로 동작**한다. 새 필드를 안 읽으면 그만이다 |
+| 요청 필드 2개 추가 | 선택 필드라 **기존 요청도 그대로 유효**하다 |
 
 즉 **하위 호환이며, 프론트는 설정 화면을 만들 때 쓰면 된다.**
 
@@ -138,7 +130,7 @@ Phase 1(인증·회원) 구현 중 명세서와 ERD_master 가 어긋나는 지�
 
 ## 참고: 이미 구현된 범위
 
-`briefingTime`·`mobilityNote`·`transportPrefs` 를 제외한 부분은 구현·검증이 끝났다.
+`briefingTime`·`mobilityNote` 를 제외한 부분은 구현·검증이 끝났다.
 
 - `GET /users/me` 200
 - `PATCH /users/me` 부분 수정, 범위 검증(notifyLeadMin 0~180), 빈 요청 400

@@ -32,14 +32,14 @@ for c in $(docker ps --format '{{.Names}}' | grep '^collector-'); do
   else r WARN 수집 "$c" "마지막 사이클 실패 ${m}분 전 (다음 시도까지 대기)"; fi
 done
 
-# 3. Spark 두 잡. 체크포인트의 offsets 파일이 최근에 새로 생겼으면 배치가 돌고 있는 것이다. 실험용 weather_replay 는 건너뛴다.
+# 3. Spark 세 잡(weather·realtime·city-realtime, 9/21 기준). 체크포인트의 offsets 파일이 최근에 새로 생겼으면 배치가 돌고 있는 것이다. 실험용 weather_replay 는 건너뛴다.
 for j in $(docker exec hdfs-namenode hdfs dfs -ls /ddubi/checkpoints 2>/dev/null | awk '{print $NF}' | grep checkpoints/ | grep -v replay); do
   line=$(docker exec hdfs-namenode hdfs dfs -ls "$j/offsets" 2>/dev/null | grep -E '/offsets/[0-9]+$' | sort -k6,7 | tail -1)
   [ -z "$line" ] && { r WARN Spark "$(basename $j) 체크포인트" "offsets 없음"; continue; }
   ts=$(echo "$line" | awk '{print $6" "$7}'); m=$(age_min $(date -d "$ts" +%s)); n=$(basename "$(echo "$line" | awk '{print $NF}')")
   [ "$m" -le 15 ] && r PASS Spark "$(basename $j) 체크포인트 전진" "배치 #$n, ${m}분 전" || r WARN Spark "$(basename $j) 체크포인트" "마지막 배치 ${m}분 전"
 done
-for c in spark-streaming-weather spark-streaming-realtime; do
+for c in spark-streaming-weather spark-streaming-realtime spark-streaming-city-realtime; do
   e=$(docker logs "$c" --since 1h 2>&1 | grep -cE 'ERROR|Exception' || true)
   [ "$e" -eq 0 ] && r PASS Spark "$c 1시간 오류 로그" "0건" || r WARN Spark "$c 1시간 오류 로그" "${e}건"
 done
@@ -47,7 +47,7 @@ done
 # 비교 대상은 돌고 있는 잡이 실제로 읽는 폴더(streaming·common·batch)와 submit.sh·requirements.txt 만이다.
 # tools·tests·examples 는 잡과 무관하므로 빼는데, 9/17 에 tools 파일 하나가 바뀐 것을 재시작 필요로 잘못 잡은 뒤 좁혔다.
 commit_ts=$(cd ~/S15P21E202 && git log -1 --format=%ct -- sparkjobs/streaming sparkjobs/common sparkjobs/batch sparkjobs/submit.sh sparkjobs/requirements.txt)
-for c in spark-streaming-weather spark-streaming-realtime; do
+for c in spark-streaming-weather spark-streaming-realtime spark-streaming-city-realtime; do
   st=$(date -d "$(docker inspect $c --format '{{.State.StartedAt}}')" +%s)
   [ "$st" -ge "$commit_ts" ] && r PASS Spark "$c 코드 최신" "시작 $(date -d @$st '+%m-%d %H:%M')" || r WARN Spark "$c 재시작 필요" "시작 $(date -d @$st '+%m-%d %H:%M') < 실행 코드 커밋 $(date -d @$commit_ts '+%m-%d %H:%M')"
 done
@@ -68,7 +68,14 @@ l=$(cat ~/.check-server2.last 2>/dev/null); m=$(age_min $(date -d "$l" +%s 2>/de
 w=$(grep -c . ~/check-server2.log 2>/dev/null); w=${w:-0}; [ "$w" -eq 0 ] && r PASS 크론 "서버2 감시 로그" "실패 기록 없음" || r WARN 크론 "서버2 감시 로그" "${w}줄: $(tail -n1 ~/check-server2.log | cut -c1-80)"
 b=$(tail -n1 ~/backups/hdfs-name/backup.log 2>/dev/null); if echo "$b" | grep -q OK && ! echo "$b" | grep -q WARN; then r PASS 백업 "네임노드 백업" "$(echo "$b" | cut -c1-19) OK"; else r WARN 백업 "네임노드 백업" "${b:-로그 없음}"; fi
 
-# 7. 자원
+# 7. 저장소 작업 트리. 서버 코드는 항상 깃과 같아야 한다. 수정된 추적 파일이 있으면 누군가 서버에서 파일을 직접 고친 것이고,
+# stash 가 있으면 배포 준비 스크립트(pre-deploy.sh)가 그런 변경을 치워 둔 흔적이다. 둘 다 "무엇을 왜 고쳤나" 확인 뒤 정리한다.
+# 미추적 파일은 세지 않는다(운영 자료 폴더가 미추적으로 있는 것이 정상). 절차: docs/runbooks/deploy-rollback.md 첫 절.
+mod=$(cd ~/S15P21E202 && git status --porcelain --untracked-files=no 2>/dev/null | wc -l); st=$(cd ~/S15P21E202 && git stash list 2>/dev/null | wc -l)
+[ "$mod" -eq 0 ] && r PASS 저장소 "수정된 추적 파일" "0개" || r WARN 저장소 "수정된 추적 파일" "${mod}개 (서버에서 직접 고친 파일, git status 로 확인)"
+[ "$st" -eq 0 ] && r PASS 저장소 "stash" "0개" || r WARN 저장소 "stash" "${st}개 (배포 준비가 치워 둔 서버 변경, git stash list 로 확인)"
+
+# 8. 자원
 d=$(df --output=pcent / | tail -1 | tr -dc 0-9); mem=$(free | awk '/Mem:/{printf "%d", $3*100/$2}')
 [ "$d" -lt 80 ] && r PASS 자원 "서버1 디스크" "${d}%" || r WARN 자원 "서버1 디스크" "${d}%"
 [ "$mem" -lt 90 ] && r PASS 자원 "서버1 메모리" "${mem}%" || r WARN 자원 "서버1 메모리" "${mem}%"

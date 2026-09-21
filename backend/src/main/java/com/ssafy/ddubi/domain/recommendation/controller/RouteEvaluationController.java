@@ -84,8 +84,13 @@ public class RouteEvaluationController {
                         routes.search(
                                 new RouteSearchQuery(request.origin(), request.destination())));
         var snapshot = evidence.read(search.candidates(), now);
+        // 조회 화면에서 계산한 정적 도보시간도 사용자가 입력한 일정 종료시각까지 유효하다.
+        // 60초 응답 검증 TTL을 화면 전체 결과의 만료로 전달해 불필요한 재조회를 유도하지 않는다.
         var enriched =
-                walking.prepare(search.candidates(), request.origin(), request.destination(), now);
+                walking.retainUntil(
+                        walking.prepare(
+                                search.candidates(), request.origin(), request.destination(), now),
+                        d);
         var result =
                 evaluator
                         .evaluate(enriched.candidates(), snapshot, now, p, d)

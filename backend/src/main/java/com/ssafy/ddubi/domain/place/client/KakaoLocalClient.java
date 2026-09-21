@@ -25,8 +25,9 @@ import org.springframework.web.client.RestClientException;
  * <p>수도권과 부산은 서로 떨어져 있으므로 두 권역의 {@code rect}를 독립 호출한다. 전국을 덮는 하나의 사각형을 쓰면 미지원 지역 결과가 섞이고 정확한 장소가
  * 밀려나기 때문이다. 한 권역 장애를 성공처럼 숨기면 검색 결과가 조용히 사라지므로 호출 하나라도 실패하면 기존 제공자 장애 응답을 반환한다.
  *
- * <p>권역 결과는 순서대로 이어붙인다. 같은 페이지에서 권역별 결과를 잘라 합치면 잘려나간 항목이 다음 페이지에도 나오지 않아 그대로 검색 누락이 된다. 카카오가 한 질의에
- * 최대 45건만 주기 때문에 손실을 뒤에서 만회할 방법도 없다.
+ * <p>한 화면 안에서 수도권과 부산을 함께 보여 주되, 권역마다 고정된 페이지 몫을 사용한다. 첫 권역을 모두 소진한 뒤 다음 권역으로 넘기면 수도권 결과가 하나라도 있을 때
+ * 부산이 첫 화면에서 영원히 밀린다. 반대로 매번 임의로 잘라 합치면 다음 페이지에서 누락·중복이 생기므로, 요청 size를 권역별로 고정 배분하고 각 권역의 같은 페이지를
+ * 읽는다.
  *
  * <p>경계 상자는 사각형이라 수도권 상자에 강원 서부 등 미지원 지역이 함께 들어온다. 카카오가 함께 주는 주소의 시도 이름으로 한 번 더 걸러낸다. 추가 호출은 필요하지
  * 않다.
@@ -66,26 +67,26 @@ public class KakaoLocalClient {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR);
         }
         int kakaoSize = Math.min(Math.max(size, 1), KAKAO_MAX_SIZE);
-        int kakaoPage = Math.min(page + 1, KAKAO_MAX_PAGE);
-
-        // 권역별 결과를 같은 페이지에서 잘라 합치면 잘려나간 항목이 다음 페이지에도 나오지 않는다.
-        // 카카오는 한 질의에 최대 45건만 주므로 그 손실이 그대로 검색 누락이 된다.
-        // 그래서 권역을 순서대로 이어붙인다. 앞 권역의 페이지를 모두 소진한 뒤 다음 권역으로 넘어간다.
+        List<SupportedServiceArea.Area> areas = SupportedServiceArea.areas();
         List<SearchPage> probed = new ArrayList<>();
-        SearchPage owner = null;
-        int remaining = page;
+        List<Integer> quotas = areaQuotas(kakaoSize, areas.size());
         try {
-            for (SupportedServiceArea.Area area : SupportedServiceArea.areas()) {
-                int areaPage = Math.min(Math.max(remaining, 0) + 1, KAKAO_MAX_PAGE);
-                SearchPage result = call(query, area, areaPage, kakaoSize);
-                probed.add(result);
-                int areaPages = (int) Math.ceil((double) result.total() / kakaoSize);
-                if (owner == null && remaining < areaPages) {
-                    owner = result;
-                }
-                if (owner == null) {
-                    remaining -= areaPages;
-                }
+            for (int i = 0; i < areas.size(); i++) {
+                int quota = quotas.get(i);
+                // size=1은 한 화면에 두 권역을 동시에 담을 수 없으므로 페이지마다 권역을 번갈아
+                // 선택한다. 나머지 권역도 1페이지를 조회해 total 메타데이터는 전체 권역 기준으로 유지한다.
+                int areaPage =
+                        kakaoSize == 1
+                                ? (i == Math.floorMod(page, areas.size())
+                                        ? page / areas.size() + 1
+                                        : 1)
+                                : page + 1;
+                probed.add(
+                        call(
+                                query,
+                                areas.get(i),
+                                Math.min(areaPage, KAKAO_MAX_PAGE),
+                                Math.max(quota, 1)));
             }
         } catch (RestClientException e) {
             log.warn("카카오 장소 검색 실패: {}", e.getClass().getSimpleName());
@@ -95,8 +96,16 @@ public class KakaoLocalClient {
 
         // 경계 상자는 사각형이라 수도권 상자에 강원 서부 등이 함께 들어온다. 주소로 한 번 더 걸러낸다.
         LinkedHashMap<String, PlaceSearchItem> kept = new LinkedHashMap<>();
-        if (owner != null) {
-            for (PlaceSearchItem item : owner.items()) {
+        int selectedArea = kakaoSize == 1 ? Math.floorMod(page, areas.size()) : -1;
+        int maxRows = probed.stream().mapToInt(result -> result.items().size()).max().orElse(0);
+        // 수도권 N건 뒤 부산 N건을 붙이는 대신 한 건씩 번갈아 넣어 첫 화면에서도 두 권역이
+        // 바로 보이게 한다. providerPlaceId가 같으면 동일 장소로 보고 먼저 나온 한 건만 유지한다.
+        for (int row = 0; row < maxRows; row++) {
+            for (int areaIndex = 0; areaIndex < probed.size(); areaIndex++) {
+                if (selectedArea >= 0 && areaIndex != selectedArea) continue;
+                SearchPage area = probed.get(areaIndex);
+                if (row >= area.items().size()) continue;
+                PlaceSearchItem item = area.items().get(row);
                 if (SupportedServiceArea.addressClearlyOutside(item.address())) continue;
                 String key =
                         StringUtils.hasText(item.providerPlaceId())
@@ -108,15 +117,31 @@ public class KakaoLocalClient {
 
         List<PlaceSearchItem> items = List.copyOf(kept.values());
         long total = probed.stream().mapToLong(SearchPage::total).sum();
-        // 권역을 이어붙이므로 전체 페이지 수는 권역별 페이지 수의 합이다. 전체 건수를 한 번에 나누면
-        // 마지막 페이지가 덜 찬 앞 권역만큼 페이지가 모자라 뒤 권역 결과를 못 보게 된다.
-        int totalPages =
-                probed.stream()
-                        .mapToInt(area -> (int) Math.ceil((double) area.total() / kakaoSize))
-                        .sum();
+        int totalPages;
+        if (kakaoSize == 1) {
+            totalPages = Math.toIntExact(Math.min(Integer.MAX_VALUE, total));
+        } else {
+            totalPages = 0;
+            for (int i = 0; i < probed.size(); i++) {
+                int areaPages = (int) Math.ceil((double) probed.get(i).total() / quotas.get(i));
+                totalPages = Math.max(totalPages, areaPages);
+            }
+        }
         boolean hasNext = page + 1 < totalPages;
 
         return new PageResponse<>(items, page, kakaoSize, total, Math.max(totalPages, 1), hasNext);
+    }
+
+    /**
+     * 페이지 크기를 권역별로 고정 배분한다. 홀수 크기의 남는 한 칸은 앞 권역부터 받는다. 고정 quota를 모든 페이지에 반복 적용하므로 첫 페이지에서 잘린 권역 항목이
+     * 다음 페이지에서 건너뛰거나 중복되지 않는다.
+     */
+    private static List<Integer> areaQuotas(int size, int areaCount) {
+        List<Integer> quotas = new ArrayList<>(areaCount);
+        int base = size / areaCount;
+        int remainder = size % areaCount;
+        for (int i = 0; i < areaCount; i++) quotas.add(base + (i < remainder ? 1 : 0));
+        return quotas;
     }
 
     private SearchPage call(

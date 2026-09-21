@@ -510,12 +510,12 @@ void main() {
       origin: MockDdubiRepository.home,
       destination: const PlaceLocation(name: '서울병원', lat: 37.492, lng: 127.014),
       arriveBy: DateTime(2026, 9, 10, 19),
-      importance: ScheduleImportance.critical,
+      importance: ScheduleImportance.high,
       considerLastTrip: true,
       updatedAt: updatedAt,
     );
 
-    expect(schedule.toCreateRequestJson()['importance'], 'CRITICAL');
+    expect(schedule.toCreateRequestJson()['importance'], 'HIGH');
     expect(schedule.toCreateRequestJson()['considerLastTrip'], isTrue);
     expect(
       (schedule.toCreateRequestJson()['destination'] as Map)['lat'],
@@ -662,6 +662,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('placeSearchResult0')));
     await tester.pumpAndSettle();
+    // 출발 예정시각은 서버가 생성 때 필수로 받는다. 앱이 임의로 채우지 않으므로
+    // 사용자가 직접 넣어야 저장된다.
+    await tester.enterText(
+      find.byKey(const Key('repeatDepartTimeField')),
+      '08:10',
+    );
     await tester.drag(find.byType(ListView).last, const Offset(0, -450));
     await tester.pumpAndSettle();
     expect(find.text('반복 요일'), findsOneWidget);
@@ -770,10 +776,8 @@ void main() {
     expect(find.byKey(const Key('webRouteResultsLayout')), findsOneWidget);
     expect(find.byKey(const Key('webRouteResultsGrid')), findsOneWidget);
     expect(find.byKey(const Key('mobileRouteResultsLayout')), findsNothing);
-    expect(
-      find.byType(RouteCard),
-      findsNWidgets(MockDdubiRepository.routeData.length),
-    );
+    // 후보가 여러 개여도 화면에는 제일 추천하는 경로 한 장만 남는다.
+    expect(find.byType(RouteCard), findsOneWidget);
   });
 
   testWidgets('전체 지도는 Web에서 지도와 상세 정보를 좌우로 표시한다', (tester) async {
@@ -829,7 +833,8 @@ void main() {
     expect(find.byKey(const Key('webSettingsLayout')), findsOneWidget);
     expect(find.byKey(const Key('mobileSettingsLayout')), findsNothing);
     expect(find.text('뚜비와 더 편리한 이동을 위한 설정을 관리해요.'), findsOneWidget);
-    expect(find.byKey(const Key('weeklyStampBoardCard')), findsOneWidget);
+    // 도장판(미션 스탬프)은 제공하지 않기로 했다. 화면에 남아 있으면 안 된다.
+    expect(find.byKey(const Key('weeklyStampBoardCard')), findsNothing);
     expect(find.text('서비스 상태'), findsNothing);
     expect(find.text('회원 탈퇴'), findsNothing);
   });
@@ -868,8 +873,8 @@ void main() {
     expect(find.text('도보'), findsNothing);
     expect(find.text('택시'), findsNothing);
     expect(find.text('더보기'), findsWidgets);
-    expect(find.byKey(const Key('weeklyStampBoardCard')), findsOneWidget);
-    expect(find.byKey(const Key('stampBoardPreparing')), findsOneWidget);
+    expect(find.byKey(const Key('weeklyStampBoardCard')), findsNothing);
+    expect(find.byKey(const Key('stampBoardPreparing')), findsNothing);
     expect(find.byKey(const Key('stampMissionPreviewRow')), findsNothing);
     expect(find.byKey(const Key('stampMissionGrid')), findsNothing);
     expect(find.byKey(const Key('stampBoardProgress')), findsNothing);
@@ -1139,6 +1144,17 @@ class _FakePlaceSearchService implements PlaceSearchService {
         lng: 127.014,
       ),
   ];
+
+  @override
+  Future<PlaceSearchPage> searchPage(
+    String query, {
+    int page = 0,
+    int size = 10,
+  }) async => PlaceSearchPage(
+    items: await search(query, page: page, size: size),
+    hasNext: false,
+    totalElements: 1,
+  );
 }
 
 class _FakeRecommendationApi extends RecommendationApi {

@@ -173,11 +173,16 @@ class EvaluationRouteLeg {
     required this.roleRaw,
     required this.durationSource,
     required this.durationSourceRaw,
+    this.candidateKey,
     this.fromName,
     this.toName,
     this.durationSeconds,
     this.endpointEvidence,
   });
+
+  /// 이 구간이 속한 후보. 저장된 경로와 이어 붙일 때 쓴다 — 다른 후보의 구간 시간을
+  /// 이 경로 값으로 보여주면 화면마다 숫자가 달라진다.
+  final String? candidateKey;
 
   final int sequence;
   final String mode;
@@ -195,6 +200,7 @@ class EvaluationRouteLeg {
     final durationSourceRaw = json['durationSource']?.toString();
     final evidence = _map(json['endpointEvidence']);
     return EvaluationRouteLeg(
+      candidateKey: json['candidateKey']?.toString(),
       sequence:
           (json['sequence'] as num?)?.toInt() ??
           (json['seq'] as num?)?.toInt() ??

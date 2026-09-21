@@ -122,6 +122,7 @@ CREATE TABLE schedule_repeat (
     title        VARCHAR(100)  NOT NULL COMMENT '일정 이름 (예: 출근)',
     days_of_week VARCHAR(30)   NOT NULL COMMENT '반복 요일 CSV (예: MON,TUE,WED,THU,FRI)',
     arrive_time  TIME          NOT NULL COMMENT '도착 목표 시각',
+    depart_time  TIME          NULL     COMMENT '출발 예정시각(매 발생일 공통). NULL = 출발시각 도입 이전 규칙',
     start_date   DATE          NOT NULL COMMENT '반복 시작일 — 이 날짜부터 인스턴스를 만든다 (REPEAT-001 startDate)',
     until_date   DATE          NULL     COMMENT '반복 종료일. NULL = 무기한 (REPEAT-001 endDate)',
     origin_name  VARCHAR(100)  NOT NULL COMMENT '출발지 스냅샷 (schedule 과 동일 구조)',

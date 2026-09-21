@@ -157,7 +157,7 @@ groups:
         for: 5m
         labels: { severity: critical, layer: data }
         annotations:
-          summary: master 가 보는 실행 중 앱이 2 미만. weather_latest 또는 realtime_latest 가 죽어 재시작 반복 중일 수 있다
+          summary: master 가 보는 실행 중 앱이 3 미만. weather_latest·realtime_latest·city_realtime_silver 중 하나가 죽어 재시작 반복 중일 수 있다 (기준 3 은 2026-09-21, city-realtime 이 기본 프로필에 들어온 뒤)
           runbook: docs/runbooks/spark-streaming-crash.md
         noDataState: Alerting
         execErrState: Error
@@ -168,7 +168,7 @@ groups:
             model: { refId: A, instant: true, expr: 'metrics_master_apps_Value{type="gauges"}' }
           - refId: C
             datasourceUid: __expr__
-            model: { refId: C, type: math, expression: "$A < 2" }
+            model: { refId: C, type: math, expression: "$A < 3" }
 
       - uid: ddubi-hdfs-datanode-down
         title: HDFS 데이터노드 1대

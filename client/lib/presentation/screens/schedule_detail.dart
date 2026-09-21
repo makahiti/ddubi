@@ -11,6 +11,7 @@ import '../widgets.dart';
 import '../departure_headline.dart';
 import '../schedule_evaluation_card.dart';
 import '../../domain/schedule_evaluation.dart';
+import '../../domain/route_evaluated_numbers.dart';
 import '../../domain/saved_route_display.dart';
 import '../../domain/transit_reference.dart';
 import '../transit_reference_panel.dart';
@@ -301,6 +302,29 @@ class ScheduleDetailScreen extends StatelessWidget {
                 ],
               ),
             ),
+            // 반복에서 만들어진 일정이면 먼저 알린다. 수정·삭제가 이 일정 하나에만
+            // 적용된다는 점을 모르면 "지웠는데 또 생긴다" 로 느낀다.
+            if (schedule.isRepeating) ...[
+              const SizedBox(height: 12),
+              const InfoCard(
+                key: Key('scheduleRepeatNotice'),
+                child: Row(
+                  children: [
+                    Icon(Icons.event_repeat, size: 18, color: DdubiColors.blue),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '반복 일정에서 만들어진 일정이에요. 여기서 고치거나 지우면 이 날짜 하나에만 적용돼요.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF52677B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             Row(
               children: [
@@ -346,11 +370,13 @@ class ScheduleDetailScreen extends StatelessWidget {
               headline: headline,
               onSelected: recommendationApi == null
                   ? null
-                  : (savedRoute) => _openSavedRoute(
+                  : (savedRoute, displayRank, evaluated) => _openSavedRoute(
                       c,
                       schedule,
                       savedRoute,
                       routeRepository,
+                      displayRank: displayRank,
+                      evaluated: evaluated,
                     ),
             ),
             const SizedBox(height: 16),
@@ -472,8 +498,10 @@ class ScheduleDetailScreen extends StatelessWidget {
     BuildContext c,
     Schedule schedule,
     SavedRouteSummary savedRoute,
-    DdubiRepository routeRepository,
-  ) {
+    DdubiRepository routeRepository, {
+    int? displayRank,
+    RouteEvaluatedNumbers evaluated = RouteEvaluatedNumbers.empty,
+  }) {
     if (savedRoute.routeId.trim().isEmpty) {
       ScaffoldMessenger.of(c).showSnackBar(
         const SnackBar(
@@ -493,6 +521,8 @@ class ScheduleDetailScreen extends StatelessWidget {
         selectedRoute: savedRoute.toRouteOption(schedule),
         departureLabel: savedRoute.fromName ?? schedule.departurePlace,
         destinationLabel: savedRoute.toName ?? schedule.place,
+        displayRank: displayRank,
+        evaluated: evaluated,
       ),
     );
   }
@@ -580,7 +610,11 @@ class _LiveSavedRouteList extends StatefulWidget {
   final RecommendationApi? api;
   final String scheduleId;
   final ValueNotifier<ScheduleEvaluationV2?> headline;
-  final Future<Object?> Function(SavedRouteSummary)? onSelected;
+
+  /// 목록에서 보이던 순번과 평가 결과를 같이 넘긴다. 상세 화면이 서버 rankNo 와 경로 API
+  /// 원본 시간을 따로 보여주면 같은 경로인데 다른 숫자가 나온다.
+  final Future<Object?> Function(SavedRouteSummary, int, RouteEvaluatedNumbers)?
+  onSelected;
 
   @override
   State<_LiveSavedRouteList> createState() => _LiveSavedRouteListState();
@@ -591,6 +625,9 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
 
   /// 서버가 같은 기준으로 비교한 후보별 결과. 새 평가가 오면 갱신한다.
   List<EvaluationCandidateEstimate> _estimates = const [];
+
+  /// 카드·상세·지도가 같은 숫자를 쓰도록 평가 결과를 통째로 들고 있는다.
+  ScheduleEvaluationV2? _evaluation;
   late bool _unavailable = widget.unavailable;
   final DateTime _loadedAt = DateTime.now();
   DateTime? _seenComputedAt;
@@ -614,7 +651,10 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
   void _onEvaluation() {
     final value = widget.headline.value;
     if (value != null && mounted && !_sameEstimates(value.candidateEstimates)) {
-      setState(() => _estimates = value.candidateEstimates);
+      setState(() {
+        _estimates = value.candidateEstimates;
+        _evaluation = value;
+      });
     }
     final computedAt = widget.headline.value?.computedAt;
     if (computedAt == null) return;
@@ -656,15 +696,28 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
     }
   }
 
+  /// 이번 평가에서 서버가 바꾸라고 제안한 경로. 없으면 null 이다.
+  String? get _proposedRouteId {
+    for (final estimate in _estimates) {
+      if (estimate.proposed && estimate.routeId != null) return estimate.routeId;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) => _SavedRouteList(
-    display: SavedRouteDisplay.from(_routes),
+    display: SavedRouteDisplay.from(_routes, proposedRouteId: _proposedRouteId),
     unavailable: _unavailable,
     estimates: _estimates,
+    evaluation: _evaluation,
     onSelected: widget.onSelected == null
         ? null
-        : (route) async {
-            final result = await widget.onSelected!(route);
+        : (route, displayRank, evaluated) async {
+            final result = await widget.onSelected!(
+              route,
+              displayRank,
+              evaluated,
+            );
             // 상세 화면이 "이 경로는 정리됐다"고 알려 주면 새 목록으로 바꾼다.
             if (result == true && mounted) {
               await _reload();
@@ -680,14 +733,21 @@ class _SavedRouteList extends StatelessWidget {
     required this.unavailable,
     required this.onSelected,
     this.estimates = const [],
+    this.evaluation,
   });
+
+  /// 이번 평가 결과 전체. 카드에 쓸 시간과 출처를 여기서만 꺼낸다.
+  final ScheduleEvaluationV2? evaluation;
 
   final SavedRouteDisplay display;
   final bool unavailable;
 
   /// 서버가 같은 기준으로 비교한 후보별 결과. `routeId` 로 카드와 이어 붙인다.
   final List<EvaluationCandidateEstimate> estimates;
-  final ValueChanged<SavedRouteSummary>? onSelected;
+
+  /// (경로, 화면 순번, 화면에 보인 소요시간(분)) 를 넘긴다.
+  final void Function(SavedRouteSummary, int, RouteEvaluatedNumbers)?
+  onSelected;
 
   EvaluationCandidateEstimate? _estimateFor(String routeId) {
     for (final estimate in estimates) {
@@ -704,7 +764,7 @@ class _SavedRouteList extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '저장된 추천 경로',
+          '추천 경로',
           style: TextStyle(
             fontSize: 19,
             fontWeight: FontWeight.w900,
@@ -720,13 +780,18 @@ class _SavedRouteList extends StatelessWidget {
             child: Text('아직 평가된 추천 경로가 없어요.'),
           )
         else ...[
-          // 화면 순번은 1부터 다시 매긴다. 중복을 묶은 뒤 서버 순위(1,2,6,8,10)를 그대로
-          // 보여주면 사용자에게는 번호가 건너뛴 것처럼 보인다. 서버 순위는 개발자 진단에 남는다.
+          // 순번은 서버가 준 displayRank 를 그대로 쓴다. 없으면(구버전 응답) 1부터
+          // 앱이 매긴다. 어느 쪽이든 상세 화면에 같은 값을 넘겨 두 화면이 어긋나지 않게 한다.
+          // 내부 순위(rankNo)는 소요시간 기준 캐시라 사용자 화면에 쓰지 않는다.
           for (var i = 0; i < routes.length; i++) ...[
             _SavedRouteTile(
               route: routes[i],
-              displayRank: i + 1,
+              displayRank: routes[i].displayRank ?? i + 1,
               estimate: _estimateFor(routes[i].routeId),
+              evaluated: RouteEvaluatedNumbers.of(
+                evaluation,
+                routes[i].routeId,
+              ),
               onTap: onSelected,
             ),
             if (i != routes.length - 1) const SizedBox(height: 8),
@@ -757,7 +822,11 @@ class _SavedRouteTile extends StatelessWidget {
     required this.displayRank,
     required this.onTap,
     this.estimate,
+    this.evaluated = RouteEvaluatedNumbers.empty,
   });
+
+  /// 이번 평가가 이 경로에 계산한 시간·출처. 상세와 지도에 그대로 넘겨 같은 숫자를 쓰게 한다.
+  final RouteEvaluatedNumbers evaluated;
 
   /// 서버가 이번 평가에서 계산한 값. 있으면 원본 경로시간 대신 이 값을 보여준다.
   final EvaluationCandidateEstimate? estimate;
@@ -766,14 +835,24 @@ class _SavedRouteTile extends StatelessWidget {
   final int displayRank;
 
   final SavedRouteSummary route;
-  final ValueChanged<SavedRouteSummary>? onTap;
 
-  /// 평가된 소요시간이 있으면 그 값을, 없으면 경로 API 원본을 보여준다.
-  String _durationLabel() {
-    final seconds = estimate?.durationSeconds;
-    if (seconds == null) return '약 ${route.baseDurationMin}분';
-    return '약 ${(seconds / 60).ceil()}분';
-  }
+  /// (경로, 화면 순번, 이번 평가 결과) 를 넘긴다. 상세 화면이 같은 숫자를 보여주게 하려고
+  /// 카드가 실제로 쓴 값을 그대로 전달한다.
+  final void Function(SavedRouteSummary, int, RouteEvaluatedNumbers)? onTap;
+
+  /// 평가된 소요시간이 있으면 그 값을, 없으면 경로 API 원본을 쓴다(분).
+  int get _durationMin =>
+      evaluated.totalMinutes ??
+      ((estimate?.durationSeconds) == null
+          ? route.baseDurationMin
+          : (estimate!.durationSeconds! / 60).ceil());
+
+  /// 이 숫자가 어디서 왔는지. 지도 상세와 같은 문구를 쓴다.
+  bool get _fromEvaluation =>
+      evaluated.totalMinutes != null || estimate?.durationSeconds != null;
+
+  String _durationLabel() =>
+      '약 $_durationMin분 · ${_fromEvaluation ? '이동 예측 기준' : '원본 경로 기준'}';
 
   @override
   Widget build(BuildContext context) => Material(
@@ -782,7 +861,9 @@ class _SavedRouteTile extends StatelessWidget {
     child: InkWell(
       key: Key('savedRoute-${route.routeId}'),
       borderRadius: BorderRadius.circular(16),
-      onTap: onTap == null ? null : () => onTap!(route),
+      onTap: onTap == null
+          ? null
+          : () => onTap!(route, displayRank, evaluated),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -822,7 +903,9 @@ class _SavedRouteTile extends StatelessWidget {
                               ? '선택된 추천 경로'
                               : estimate?.proposed == true
                               ? '새로 제안된 경로'
-                              : '$displayRank순위 경로',
+                              // 화면에는 제일 추천하는 경로 한 장만 남으므로 순위 번호를
+                              // 쓰지 않는다. "3순위" 는 나머지 두 개가 보일 때만 뜻이 있다.
+                              : '가장 추천하는 경로',
                           style: const TextStyle(
                             fontWeight: FontWeight.w900,
                             color: DdubiColors.navy,

@@ -24,6 +24,9 @@ import org.springframework.web.client.RestClientException;
 public class KakaoWalkingRouteClient
         implements WalkingRouteClient, org.springframework.boot.actuate.health.HealthIndicator {
     private static final String SOURCE = "KAKAO_WALKING_API";
+
+    /** 도보 한 건의 표시용 좌표 상한. 지도에 그리기에 충분하고 저장에도 부담이 없는 값이다. */
+    private static final int MAX_PATH_POINTS = 500;
     private final RestClient restClient;
     private final KakaoWalkingProperties properties;
     private final KakaoPublicTransitProperties kakao;
@@ -130,7 +133,8 @@ public class KakaoWalkingRouteClient
                     plannedSeconds,
                     Instant.now().plusSeconds(properties.getCacheSeconds()),
                     SOURCE,
-                    null);
+                    null,
+                    path(response.route()));
         } catch (HttpStatusCodeException failure) {
             int status = failure.getStatusCode().value();
             if (status == 429 || quotaExceeded(failure.getResponseBodyAsString())) {
@@ -172,6 +176,43 @@ public class KakaoWalkingRouteClient
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    /**
+     * 공식 steps[].path.points 를 지도용 좌표열 하나로 잇는다.
+     *
+     * <h3>왜 좌표를 걸러 내나</h3>
+     * 한 점만 어긋나도 지도는 서해 앞바다까지 선을 긋는다. 값이 이상하면 그 구간의 선을
+     * 통째로 포기한다 — 틀린 선을 보여 주는 것보다 안 보여 주는 편이 낫다. 시간·거리는
+     * 이 좌표와 무관하게 공식 totalTime/totalDistance 를 그대로 쓴다.
+     *
+     * <p>이어 붙일 때 앞 점과 같은 점은 건너뛴다. step 경계에서 같은 좌표가 겹쳐 온다.
+     */
+    private java.util.List<Coordinate> path(KakaoWalkingResponse.Route route) {
+        if (route == null || route.legs() == null) return java.util.List.of();
+        var points = new java.util.ArrayList<Coordinate>();
+        for (var leg : route.legs()) {
+            if (leg == null || leg.steps() == null) continue;
+            for (var step : leg.steps()) {
+                if (step == null || step.path() == null || step.path().points() == null) continue;
+                for (var point : step.path().points()) {
+                    if (point == null || point.size() < 2) continue;
+                    Double longitude = point.get(0);
+                    Double latitude = point.get(1);
+                    if (longitude == null || latitude == null) continue;
+                    Coordinate coordinate = new Coordinate(longitude, latitude);
+                    if (!valid(coordinate) || (longitude == 0 && latitude == 0))
+                        return java.util.List.of();
+                    // 표시용 좌표가 아무리 길어도 응답 한 건을 넘기지 않는다.
+                    if (points.size() >= MAX_PATH_POINTS) return java.util.List.copyOf(points);
+                    if (!points.isEmpty() && points.get(points.size() - 1).equals(coordinate))
+                        continue;
+                    points.add(coordinate);
+                }
+            }
+        }
+        // 점 하나짜리 선은 그릴 수 없다. 그런 값은 없는 것과 같다.
+        return points.size() < 2 ? java.util.List.of() : java.util.List.copyOf(points);
     }
 
     private Evidence fallback(String reason) {

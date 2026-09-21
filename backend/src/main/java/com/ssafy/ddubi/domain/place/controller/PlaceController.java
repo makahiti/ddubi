@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "장소", description = "서울 장소 검색 · 즐겨찾기 CRUD")
+@Tag(name = "장소", description = "수도권·부산 장소 검색 · 즐겨찾기 CRUD")
 @RestController
 @RequestMapping("/api/v1/places")
 @Validated
@@ -40,28 +40,30 @@ public class PlaceController {
         this.placeService = placeService;
     }
 
-    @Operation(summary = "서울 장소 검색", description = "카카오 로컬 검색 프록시. 서울 밖 결과는 제외된다. PLACE-001")
+    @Operation(
+            summary = "수도권·부산 장소 검색",
+            description = "카카오 로컬 검색 프록시. 수도권·부산 밖 결과는 제외된다. PLACE-001")
     @GetMapping("/search")
     public ApiResponse<PageResponse<PlaceSearchItem>> search(
             @RequestParam @NotBlank(message = "query 는 필수입니다.") String query,
             @Valid @ModelAttribute PageRequestParam pageParam) {
-        return ApiResponse.success(placeService.search(query, pageParam.getPage(), pageParam.getSize()));
+        return ApiResponse.success(
+                placeService.search(query, pageParam.getPage(), pageParam.getSize()));
     }
 
     @Operation(summary = "즐겨찾는 장소 목록", description = "PLACE-002")
     @GetMapping
     public ApiResponse<PageResponse<PlaceResponse>> list(
-            @LoginUserId Long userId,
-            @Valid @ModelAttribute PageRequestParam pageParam) {
+            @LoginUserId Long userId, @Valid @ModelAttribute PageRequestParam pageParam) {
         return ApiResponse.success(
-                placeService.list(userId, pageParam.toPageable(Sort.by(Sort.Direction.DESC, "createdAt"))));
+                placeService.list(
+                        userId, pageParam.toPageable(Sort.by(Sort.Direction.DESC, "createdAt"))));
     }
 
-    @Operation(summary = "장소 등록", description = "서울 밖 좌표는 422. PLACE-003")
+    @Operation(summary = "장소 등록", description = "수도권·부산 밖 좌표는 422. PLACE-003")
     @PostMapping
     public ResponseEntity<ApiResponse<PlaceResponse>> create(
-            @LoginUserId Long userId,
-            @Valid @RequestBody PlaceCreateRequest request) {
+            @LoginUserId Long userId, @Valid @RequestBody PlaceCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(placeService.create(userId, request)));
     }
@@ -81,8 +83,7 @@ public class PlaceController {
         return ApiResponse.success(placeService.update(userId, placeId, request));
     }
 
-    @Operation(summary = "장소 삭제",
-            description = "기존 일정은 좌표 스냅샷이라 영향 없다(도메인 규칙 2). PLACE-006")
+    @Operation(summary = "장소 삭제", description = "기존 일정은 좌표 스냅샷이라 영향 없다(도메인 규칙 2). PLACE-006")
     @DeleteMapping("/{placeId}")
     public ResponseEntity<Void> delete(@LoginUserId Long userId, @PathVariable Long placeId) {
         placeService.delete(userId, placeId);

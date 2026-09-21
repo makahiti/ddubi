@@ -695,37 +695,6 @@ class PlaceSearchField extends StatelessWidget {
   );
 }
 
-class TransportPreferenceSelector extends StatelessWidget {
-  const TransportPreferenceSelector({
-    super.key,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final TransportPreferenceChoice value;
-  final ValueChanged<TransportPreferenceChoice> onChanged;
-
-  @override
-  Widget build(BuildContext context) => RadioGroup<TransportPreferenceChoice>(
-    groupValue: value,
-    onChanged: (choice) {
-      if (choice != null) onChanged(choice);
-    },
-    child: Column(
-      children: TransportPreferenceChoice.values
-          .map(
-            (choice) => RadioListTile<TransportPreferenceChoice>(
-              key: Key('transportPreference-${choice.name}'),
-              contentPadding: EdgeInsets.zero,
-              value: choice,
-              title: Text(choice.label),
-            ),
-          )
-          .toList(growable: false),
-    ),
-  );
-}
-
 class _PlaceSearchDialog extends StatefulWidget {
   const _PlaceSearchDialog({required this.title, required this.searchService});
 
@@ -752,27 +721,38 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
   bool _loading = false;
   String? _error;
 
+  /// 다음 페이지가 있는지는 서버가 준 hasNext 로만 판단한다. 받은 개수가 요청한 수보다
+  /// 적어도 마지막 페이지가 아닐 수 있다 — 서버가 수도권과 부산 결과를 섞어 내려주기
+  /// 때문이다.
+  bool _hasNext = false;
+  int _page = 0;
+
   @override
   void dispose() {
     _query.dispose();
     super.dispose();
   }
 
-  Future<void> _search() async {
+  Future<void> _search({bool more = false}) async {
     final query = _query.text.trim();
     if (query.isEmpty || _loading) return;
+    final page = more ? _page + 1 : 0;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final results = await widget.searchService.search(query);
+      final result = await widget.searchService.searchPage(query, page: page);
       if (!mounted) return;
       setState(() {
-        _results = results;
+        // 서버가 준 순서를 그대로 쓴다. 주소나 지역명으로 다시 정렬하면 섞어 보낸
+        // 의미가 사라지고 한 지역 결과가 뒤로 밀린다.
+        _results = more ? [..._results, ...result.items] : result.items;
+        _hasNext = result.hasNext;
+        _page = page;
         // 검색 범위는 서버의 서비스 권역이 정한다. 앱이 특정 지역 이름을 단정하면
         // 서버가 권역을 넓혔을 때 안내가 사실과 달라진다.
-        if (results.isEmpty) {
+        if (_results.isEmpty) {
           _error = '서비스 지역 안에서 검색 결과를 찾지 못했어요.';
         }
       });
@@ -818,9 +798,16 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
               ),
             Expanded(
               child: ListView.separated(
-                itemCount: _results.length,
+                itemCount: _results.length + (_hasNext ? 1 : 0),
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
+                  if (index == _results.length) {
+                    return TextButton(
+                      key: const Key('placeSearchMoreButton'),
+                      onPressed: _loading ? null : () => _search(more: true),
+                      child: const Text('더보기'),
+                    );
+                  }
                   final place = _results[index];
                   return ListTile(
                     key: Key('placeSearchResult$index'),

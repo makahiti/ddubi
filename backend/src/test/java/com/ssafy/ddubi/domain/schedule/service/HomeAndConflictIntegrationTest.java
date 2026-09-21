@@ -1,21 +1,21 @@
 package com.ssafy.ddubi.domain.schedule.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.ssafy.ddubi.domain.schedule.dto.request.LocationRequest;
 import com.ssafy.ddubi.domain.schedule.dto.request.ScheduleCreateRequest;
 import com.ssafy.ddubi.domain.schedule.dto.response.HomeResponse;
 import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /** HOME-001 홈 요약 + SCH-006 연속 일정 충돌. */
 class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
@@ -25,28 +25,28 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
     private static final LocationRequest SANGGYE =
             new LocationRequest("상계역", new BigDecimal("37.6598"), new BigDecimal("127.0733"));
 
-    @Autowired
-    private HomeService homeService;
-    @Autowired
-    private ScheduleConflictService conflictService;
-    @Autowired
-    private ScheduleService scheduleService;
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    @Autowired private HomeService homeService;
+    @Autowired private ScheduleConflictService conflictService;
+    @Autowired private ScheduleService scheduleService;
+    @Autowired private UserRepository userRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private Long userId;
     private LocalDateTime base;
 
     @BeforeEach
     void setUp() {
-        userId = userRepository.save(User.builder().email("home@ddubi.com").nickname("홈").build()).getId();
-        base = LocalDateTime.now().plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0);
+        userId =
+                userRepository
+                        .save(User.builder().email("home@ddubi.com").nickname("홈").build())
+                        .getId();
+        base = BusinessTime.now().plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0);
     }
 
-    private void schedule(String title, LocationRequest origin, LocationRequest dest, LocalDateTime arriveBy) {
-        scheduleService.create(userId, new ScheduleCreateRequest(title, origin, dest, arriveBy, null, null));
+    private void schedule(
+            String title, LocationRequest origin, LocationRequest dest, LocalDateTime arriveBy) {
+        scheduleService.create(
+                userId, new ScheduleCreateRequest(title, origin, dest, arriveBy, null, null));
     }
 
     // ------------------------------------------------------------------
@@ -86,8 +86,11 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
         schedule("1차 회의", GANGNAM, GANGNAM, base);
         schedule("2차 회의", GANGNAM, GANGNAM, base.plusMinutes(1));
 
-        assertThat(conflictService.findConflicts(userId, base.minusHours(1), base.plusHours(1))
-                .conflicts()).isEmpty();
+        assertThat(
+                        conflictService
+                                .findConflicts(userId, base.minusHours(1), base.plusHours(1))
+                                .conflicts())
+                .isEmpty();
     }
 
     // ------------------------------------------------------------------
@@ -109,7 +112,7 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("일정이 없으면 nextSchedule 은 null 이고 나머지 필드는 채워진다")
     void emptyHome() {
-        HomeResponse home = homeService.summary(userId, LocalDateTime.now());
+        HomeResponse home = homeService.summary(userId, BusinessTime.now());
 
         assertThat(home.nextSchedule()).isNull();
         assertThat(home.todaySchedules()).isEmpty();
@@ -123,12 +126,12 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
     void dataStateFollowsActivation() {
         jdbcTemplate.update(
                 "INSERT INTO pipeline_config (config_key, config_value) VALUES ('baseline_last_activated_at', ?)",
-                LocalDateTime.now().minusHours(1).toString());
-        assertThat(homeService.summary(userId, LocalDateTime.now()).dataState()).isEqualTo("NORMAL");
+                BusinessTime.now().minusHours(1).toString());
+        assertThat(homeService.summary(userId, BusinessTime.now()).dataState()).isEqualTo("NORMAL");
 
         jdbcTemplate.update(
                 "UPDATE pipeline_config SET config_value = ? WHERE config_key = 'baseline_last_activated_at'",
-                LocalDateTime.now().minusDays(5).toString());
-        assertThat(homeService.summary(userId, LocalDateTime.now()).dataState()).isEqualTo("STALE");
+                BusinessTime.now().minusDays(5).toString());
+        assertThat(homeService.summary(userId, BusinessTime.now()).dataState()).isEqualTo("STALE");
     }
 }

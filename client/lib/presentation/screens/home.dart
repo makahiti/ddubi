@@ -112,6 +112,33 @@ class HomeScreen extends StatelessWidget {
   );
 }
 
+/// 서버가 주는 파이프라인 신선도 코드를 사람 말로 옮긴다.
+///
+/// 예전에는 `NORMAL`·`STALE`·`UNKNOWN` 을 그대로 화면에 찍었다. 내부 코드를 사용자에게
+/// 보여주는 셈이고, 게다가 어떤 값이든 초록색이라 "오래된 자료" 인데도 정상으로 보였다.
+/// 모르는 코드는 지어내지 않고 "확인 중" 으로 둔다.
+@visibleForTesting
+String dataStateLabel(String state) => switch (state) {
+  'NORMAL' => '정상',
+  'STALE' => '자료 오래됨',
+  'UNKNOWN' => '확인 중',
+  _ => '확인 중',
+};
+
+@visibleForTesting
+Color dataStateTone(String state) => switch (state) {
+  'NORMAL' => DdubiColors.green,
+  'STALE' => const Color(0xFFFF6B35),
+  _ => const Color(0xFF7F91A2),
+};
+
+@visibleForTesting
+IconData dataStateIcon(String state) => switch (state) {
+  'NORMAL' => Icons.check_circle_outline,
+  'STALE' => Icons.history_toggle_off_outlined,
+  _ => Icons.help_outline,
+};
+
 class _HomeData {
   const _HomeData({
     required this.summary,
@@ -407,199 +434,6 @@ class _TodayScheduleCard extends StatelessWidget {
   }
 }
 
-// Retained for the desktop dashboard route cards.
-// ignore: unused_element
-class _HomePlayfulIcon extends StatelessWidget {
-  const _HomePlayfulIcon({
-    required this.icon,
-    required this.color,
-    this.size = 38,
-  });
-  final IconData icon;
-  final Color color;
-  final double size;
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: size + 8,
-    height: size + 6,
-    child: Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned(
-          bottom: 0,
-          left: 6,
-          right: 2,
-          child: Container(
-            height: 7,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: .12),
-              borderRadius: BorderRadius.circular(20),
-            ),
-          ),
-        ),
-        Transform.rotate(
-          angle: -.09,
-          child: ShaderMask(
-            blendMode: BlendMode.srcIn,
-            shaderCallback: (bounds) => LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color.lerp(color, Colors.white, .35)!,
-                color,
-                Color.lerp(color, Colors.black, .15)!,
-              ],
-            ).createShader(bounds),
-            child: Icon(icon, size: size, color: color),
-          ),
-        ),
-        Positioned(
-          right: 0,
-          top: -2,
-          child: Icon(
-            Icons.auto_awesome_rounded,
-            size: 10,
-            color: color.withValues(alpha: .6),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-// ignore: unused_element
-class _HomeVariable extends StatelessWidget {
-  const _HomeVariable({
-    required this.icon,
-    required this.label,
-    required this.tone,
-  });
-  final IconData icon;
-  final String label;
-  final Color tone;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 14),
-    decoration: BoxDecoration(
-      color: tone,
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: Column(
-      children: [
-        _HomePlayfulIcon(
-          icon: icon,
-          color: switch (label) {
-            '날씨' => const Color(0xFFF4B829),
-            '혼잡도' => const Color(0xFF00AE79),
-            '도로 통제' => const Color(0xFFFA716C),
-            _ => const Color(0xFF00AB8A),
-          },
-        ),
-        const SizedBox(height: 9),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 5),
-        const Text(
-          '확인 필요',
-          style: TextStyle(fontSize: 11, color: Color(0xFF77868B)),
-        ),
-      ],
-    ),
-  );
-}
-
-// ignore: unused_element
-class _HomeRouteTile extends StatelessWidget {
-  const _HomeRouteTile({required this.route, required this.index});
-  final RouteOption route;
-  final int index;
-  @override
-  Widget build(BuildContext context) {
-    final tone = [
-      const Color(0xFF009B75),
-      const Color(0xFF347FD6),
-      const Color(0xFF8261D9),
-    ][index % 3];
-    return Material(
-      color: Color.lerp(Colors.white, tone, .035),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: tone.withValues(alpha: .3)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _showHomeRouteDetails(context, [route]),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _HomePlayfulIcon(
-                icon: [
-                  Icons.workspace_premium_rounded,
-                  Icons.bolt_rounded,
-                  Icons.verified_user_rounded,
-                ][index % 3],
-                color: tone,
-                size: 32,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                route.label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: tone,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                route.transport,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: DdubiColors.navy,
-                ),
-              ),
-              const SizedBox(height: 7),
-              Text(
-                '${route.departure} → ${route.arrival}',
-                style: const TextStyle(fontSize: 11, color: Color(0xFF5E7180)),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                route.margin,
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: index == 1 ? const Color(0xFFE46C60) : tone,
-                ),
-              ),
-              const SizedBox(height: 7),
-              Text(
-                route.detail,
-                style: const TextStyle(fontSize: 10, color: Color(0xFF72818A)),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                route.fare,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: DdubiColors.navy,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 void _showHomeRouteDetails(BuildContext context, List<RouteOption> routes) {
   showModalBottomSheet<void>(
     context: context,
@@ -712,10 +546,10 @@ class _WebHomeContent extends StatelessWidget {
           Expanded(
             child: DashboardMetricCard(
               label: '데이터 상태',
-              value: summary.dataState,
+              value: dataStateLabel(summary.dataState),
               caption: '안 읽은 알림 ${summary.unreadNotificationCount}건',
-              icon: Icons.check_circle_outline,
-              tone: DdubiColors.green,
+              icon: dataStateIcon(summary.dataState),
+              tone: dataStateTone(summary.dataState),
             ),
           ),
         ],
@@ -878,7 +712,10 @@ class _HomeScheduleCard extends StatelessWidget {
         Row(
           children: [
             Text(
-              previewRoutes.isEmpty ? '17:57' : previewRoutes.first.departure,
+              // 추천이 없을 때 그럴듯한 시각을 지어내지 않는다. 예전에는 '17:57' 이
+              // 박혀 있어서, 일정도 추천도 없는 사용자에게 근거 없는 출발 시각을
+              // 알려주고 있었다.
+              previewRoutes.isEmpty ? '--:--' : previewRoutes.first.departure,
               style: Theme.of(context).textTheme.headlineMedium
                   ?.copyWith(color: DdubiColors.blue),
             ),

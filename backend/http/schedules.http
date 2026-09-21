@@ -97,6 +97,7 @@ Content-Type: application/json
   "origin": { "name": "집", "lat": 37.5013068, "lng": 127.0396597 },
   "destination": { "name": "회사", "lat": 37.5716229, "lng": 126.9767879 },
   "localTime": "09:00",
+  "departTime": "08:10",
   "startDate": "2026-09-03",
   "rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
   "importance": "HIGH",
@@ -121,6 +122,7 @@ Content-Type: application/json
   "origin": { "name": "집", "lat": 37.5013068, "lng": 127.0396597 },
   "destination": { "name": "회사", "lat": 37.5716229, "lng": 126.9767879 },
   "localTime": "19:00",
+  "departTime": "18:10",
   "startDate": "2026-09-03",
   "rrule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=SA"
 }
@@ -146,7 +148,8 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "localTime": "08:30"
+  "localTime": "08:30",
+  "departTime": "07:40"
 }
 
 ### ⑬ 반복 중지 — 204. 기존 인스턴스는 남는다

@@ -136,11 +136,11 @@ Finder _cards() => find.byWidgetPredicate(
 );
 
 void main() {
-  testWidgets('후보 33개여도 카드는 5개만 나오고 선택 추천이 첫 번째다', (tester) async {
+  testWidgets('후보 33개여도 카드는 하나만 나오고 그것이 선택 추천이다', (tester) async {
     final (api, _) = await _pump(tester, fixture33());
 
     expect(api.detailCalls, isEmpty);
-    expect(_cards(), findsNWidgets(SavedRouteDisplay.maxVisible));
+    expect(_cards(), findsOneWidget);
     final firstKey =
         (tester.widget<InkWell>(_cards().first).key as ValueKey<String>).value;
     expect(firstKey, 'savedRoute-sel');
@@ -260,22 +260,16 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('화면 순번은 서버 순위와 무관하게 1부터 이어진다', (tester) async {
-    await _pump(tester, fixture33());
+  testWidgets('한 장만 보일 때는 순위 번호 대신 추천이라고 적는다', (tester) async {
+    // 선택 표시가 없는 목록이어도 화면에는 제일 앞 경로 한 장만 나온다.
+    await _pump(tester, [
+      route(id: 'top', rank: 1),
+      route(id: 'second', rank: 2, to: '다른곳', minutes: 51),
+    ]);
 
-    // 중복을 묶으면 서버 순위는 건너뛰지만(1,2,6,8,10) 화면에는 1~5 로 보인다.
-    final serverRanks = SavedRouteDisplay.from(fixture33()).visible
-        .map((r) => r.rankNo)
-        .toList();
-    expect(serverRanks, isNot([1, 2, 3, 4, 5]));
-
-    expect(find.text('선택된 추천 경로'), findsOneWidget);
-    for (var rank = 2; rank <= SavedRouteDisplay.maxVisible; rank++) {
-      final finder = find.text('$rank순위 경로');
-      await tester.scrollUntilVisible(finder, 200);
-      expect(finder, findsOneWidget, reason: '$rank순위');
-    }
-    expect(find.textContaining('6순위 경로'), findsNothing);
+    expect(_cards(), findsOneWidget);
+    expect(find.text('가장 추천하는 경로'), findsOneWidget);
+    expect(find.textContaining('순위 경로'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

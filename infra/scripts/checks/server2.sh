@@ -19,7 +19,8 @@ bad=$(docker ps -a --filter label=com.docker.compose.project=ddubi --format '{{.
 unh=$(docker ps --filter label=com.docker.compose.project=ddubi --format '{{.Names}} {{.Status}}' | grep -E 'unhealthy|starting' || true); [ -z "$unh" ] && r PASS 컨테이너 "헬스체크 전부 healthy" "-" || r FAIL 컨테이너 "unhealthy" "$unh"
 
 # 2. 사용자 경로. /api/health 는 인증 없이 부르면 401 이 정상이다(502·000 이면 nginx→backend 경로 문제).
-for p in "/healthz 200" "/api/health 401" "/swagger-ui/index.html 200" "/v3/api-docs 200"; do set -- $p; c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://$DOMAIN$1"); [ "$c" = "$2" ] && r PASS 서비스 "https $1" "$c" || r FAIL 서비스 "https $1" "$c (기대 $2)"; done
+# Swagger 와 api-docs 는 9/18 backend 가 운영 프로파일(prod)로 바뀐 뒤 닫혀 400 이 정상이다. 200 이 나오면 개발 프로파일로 떠 있는 것이니 그것이 이상 신호다.
+for p in "/healthz 200" "/api/health 401" "/swagger-ui/index.html 400" "/v3/api-docs 400"; do set -- $p; c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://$DOMAIN$1"); [ "$c" = "$2" ] && r PASS 서비스 "https $1" "$c" || r FAIL 서비스 "https $1" "$c (기대 $2)"; done
 days=$(( ( $(date -d "$(echo | openssl s_client -servername "$DOMAIN" -connect "$DOMAIN:443" 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)" +%s) - now ) / 86400 )); [ "$days" -gt 30 ] && r PASS 서비스 "TLS 인증서 남은 날" "${days}일" || r WARN 서비스 "TLS 인증서" "${days}일 (30일 미만이면 certbot 갱신 확인)"
 h=$(curl -sI --max-time 8 "https://$DOMAIN/api/health" | grep -ciE 'x-content-type-options|x-frame-options|referrer-policy'); [ "$h" -ge 3 ] && r PASS 서비스 "보안 헤더 3개" "$h" || r WARN 서비스 "보안 헤더" "${h}개"
 e=$(docker logs backend --since 1h 2>&1 | grep -c ' ERROR ' || true); [ "$e" -eq 0 ] && r PASS 서비스 "backend 1시간 ERROR 로그" "0건" || r WARN 서비스 "backend 1시간 ERROR 로그" "${e}건: $(docker logs backend --since 1h 2>&1 | grep ' ERROR ' | tail -1 | cut -c1-100)"
@@ -59,7 +60,14 @@ r INFO 감시 "아카이버 랙(1시간 톱니가 정상)" "$(pq 'sum(kafka_cons
 bl=$(grep -E '^[0-9-]{10} [0-9:]{8} sent' ~/brief.log 2>/dev/null | tail -n1 | cut -c1-19); m=$(age_min $(date -d "$bl" +%s 2>/dev/null || echo 0)); [ -n "$bl" ] && [ "$m" -le 600 ] && r PASS 크론 "브리핑 마지막 발송" "$bl" || r WARN 크론 "브리핑 마지막 발송" "${bl:-없음}"
 r INFO 크론 "서버2 crontab 줄 수" "$(crontab -l 2>/dev/null | grep -vc '^#')"
 
-# 8. 자원·보안. 방화벽 DOCKER-USER 체인은 상대 서버 허용 + 80/443 허용 + 나머지 DROP 이라 5줄이 정상이다.
+# 8. 저장소 작업 트리. 서버 코드는 항상 깃과 같아야 한다. 수정된 추적 파일이 있으면 누군가 서버에서 파일을 직접 고친 것이고,
+# stash 가 있으면 배포 준비 스크립트(pre-deploy.sh)가 그런 변경을 치워 둔 흔적이다. 둘 다 "무엇을 왜 고쳤나" 확인 뒤 정리한다.
+# 미추적 파일은 세지 않는다(운영 자료 폴더가 미추적으로 있는 것이 정상). 절차: docs/runbooks/deploy-rollback.md 첫 절.
+mod=$(cd ~/S15P21E202 && git status --porcelain --untracked-files=no 2>/dev/null | wc -l); st=$(cd ~/S15P21E202 && git stash list 2>/dev/null | wc -l)
+[ "$mod" -eq 0 ] && r PASS 저장소 "수정된 추적 파일" "0개" || r WARN 저장소 "수정된 추적 파일" "${mod}개 (서버에서 직접 고친 파일, git status 로 확인)"
+[ "$st" -eq 0 ] && r PASS 저장소 "stash" "0개" || r WARN 저장소 "stash" "${st}개 (배포 준비가 치워 둔 서버 변경, git stash list 로 확인)"
+
+# 9. 자원·보안. 방화벽 DOCKER-USER 체인은 상대 서버 허용 + 80/443 허용 + 나머지 DROP 이라 5줄이 정상이다.
 d=$(df --output=pcent / | tail -1 | tr -dc 0-9); mem=$(free | awk '/Mem:/{printf "%d", $3*100/$2}')
 [ "$d" -lt 80 ] && r PASS 자원 "서버2 디스크" "${d}%" || r WARN 자원 "서버2 디스크" "${d}%"
 [ "$mem" -lt 90 ] && r PASS 자원 "서버2 메모리" "${mem}%" || r WARN 자원 "서버2 메모리" "${mem}%"

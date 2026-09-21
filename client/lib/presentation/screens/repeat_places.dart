@@ -84,15 +84,28 @@ class _RepeatSchedulesScreenState extends State<RepeatSchedulesScreen> {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
-                    StatusBadge(
-                      rule.active ? '반복 중' : '중지됨',
-                      tone: rule.active ? DdubiColors.green : Colors.grey,
-                    ),
+                    if (rule.needsDepartTime)
+                      const StatusBadge(
+                        '출발시각 없음',
+                        tone: Color(0xFFFF6B35),
+                        icon: Icons.error_outline,
+                      )
+                    else
+                      StatusBadge(
+                        rule.active ? '반복 중' : '중지됨',
+                        tone: rule.active ? DdubiColors.green : Colors.grey,
+                      ),
                   ],
                 ),
+                // 출발시각이 없는 규칙은 왜 계산이 안 되는지 여기서 바로 알린다.
+                // 서버가 값을 지어내지 않으므로 사용자가 넣기 전까지 계산이 멈춰 있다.
                 subtitle: Text(
-                  '${days.map((day) => weekdayLabels[day - 1]).join(' · ')}  ${rule.time}\n'
-                  '출발 ${rule.departurePlace}\n도착 ${rule.place}',
+                  rule.needsDepartTime
+                      ? '${days.map((day) => weekdayLabels[day - 1]).join(' · ')}  ${rule.time} 도착\n'
+                            '출발시각이 없어 추천 계산이 안 되고 있어요. 수정에서 넣어주세요.'
+                      : '${days.map((day) => weekdayLabels[day - 1]).join(' · ')}  '
+                            '${rule.departTime} 출발 → ${rule.time} 도착\n'
+                            '${rule.departurePlace} → ${rule.place}',
                 ),
                 isThreeLine: true,
                 trailing: PopupMenuButton<String>(

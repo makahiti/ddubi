@@ -41,7 +41,7 @@ public class PlaceService {
     }
 
     // ------------------------------------------------------------------
-    // PLACE-001 서울 장소 검색 (카카오 프록시 — DB 를 거치지 않는다)
+    // PLACE-001 수도권·부산 장소 검색 (카카오 프록시 — DB 를 거치지 않는다)
     // ------------------------------------------------------------------
 
     public PageResponse<PlaceSearchItem> search(String query, int page, int size) {

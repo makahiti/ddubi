@@ -1,5 +1,12 @@
 package com.ssafy.ddubi.domain.notification.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
 import com.ssafy.ddubi.domain.notification.entity.Notification;
 import com.ssafy.ddubi.domain.notification.entity.NotificationStatus;
 import com.ssafy.ddubi.domain.notification.entity.NotificationType;
@@ -18,47 +25,32 @@ import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.global.push.PushMessage;
 import com.ssafy.ddubi.global.push.PushResult;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-
 /**
  * 알림 생성·억제·발송 (도메인 규칙 9).
  *
- * 고정하는 것: 억제 3경우 모두 행이 생성되고 status·suppressReason 이 정확할 것,
- * 껐다 켜도 알림함에 남을 것, 무효 토큰이 정리될 것(REQ-NTF-004).
+ * <p>고정하는 것: 억제 3경우 모두 행이 생성되고 status·suppressReason 이 정확할 것, 껐다 켜도 알림함에 남을 것, 무효 토큰이 정리될
+ * 것(REQ-NTF-004).
  */
 class NotificationSendIntegrationTest extends IntegrationTestSupport {
 
     private static final String FCM_TOKEN = "fcm-token-1";
 
-    @Autowired
-    private NotificationService notificationService;
-    @Autowired
-    private NotificationQueryService notificationQueryService;
-    @Autowired
-    private NotificationRepository notificationRepository;
-    @Autowired
-    private DeviceTokenService deviceTokenService;
-    @Autowired
-    private DeviceTokenRepository deviceTokenRepository;
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private ScheduleService scheduleService;
+    @Autowired private NotificationService notificationService;
+    @Autowired private NotificationQueryService notificationQueryService;
+    @Autowired private NotificationRepository notificationRepository;
+    @Autowired private DeviceTokenService deviceTokenService;
+    @Autowired private DeviceTokenRepository deviceTokenRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private ScheduleService scheduleService;
 
     private User user;
 
@@ -69,8 +61,8 @@ class NotificationSendIntegrationTest extends IntegrationTestSupport {
     }
 
     private void registerDevice() {
-        deviceTokenService.register(user.getId(),
-                new DeviceTokenRegisterRequest(FCM_TOKEN, DevicePlatform.ANDROID));
+        deviceTokenService.register(
+                user.getId(), new DeviceTokenRegisterRequest(FCM_TOKEN, DevicePlatform.ANDROID));
     }
 
     private NotificationCommand command(String suppressKey) {
@@ -90,12 +82,28 @@ class NotificationSendIntegrationTest extends IntegrationTestSupport {
 
     /** 다른 사람 소유의 일정을 하나 만든다. */
     private Long scheduleOwnedBySomeoneElse() {
-        Long stranger = userRepository.save(
-                User.builder().email("stranger@ddubi.com").nickname("남").build()).getId();
-        return scheduleService.create(stranger, new ScheduleCreateRequest("남의 일정",
-                new LocationRequest("강남", new BigDecimal("37.4979"), new BigDecimal("127.0276")),
-                new LocationRequest("역삼", new BigDecimal("37.5006"), new BigDecimal("127.0364")),
-                LocalDateTime.now().plusHours(2), null, null, null)).id();
+        Long stranger =
+                userRepository
+                        .save(User.builder().email("stranger@ddubi.com").nickname("남").build())
+                        .getId();
+        return scheduleService
+                .create(
+                        stranger,
+                        new ScheduleCreateRequest(
+                                "남의 일정",
+                                new LocationRequest(
+                                        "강남",
+                                        new BigDecimal("37.4979"),
+                                        new BigDecimal("127.0276")),
+                                new LocationRequest(
+                                        "역삼",
+                                        new BigDecimal("37.5006"),
+                                        new BigDecimal("127.0364")),
+                                BusinessTime.now().plusHours(2),
+                                null,
+                                null,
+                                null))
+                .id();
     }
 
     // ------------------------------------------------------------------
@@ -130,8 +138,8 @@ class NotificationSendIntegrationTest extends IntegrationTestSupport {
     }
 
     /**
-     * 거절할 요청이 먼저 억제 키를 잡아 버리면, 그 뒤 TTL(10분) 동안 <b>같은 키의 정상 알림까지</b>
-     * 중복으로 몰려 막힌다. 그래서 일정 검증이 억제 선점보다 앞에 있어야 한다.
+     * 거절할 요청이 먼저 억제 키를 잡아 버리면, 그 뒤 TTL(10분) 동안 <b>같은 키의 정상 알림까지</b> 중복으로 몰려 막힌다. 그래서 일정 검증이 억제 선점보다
+     * 앞에 있어야 한다.
      */
     @Test
     @DisplayName("거절된 요청은 억제 키를 점유하지 않는다")
@@ -151,10 +159,25 @@ class NotificationSendIntegrationTest extends IntegrationTestSupport {
     @DisplayName("내 일정이면 붙는다 — 알림함에서 그 일정으로 갈 수 있다")
     void attachesMyOwnSchedule() {
         registerDevice();
-        Long mine = scheduleService.create(user.getId(), new ScheduleCreateRequest("내 일정",
-                new LocationRequest("강남", new BigDecimal("37.4979"), new BigDecimal("127.0276")),
-                new LocationRequest("역삼", new BigDecimal("37.5006"), new BigDecimal("127.0364")),
-                LocalDateTime.now().plusHours(2), null, null, null)).id();
+        Long mine =
+                scheduleService
+                        .create(
+                                user.getId(),
+                                new ScheduleCreateRequest(
+                                        "내 일정",
+                                        new LocationRequest(
+                                                "강남",
+                                                new BigDecimal("37.4979"),
+                                                new BigDecimal("127.0276")),
+                                        new LocationRequest(
+                                                "역삼",
+                                                new BigDecimal("37.5006"),
+                                                new BigDecimal("127.0364")),
+                                        BusinessTime.now().plusHours(2),
+                                        null,
+                                        null,
+                                        null))
+                        .id();
 
         Notification result = notificationService.create(command("key-1", mine));
 
@@ -253,9 +276,8 @@ class NotificationSendIntegrationTest extends IntegrationTestSupport {
     }
 
     /**
-     * 프론트가 FCM 을 붙이는 초기에 정확히 이 순서로 밟는다. 두 건 다 SUPPRESSED 라
-     * status 만 보면 "중복 억제가 잘 되는구나" 로 읽히지만, 실제로는 억제 동작이
-     * 검증되지 않았다 — 받을 기기가 없었을 뿐이다. 사유를 남기는 이유가 이것이다.
+     * 프론트가 FCM 을 붙이는 초기에 정확히 이 순서로 밟는다. 두 건 다 SUPPRESSED 라 status 만 보면 "중복 억제가 잘 되는구나" 로 읽히지만, 실제로는
+     * 억제 동작이 검증되지 않았다 — 받을 기기가 없었을 뿐이다. 사유를 남기는 이유가 이것이다.
      */
     @Test
     @DisplayName("기기 없음과 중복은 status 가 같다 — 사유로만 구분된다")
@@ -316,7 +338,8 @@ class NotificationSendIntegrationTest extends IntegrationTestSupport {
 
         assertThat(result.getStatus()).isEqualTo(NotificationStatus.FAILED);
         assertThat(deviceTokenRepository.findByFcmToken(FCM_TOKEN).orElseThrow().isValid())
-                .as("앱을 지운 기기에 계속 쏘지 않는다").isFalse();
+                .as("앱을 지운 기기에 계속 쏘지 않는다")
+                .isFalse();
         // 다음 알림은 유효 기기가 없어 억제된다.
         assertThat(notificationService.create(command("key-2")).getStatus())
                 .isEqualTo(NotificationStatus.SUPPRESSED);

@@ -361,7 +361,11 @@ services:
     image: ddubi/backend:${APP_VERSION:-0.1.0}
     container_name: backend
     profiles: ["serving"]
-    mem_limit: 1g
+    # 2026-09-21 1g → 1.5g. 힙은 아래 JAVA_OPTS 로 512m 에 고정돼 있는데 컨테이너 실사용은 710~917MiB 사이를
+    # 오르내렸다(9/21 실측, 봉우리가 상한의 90%). 늘어난 몫은 힙 밖(메타스페이스·스레드·GC 관리표·네이티브)이라
+    # 컨테이너 상한만 올린다. 힙을 같이 키우면 힙 밖 여유가 도로 줄어든다. 커널이 상한에서 죽이면 자바 로그 없이
+    # exit 137 로 끝나므로(9/17 MySQL 사례) 봉우리 여유를 600MB 로 둔다. 서버2 호스트 여유는 11GB.
+    mem_limit: 1.5g
     # 메일·FCM 자격증명만 이 파일에서 온다. 배포 잡(.gitlab-ci.yml deploy-server2)이
     # GitLab CI/CD 변수를 읽어 서버에 만들어 준다.
     #
@@ -424,7 +428,6 @@ services:
       # 후보 끝점 도보 보강. 키 권한/좌표/비용 검증 실패 시 원본 시간과 실패 사유를 유지한다.
       DDUBI_WALKING_ENABLED: ${DDUBI_WALKING_ENABLED:-true}
       DDUBI_WALKING_PROVIDER_ENDPOINTS: ${DDUBI_WALKING_PROVIDER_ENDPOINTS:-true}
-      DDUBI_WALKING_MAX_CALLS: ${DDUBI_WALKING_MAX_CALLS:-10}
       DDUBI_WALKING_ENDPOINT_MAX_METERS: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:-0}
       DDUBI_WALKING_MASTER_COORDINATE_PATH: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:-}
       # 검토 참고자료: 적재 완료와 검증 후에만 버전을 명시한다. 운영 추천 승인 플래그가 아니다.

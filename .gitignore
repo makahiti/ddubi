@@ -44,6 +44,10 @@ client/.metadata
 data/
 /artifacts/ml-serving/
 infra/transit-master/
+# 서버2에만 두는 운영 자료. PM 이 서버에서 만든 버스 참고 자료 묶음(약 270MB, 조각 JSON 수백 개)과
+# certbot·앱 링크 검증 파일이다. 저장소에 올릴 일이 없고, 배포 준비 스크립트(pre-deploy.sh)도 건드리지 않는다 (2026-09-21).
+backend/transit-master/reference-library/
+infra/nginx/html/.well-known/
 logs/
 *.log
 *.pid

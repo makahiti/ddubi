@@ -278,7 +278,6 @@ class UserApi {
         nickname: '뚜비 사용자',
         notifyLeadMin: 20,
         alarmEnabled: true,
-        transportPrefs: [],
       );
     }
     return UserProfile.fromJson(
@@ -290,7 +289,6 @@ class UserApi {
     String? nickname,
     int? notifyLeadMin,
     bool? alarmEnabled,
-    List<Map<String, String>>? transportPrefs,
   }) async {
     if (_sessionStore.session == null) return getMe();
     return UserProfile.fromJson(
@@ -301,7 +299,6 @@ class UserApi {
             'nickname': ?nickname,
             'notifyLeadMin': ?notifyLeadMin,
             'alarmEnabled': ?alarmEnabled,
-            'transportPrefs': ?transportPrefs,
           },
         ),
       ),
