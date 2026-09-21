@@ -69,6 +69,7 @@ class Publisher:
             self._on_delivery(err, msg)
             if on_delivery is not None:
                 on_delivery(err, msg)
+
         self._producer.produce(
             topic=topic,
             key=key.encode("utf-8"),

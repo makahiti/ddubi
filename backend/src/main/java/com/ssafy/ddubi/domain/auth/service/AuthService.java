@@ -2,6 +2,7 @@ package com.ssafy.ddubi.domain.auth.service;
 
 import com.ssafy.ddubi.domain.auth.client.OAuthClient;
 import com.ssafy.ddubi.domain.auth.client.OAuthUserInfo;
+import com.ssafy.ddubi.domain.auth.dto.request.EmailChangeRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.LocalLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.LocalSignupRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.LogoutRequest;
@@ -9,7 +10,9 @@ import com.ssafy.ddubi.domain.auth.dto.request.OAuthLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthAccessTokenLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthIdTokenLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthLinkRequest;
+import com.ssafy.ddubi.domain.auth.dto.request.PasswordChangeRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.SocialLinkRequest;
+import com.ssafy.ddubi.domain.auth.dto.response.EmailChangeResponse;
 import com.ssafy.ddubi.domain.auth.dto.response.SocialLinkResponse;
 import com.ssafy.ddubi.domain.auth.dto.request.TokenRefreshRequest;
 import com.ssafy.ddubi.domain.auth.dto.response.AuthTokenResponse;
@@ -347,13 +350,22 @@ public class AuthService {
     public SocialLinkResponse linkSocialToCurrentUser(Long userId, SocialLinkRequest request) {
         if (request.hasNoCredential()) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST,
-                    "accessToken 또는 idToken 중 하나는 필요합니다.");
+                    "accessToken · idToken · authorizationCode 중 하나는 필요합니다.");
+        }
+        if (request.usesAuthorizationCode() && !StringUtils.hasText(request.redirectUri())) {
+            // 제공자가 "코드 발급에 쓴 redirect_uri 와 같은가" 를 대조한다. 서버가 임의로 정할 수 없다.
+            throw new BusinessException(ErrorCode.INVALID_REQUEST,
+                    "authorizationCode 를 보낼 때는 redirectUri 도 함께 보내야 합니다.");
         }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         OAuthClient client = clientFor(request.provider());
-        OAuthUserInfo info = request.usesIdToken()
+        // 네이버는 앱이 웹 창으로 로그인해 인가 코드만 받는다. 코드를 토큰으로 바꾸는 데
+        // 클라이언트 비밀키가 필요하므로 서버가 교환한다 — 로그인(AUTH-003)과 같은 경로다.
+        OAuthUserInfo info = request.usesAuthorizationCode()
+                ? client.fetchUserInfo(request.toExchange())
+                : request.usesIdToken()
                 ? client.fetchUserInfoFromIdToken(request.idToken())
                 : client.fetchUserInfoFromAccessToken(request.accessToken());
 
@@ -455,6 +467,87 @@ public class AuthService {
 
     // ------------------------------------------------------------------
     // AUTH-004 토큰 재발급 (회전 + 재사용 감지)
+    // ------------------------------------------------------------------
+    // AUTH-008 비밀번호 변경 / AUTH-009 이메일 변경
+    // ------------------------------------------------------------------
+
+    /**
+     * 비밀번호를 바꾼다. 바꾼 뒤 <b>다른 기기의 세션은 전부 끊는다.</b>
+     *
+     * <p>비밀번호를 바꾸는 흔한 이유가 "누가 내 계정을 쓰는 것 같다" 이다. 그런데 세션을
+     * 그대로 두면 이미 들어와 있는 쪽은 계속 들어와 있다. 바꾼 의미가 없다.
+     *
+     * <p>지금 조작한 기기만 새 토큰을 받아 이어서 쓴다 — 자기 비밀번호를 바꾼 사람이
+     * 로그인 화면으로 튕겨 나가지 않게 한다.
+     */
+    @Transactional
+    public AuthTokenResponse changePassword(Long userId, PasswordChangeRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        UserAuth local = userAuthRepository.findByUserIdAndProvider(userId, AuthProvider.LOCAL)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST,
+                        "소셜 로그인으로만 가입한 계정에는 바꿀 비밀번호가 없습니다."));
+
+        if (!passwordEncoder.matches(request.currentPassword(), local.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "현재 비밀번호가 일치하지 않습니다.");
+        }
+        if (passwordEncoder.matches(request.newPassword(), local.getPasswordHash())) {
+            // 바꾸지 않은 것을 바꿨다고 안내하면, 사용자는 위험이 사라졌다고 믿는다.
+            throw new BusinessException(ErrorCode.INVALID_REQUEST,
+                    "지금 쓰는 비밀번호와 다른 값을 입력해 주세요.");
+        }
+
+        local.changePassword(passwordEncoder.encode(request.newPassword()));
+
+        // 새 토큰을 먼저 만들면 곧바로 지워진다. 전부 끊고 나서 이 기기 것만 다시 발급한다.
+        refreshTokenStore.revokeAll(userId);
+        log.info("비밀번호 변경 — userId={} 전체 세션 폐기", userId);
+
+        return issueTokens(user, request.deviceId(), AuthProvider.LOCAL);
+    }
+
+    /**
+     * 이메일을 바꾼다. 새 주소는 <b>인증을 마친 뒤</b>여야 한다(가입과 같은 흐름).
+     *
+     * <p>토큰은 다시 주지 않는다. 토큰은 사용자 번호로 발급되므로 이메일이 바뀌어도 그대로 쓴다.
+     * 세션도 끊지 않는다 — 비밀번호와 달리 이메일 변경은 다른 기기의 접근 권한과 무관하다.
+     */
+    @Transactional
+    public EmailChangeResponse changeEmail(Long userId, EmailChangeRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        if (request.newEmail().equalsIgnoreCase(user.getEmail())) {
+            throw new BusinessException(ErrorCode.INVALID_REQUEST, "지금 쓰는 이메일과 같습니다.");
+        }
+
+        // 비밀번호가 있는 계정이면 본인 확인을 먼저 한다. 소셜로만 가입한 계정은 물을 것이 없다.
+        Optional<UserAuth> local = userAuthRepository.findByUserIdAndProvider(userId, AuthProvider.LOCAL);
+        if (local.isPresent()) {
+            if (!StringUtils.hasText(request.password())) {
+                throw new BusinessException(ErrorCode.INVALID_REQUEST, "비밀번호를 입력해 주세요.");
+            }
+            if (!passwordEncoder.matches(request.password(), local.get().getPasswordHash())) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED, "비밀번호가 일치하지 않습니다.");
+            }
+        }
+
+        // 소유 확인이 먼저다. 확인 없이 바꾸게 두면 남의 이메일을 자기 계정에 달아 선점할 수 있다.
+        emailVerificationService.requireVerified(request.newEmail());
+
+        userRepository.findByEmail(request.newEmail()).ifPresent(existing -> {
+            throw new BusinessException(ErrorCode.DUPLICATE_RESOURCE, "이미 사용 중인 이메일입니다.");
+        });
+
+        user.changeEmail(request.newEmail());
+        // 변경이 성립한 뒤에 통행증을 쓴다 — 한 번 인증으로 여러 계정의 이메일을 바꾸지 못하게 한다.
+        emailVerificationService.consume(request.newEmail());
+        log.info("이메일 변경 — userId={}", userId);
+
+        return new EmailChangeResponse(request.newEmail(), local.isPresent());
+    }
+
     // ------------------------------------------------------------------
 
     @Transactional(readOnly = true)

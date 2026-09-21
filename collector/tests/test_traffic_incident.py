@@ -18,7 +18,6 @@ from sources.traffic_incident import (  # noqa: E402
     save_json,
 )
 
-
 FIRST_PAGE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <AccInfo>
   <list_total_count>3</list_total_count>
@@ -124,13 +123,9 @@ class TrafficIncidentTest(unittest.TestCase):
 
     def test_first_page_only_marks_possible_more_data(self) -> None:
         with httpx.Client(
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, text=FIRST_PAGE_XML)
-            )
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, text=FIRST_PAGE_XML))
         ) as client:
-            result = fetch_incidents(
-                "secret", page_size=2, fetch_all=False, client=client
-            )
+            result = fetch_incidents("secret", page_size=2, fetch_all=False, client=client)
 
         self.assertEqual(result["requestCount"], 1)
         self.assertTrue(result["hasMore"])

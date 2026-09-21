@@ -16,7 +16,6 @@ from sources.subway_arrival import (  # noqa: E402
     save_json,
 )
 
-
 SAMPLE_RESPONSE = {
     "errorMessage": {
         "status": 200,

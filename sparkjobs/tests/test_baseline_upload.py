@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 
 import pytest
-
 from common.baseline_upload import BaselineUploadClient, UploadError
 from tests.mock_baseline_server import make_server
 
@@ -24,15 +23,22 @@ def server():
 @pytest.fixture()
 def client(server):
     return BaselineUploadClient(
-        base_url="http://127.0.0.1:{}".format(server.server_address[1]),
-        api_key=API_KEY, chunk_size=100, backoff_seconds=0.01)
+        base_url=f"http://127.0.0.1:{server.server_address[1]}", api_key=API_KEY, chunk_size=100, backoff_seconds=0.01
+    )
 
 
 def make_rows(n, version_tag="a", p50=300, p95=600):
     return [
-        {"segmentId": "seg-{}-{:06d}".format(version_tag, i), "dow": 1 + i % 7,
-         "hourSlot": i % 24, "weatherBucket": "DRY",
-         "p50": p50, "p80": (p50 + p95) // 2, "p95": p95, "sampleCount": 10}
+        {
+            "segmentId": f"seg-{version_tag}-{i:06d}",
+            "dow": 1 + i % 7,
+            "hourSlot": i % 24,
+            "weatherBucket": "DRY",
+            "p50": p50,
+            "p80": (p50 + p95) // 2,
+            "p95": p95,
+            "sampleCount": 10,
+        }
         for i in range(n)
     ]
 
@@ -49,9 +55,19 @@ def test_upload_and_activate_happy_path(server, client):
 
 
 def test_generator_rows_are_chunked(client, server):
-    rows = ({"segmentId": "seg-g-{}".format(i), "dow": 2, "hourSlot": 8,
-             "weatherBucket": "RAIN", "p50": 1, "p80": 2, "p95": 3, "sampleCount": 1}
-            for i in range(101))
+    rows = (
+        {
+            "segmentId": f"seg-g-{i}",
+            "dow": 2,
+            "hourSlot": 8,
+            "weatherBucket": "RAIN",
+            "p50": 1,
+            "p80": 2,
+            "p95": 3,
+            "sampleCount": 1,
+        }
+        for i in range(101)
+    )
     assert client.upload_rows("v-gen", rows) == 101
     assert len(server.state.versions["v-gen"]) == 101
 
@@ -69,8 +85,7 @@ def test_invalid_row_rejected_without_retry(server, client):
 
 
 def test_wrong_api_key_is_401(server):
-    bad_client = BaselineUploadClient(
-        base_url="http://127.0.0.1:{}".format(server.server_address[1]), api_key="wrong")
+    bad_client = BaselineUploadClient(base_url=f"http://127.0.0.1:{server.server_address[1]}", api_key="wrong")
     with pytest.raises(UploadError) as excinfo:
         bad_client.upload_rows("v", make_rows(1))
     assert excinfo.value.status == 401
@@ -134,6 +149,7 @@ def test_shrink_reason_over_100_chars_is_refused_before_sending(server, client):
 
 def test_shrink_options_from_env():
     from common.baseline_upload import shrink_options_from_env
+
     assert shrink_options_from_env({}) == {"allow_shrink": False, "shrink_reason": None}
     opts = shrink_options_from_env({"BASELINE_ALLOW_SHRINK": "true", "BASELINE_SHRINK_REASON": " 폐지 "})
     assert opts == {"allow_shrink": True, "shrink_reason": "폐지"}

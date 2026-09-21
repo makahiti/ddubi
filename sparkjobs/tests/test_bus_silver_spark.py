@@ -1,4 +1,5 @@
 """Spark integration for raw archive preservation and eventId conflict policy."""
+
 import importlib.util
 import sys
 import unittest
@@ -13,7 +14,13 @@ class BusSilverSparkTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from pyspark.sql import SparkSession
-        cls.spark = SparkSession.builder.master("local[1]").appName("test_bus_silver").config("spark.sql.shuffle.partitions", "1").getOrCreate()
+
+        cls.spark = (
+            SparkSession.builder.master("local[1]")
+            .appName("test_bus_silver")
+            .config("spark.sql.shuffle.partitions", "1")
+            .getOrCreate()
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -21,12 +28,33 @@ class BusSilverSparkTests(unittest.TestCase):
 
     def test_archive_raw_rows_conflicts_duplicates_and_missing_time(self):
         import json
+
         from batch.bus_silver import prepare
-        good = dict(eventId="p1", eventType="bus.position", source="seoul.bus_location", collectedAt="2026-09-16T08:10:05+09:00", occurredAt="2026-09-16T08:10:00+09:00", payload=dict(providerNamespace="SEOUL_BUS", providerRouteId="00124", providerVehicleId="V123", timestampBasis="received", raw={"gpsX": "126.978", "gpsY": "37.566"}))
+
+        good = dict(
+            eventId="p1",
+            eventType="bus.position",
+            source="seoul.bus_location",
+            collectedAt="2026-09-16T08:10:05+09:00",
+            occurredAt="2026-09-16T08:10:00+09:00",
+            payload=dict(
+                providerNamespace="SEOUL_BUS",
+                providerRouteId="00124",
+                providerVehicleId="V123",
+                timestampBasis="received",
+                raw={"gpsX": "126.978", "gpsY": "37.566"},
+            ),
+        )
         conflict = dict(good, eventId="p2")
         changed = dict(conflict, payload=dict(conflict["payload"], raw={"gpsX": "127.1", "gpsY": "37.5"}))
-        values = [json.dumps(x) for x in (good, good, conflict, changed)] + ["{broken", json.dumps(dict(eventType="weather.observation"))]
-        archive = self.spark.createDataFrame([(v, 0, i, datetime(2026, 9, 16, 8, 10)) for i, v in enumerate(values)], "value string, kafka_partition int, kafka_offset long, kafka_timestamp timestamp")
+        values = [json.dumps(x) for x in (good, good, conflict, changed)] + [
+            "{broken",
+            json.dumps(dict(eventType="weather.observation")),
+        ]
+        archive = self.spark.createDataFrame(
+            [(v, 0, i, datetime(2026, 9, 16, 8, 10)) for i, v in enumerate(values)],
+            "value string, kafka_partition int, kafka_offset long, kafka_timestamp timestamp",
+        )
         parsed, checked = prepare(archive)
         self.assertEqual(parsed.count(), 6)
         self.assertEqual(checked.filter("repeatIndex > 1").count(), 1)
@@ -42,15 +70,28 @@ class BusSilverSparkTests(unittest.TestCase):
         import tempfile
         from types import SimpleNamespace
         from unittest.mock import patch
+
+        from common.bus_stream_sink import prepare_live, redis_rows, save_batch
         from common.kafka_source import parse_envelope
-        from common.bus_stream_sink import prepare_live, save_batch, redis_rows
         from streaming.realtime_latest import transform
-        event = dict(eventId="live1", eventType="bus.arrival", source="seoul.bus_arrival",
-            collectedAt="2026-09-16T08:10:05+09:00", occurredAt="2026-09-16T08:10:00+09:00",
-            payload=dict(providerRouteId="00124", providerStopId="S1", timestampBasis="provider",
-                raw=dict(mkTm="2026-09-16 08:10:00", exps1="0", exps2="-5", traTime1="2")))
-        raw = self.spark.createDataFrame([("k", json.dumps(event), 0, 1, datetime(2026, 9, 16, 8, 10))],
-            "key string, value string, partition int, offset long, timestamp timestamp")
+
+        event = dict(
+            eventId="live1",
+            eventType="bus.arrival",
+            source="seoul.bus_arrival",
+            collectedAt="2026-09-16T08:10:05+09:00",
+            occurredAt="2026-09-16T08:10:00+09:00",
+            payload=dict(
+                providerRouteId="00124",
+                providerStopId="S1",
+                timestampBasis="provider",
+                raw=dict(mkTm="2026-09-16 08:10:00", exps1="0", exps2="-5", traTime1="2"),
+            ),
+        )
+        raw = self.spark.createDataFrame(
+            [("k", json.dumps(event), 0, 1, datetime(2026, 9, 16, 8, 10))],
+            "key string, value string, partition int, offset long, timestamp timestamp",
+        )
         events = parse_envelope(raw)
         silver = prepare_live(events, transform(events)).cache()
         settings = SimpleNamespace(redis_host="unused", redis_port=6379, redis_password=None)
@@ -60,6 +101,7 @@ class BusSilverSparkTests(unittest.TestCase):
             self.assertIsNone(value["secondArrivalSeconds"])
             self.assertEqual(value["observation"]["firstTravelTimeMinutes"], 2)
             from common.bus_normalizer import ALL_FIELDS
+
             source = silver.first().asDict()
             for field in ALL_FIELDS:
                 self.assertEqual(value[field], source[field], field)
@@ -79,14 +121,25 @@ class BusSilverSparkTests(unittest.TestCase):
 
     def test_live_missing_source_time_keeps_null_and_latest_order(self):
         import json
+
         from common.bus_stream_sink import prepare_live, redis_rows
         from common.kafka_source import parse_envelope
         from streaming.realtime_latest import transform
-        event = dict(eventId="missing-time", eventType="bus.position", source="gbis.location",
-            collectedAt="2026-09-16T08:10:05+09:00", occurredAt="2026-09-16T08:10:05+09:00",
-            payload=dict(providerNamespace="GBIS", providerRouteId="R", providerVehicleId="V", timestampBasis="received", raw={}))
-        raw = self.spark.createDataFrame([("k", json.dumps(event), 0, 1, datetime(2026, 9, 16, 8, 10))],
-            "key string, value string, partition int, offset long, timestamp timestamp")
+
+        event = dict(
+            eventId="missing-time",
+            eventType="bus.position",
+            source="gbis.location",
+            collectedAt="2026-09-16T08:10:05+09:00",
+            occurredAt="2026-09-16T08:10:05+09:00",
+            payload=dict(
+                providerNamespace="GBIS", providerRouteId="R", providerVehicleId="V", timestampBasis="received", raw={}
+            ),
+        )
+        raw = self.spark.createDataFrame(
+            [("k", json.dumps(event), 0, 1, datetime(2026, 9, 16, 8, 10))],
+            "key string, value string, partition int, offset long, timestamp timestamp",
+        )
         events = parse_envelope(raw)
         result = redis_rows(prepare_live(events, transform(events))).first()
         value = json.loads(result.redisValue)

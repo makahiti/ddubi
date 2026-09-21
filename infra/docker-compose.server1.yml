@@ -30,5 +30,10 @@ services:
   spark-worker-3: *dn2-hosts
   spark-streaming-weather: *dn2-hosts
   spark-streaming-realtime: *dn2-hosts
+  spark-streaming-city-realtime: *dn2-hosts
+  spark-streaming-segment-observations: *dn2-hosts
+  spark-streaming-segment-status: *dn2-hosts
+  spark-streaming-topis: *dn2-hosts
+  spark-streaming-traffic-incident: *dn2-hosts
   spark-streaming-replay: *dn2-hosts
   spark-batch: *dn2-hosts

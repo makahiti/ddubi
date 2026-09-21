@@ -19,7 +19,6 @@ from sources.topis_notice import (  # noqa: E402
     save_json,
 )
 
-
 FIRST_PAGE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <NoticeList>
   <list_total_count>3</list_total_count>
@@ -110,9 +109,7 @@ class TopisNoticeTest(unittest.TestCase):
             return httpx.Response(200, text=responses[len(requests) - 1])
 
         with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-            result = fetch_notices(
-                "secret", page_size=2, fetch_all=True, client=client
-            )
+            result = fetch_notices("secret", page_size=2, fetch_all=True, client=client)
 
         self.assertEqual(len(requests), 2)
         self.assertIn("/1/2/", str(requests[0].url))
@@ -139,9 +136,7 @@ class TopisNoticeTest(unittest.TestCase):
             return httpx.Response(200, text=responses[len(requests) - 1])
 
         with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-            result = fetch_notices(
-                "secret", page_size=2, fetch_all=True, client=client
-            )
+            result = fetch_notices("secret", page_size=2, fetch_all=True, client=client)
 
         self.assertEqual(len(requests), 2)
         self.assertEqual(result["receivedCount"], 3)

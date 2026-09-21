@@ -15,16 +15,15 @@ import time
 from pathlib import Path
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-
 from config import ConfigError, Settings
 from events import build_event
-from publisher import Publisher
-from sources.base import SourceSpec, now_kst
-from sources.subway_schedule import pause_until, SkippedNonService
-from request_budget import RetryScheduled, RetryWait, RequestBudget
 from notice_dedup import NoticeDedup, publish_notices
 from poll_status import build_poll_status
+from publisher import Publisher
+from request_budget import RequestBudget, RetryScheduled, RetryWait
+from sources.base import SourceSpec, now_kst
+from sources.subway_schedule import SkippedNonService, pause_until
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 log = logging.getLogger("collector")
 
@@ -58,7 +57,13 @@ def _run_cycle(spec: SourceSpec, settings: Settings, client: httpx.Client, publi
     records = fetch_with_retry(spec, settings, client)
     collected_at = now_kst()
     if settings.source == "topis_notice":
-        gate = notice_gate or NoticeDedup(settings.extra.get("TOPIS_NOTICE_DEDUP_PATH", str(Path(__file__).resolve().parents[1] / "data" / "topis_notice_dedup.sqlite3")), spec.topic)
+        gate = notice_gate or NoticeDedup(
+            settings.extra.get(
+                "TOPIS_NOTICE_DEDUP_PATH",
+                str(Path(__file__).resolve().parents[1] / "data" / "topis_notice_dedup.sqlite3"),
+            ),
+            spec.topic,
+        )
         stats = publish_notices(records, gate, publisher, lambda record: build_event(spec, record, collected_at))
         log.info("topis dedup fetched=%d new=%d changed=%d unchanged=%d pending=%d missingId=%d", *stats.values())
         return stats["new"] + stats["changed"], records
@@ -68,12 +73,16 @@ def _run_cycle(spec: SourceSpec, settings: Settings, client: httpx.Client, publi
     return len(records), records
 
 
-def run_cycle(spec: SourceSpec, settings: Settings, client: httpx.Client, publisher: Publisher, notice_gate=None) -> int:
+def run_cycle(
+    spec: SourceSpec, settings: Settings, client: httpx.Client, publisher: Publisher, notice_gate=None
+) -> int:
     count, _ = _run_cycle(spec, settings, client, publisher, notice_gate)
     return count
 
 
-def run_cycle_with_status(spec: SourceSpec, settings: Settings, client: httpx.Client, publisher: Publisher, notice_gate=None) -> int:
+def run_cycle_with_status(
+    spec: SourceSpec, settings: Settings, client: httpx.Client, publisher: Publisher, notice_gate=None
+) -> int:
     """한 사이클의 데이터와 별도로 SUCCESS/EMPTY/실패 상태를 항상 남긴다."""
     started_at = now_kst()
     try:
@@ -164,7 +173,11 @@ def main() -> int:
         interval = max(interval, spec.default_interval_seconds)
     log.info(
         "start source=%s topic=%s interval=%ss kafka=%s run_once=%s",
-        spec.name, spec.topic, interval, settings.kafka_bootstrap_servers, settings.run_once,
+        spec.name,
+        spec.topic,
+        interval,
+        settings.kafka_bootstrap_servers,
+        settings.run_once,
     )
 
     stop = threading.Event()
@@ -172,7 +185,17 @@ def main() -> int:
         signal.signal(sig, lambda *_: stop.set())
 
     publisher = Publisher(settings.kafka_bootstrap_servers, client_id=f"collector-{settings.source}")
-    notice_gate = NoticeDedup(settings.extra.get("TOPIS_NOTICE_DEDUP_PATH", str(Path(__file__).resolve().parents[1] / "data" / "topis_notice_dedup.sqlite3")), spec.topic) if settings.source == "topis_notice" else None
+    notice_gate = (
+        NoticeDedup(
+            settings.extra.get(
+                "TOPIS_NOTICE_DEDUP_PATH",
+                str(Path(__file__).resolve().parents[1] / "data" / "topis_notice_dedup.sqlite3"),
+            ),
+            spec.topic,
+        )
+        if settings.source == "topis_notice"
+        else None
+    )
     # 재부팅 직후 Kafka 가 늦게 뜨는 경우를 위해 첫 사이클 전에 브로커를 기다린다 (최대 5분)
     publisher.wait_ready(timeout_seconds=300)
     exit_code = 0
@@ -187,10 +210,17 @@ def main() -> int:
                 pending = publisher.flush(timeout_seconds=10.0)
                 log.info(
                     "cycle ok records=%d sent=%d failed=%d pending=%d",
-                    count, publisher.sent, publisher.failed, pending,
+                    count,
+                    publisher.sent,
+                    publisher.failed,
+                    pending,
                 )
             except SkippedNonService as exc:
-                log.info("cycle skipped reason=SKIPPED_NON_SERVICE source=%s resumeAt=%s", settings.source, exc.resume_at.isoformat())
+                log.info(
+                    "cycle skipped reason=SKIPPED_NON_SERVICE source=%s resumeAt=%s",
+                    settings.source,
+                    exc.resume_at.isoformat(),
+                )
                 wait_seconds = exc.wait_seconds
             except RetryScheduled as exc:
                 log.error("cycle failed: %s; retry scheduled in %.0fs", exc, exc.wait_seconds)
@@ -213,7 +243,14 @@ def main() -> int:
             if settings.source == "bus_location" and not waiting_for_retry:
                 # After either regular/retry completion, keep the original 8h deadline.
                 try:
-                    budget = RequestBudget(settings.extra.get("API_BUDGET_PATH", str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3")), settings.api_key("BUS_LOCATION_API_KEY"), int(settings.extra.get("API_DAILY_LIMIT", "900")))
+                    budget = RequestBudget(
+                        settings.extra.get(
+                            "API_BUDGET_PATH",
+                            str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3"),
+                        ),
+                        settings.api_key("BUS_LOCATION_API_KEY"),
+                        int(settings.extra.get("API_DAILY_LIMIT", "900")),
+                    )
                     next_at = budget.next_cycle_at("bus_location")
                     if next_at is not None and next_at > time.time():
                         wait_seconds = next_at - time.time()

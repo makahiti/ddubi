@@ -209,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         if not 1 <= args.route_limit <= DEFAULT_ROUTE_LIMIT:
             raise BusArrivalError(f"노선 수는 1 이상 {DEFAULT_ROUTE_LIMIT} 이하여야 합니다")
         route_ids = load_bus_route_ids(args.route_ids_file)
-        data = fetch_all_bus_arrivals(api_key, route_ids[:args.route_limit])
+        data = fetch_all_bus_arrivals(api_key, route_ids[: args.route_limit])
     save_json(data, args.output)
     print(f"버스 도착정보 JSON 저장 완료: {args.output.resolve()}")
     return 0
@@ -218,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("bus_arrival")
 
 

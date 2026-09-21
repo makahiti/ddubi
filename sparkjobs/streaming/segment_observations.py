@@ -7,9 +7,11 @@ Spark file sink/checkpoint가 동일 offset 재실행의 파일 commit을 관리
 """
 
 import os
-from pyspark.sql import SparkSession, functions as F
-from common.settings import Settings
+
 from common.segment_facts import FACT_SCHEMA
+from common.settings import Settings
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 
 def parse(raw):
@@ -46,9 +48,7 @@ def main():
             parse(raw)
             .writeStream.format("parquet")
             .option("path", output)
-            .option(
-                "checkpointLocation", settings.checkpoint_for("segment-observations")
-            )
+            .option("checkpointLocation", settings.checkpoint_for("segment-observations"))
             .start()
         )
         query.awaitTermination()

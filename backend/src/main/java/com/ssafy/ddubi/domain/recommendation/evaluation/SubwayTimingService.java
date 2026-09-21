@@ -75,7 +75,8 @@ public class SubwayTimingService {
         if (data.publishedAt().isAfter(asOf) || platformAt.isBefore(asOf) || platformAt.isBefore(data.validFrom())
                 || !platformAt.isBefore(data.validUntil())) return Estimate.missing("SUBWAY_TIMETABLE_OUTSIDE_VALIDITY");
         var matches = new ArrayList<Match>();
-        for (var trip : data.trips()) {
+        var firstEdge=mapping.segments().get(0);
+        for (var trip : timetable.tripsFor(firstEdge.routeId(),firstEdge.direction(),firstEdge.fromNodeId())) {
             var tripMatches = matches(trip, mapping.segments());
             // 다음 24시간의 실제 운행표만 검토한다. 지난 열차도 최신 지연 도착을 확인할 수 있게 30분 포함한다.
             for (Match match : tripMatches) {

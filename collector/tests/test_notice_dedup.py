@@ -1,4 +1,5 @@
 """Publication ledger and real Publisher callbacks without a Kafka broker."""
+
 import importlib.util
 import json
 import sys
@@ -13,7 +14,9 @@ from notice_dedup import NoticeDedup, publish_notices
 
 
 def load_publisher():
-    spec = importlib.util.spec_from_file_location("notice_test_publisher", Path(__file__).resolve().parents[1] / "src/publisher.py")
+    spec = importlib.util.spec_from_file_location(
+        "notice_test_publisher", Path(__file__).resolve().parents[1] / "src/publisher.py"
+    )
     module = importlib.util.module_from_spec(spec)
     stub = types.ModuleType("confluent_kafka")
     stub.KafkaError = stub.Message = stub.Producer = object
@@ -37,7 +40,7 @@ class Producer:
     def deliver(self, error=None):
         queue, self.queue = self.queue, []
         for item in queue:
-            msg = types.SimpleNamespace(topic=lambda: item["topic"], key=lambda: item["key"])
+            msg = types.SimpleNamespace(topic=lambda item=item: item["topic"], key=lambda item=item: item["key"])
             item["on_delivery"](error, msg)
 
 
@@ -51,9 +54,16 @@ class NoticeDedupTests(unittest.TestCase):
         self.publisher = load_publisher()("unused", "test", producer=self.producer)
 
     def record(self, identifier="10", title="집회 안내", **extra):
-        return types.SimpleNamespace(key=identifier or "fallback", payload={
-            "providerNoticeId": identifier, "observedAt": extra.pop("observedAt", "now"),
-            "raw": dict(noticeId=identifier, title=title, contentHtml="<p>원본</p>", updatedAt="2026-09-16", **extra)})
+        return types.SimpleNamespace(
+            key=identifier or "fallback",
+            payload={
+                "providerNoticeId": identifier,
+                "observedAt": extra.pop("observedAt", "now"),
+                "raw": dict(
+                    noticeId=identifier, title=title, contentHtml="<p>원본</p>", updatedAt="2026-09-16", **extra
+                ),
+            },
+        )
 
     def publish(self, records):
         return publish_notices(records, self.gate, self.publisher, lambda record: {"payload": record.payload})
@@ -100,7 +110,12 @@ class NoticeDedupTests(unittest.TestCase):
                 self.publish([self.record()])
         self.assertFalse(self.gate.pending)
         with self.assertRaises(ValueError):
-            publish_notices([self.record()], self.gate, self.publisher, lambda record: (_ for _ in ()).throw(ValueError("invalid event")))
+            publish_notices(
+                [self.record()],
+                self.gate,
+                self.publisher,
+                lambda record: (_ for _ in ()).throw(ValueError("invalid event")),
+            )
         self.assertFalse(self.gate.pending)
         self.assertEqual(self.publish([self.record()])["new"], 1)
 

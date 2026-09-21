@@ -7,6 +7,21 @@
   "proposedDepartAt": "2026-09-18T08:35:00+09:00",
   "estimatedArrivalAt": "2026-09-18T09:10:00+09:00",
   "latenessSeconds": 600,
-  "quality": {"preview": false, "productionEligible": false, "realtimeApplied": true, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "COMPLETE", "missingInputs": [], "fallbackReasons": []},
-  "validUntil": "2099-09-18T00:05:00Z"
+  "quality": {
+    "preview": false,
+    "productionEligible": false,
+    "realtimeApplied": true,
+    "walkingApiApplied": false,
+    "walkingApiCoverage": "NONE",
+    "costCoverage": "COMPLETE",
+    "missingInputs": [],
+    "fallbackReasons": []
+  },
+  "validUntil": "2099-09-18T00:05:00Z",
+  "guidance": {
+    "canDisplayEstimate": true,
+    "canAccept": true,
+    "source": "MIXED_ESTIMATE",
+    "reasons": []
+  }
 }

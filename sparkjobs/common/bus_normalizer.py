@@ -3,41 +3,69 @@
 Pure Python core is shared by local review exports and the Spark archive batch.
 Times are ISO strings in KST; source codes remain strings, not invented meanings.
 """
+
 import json
 import math
+import re
 from datetime import datetime, timedelta, timezone
 
 VERSION = "bus-silver-v1"
 KST = timezone(timedelta(hours=9))
 COMMON = {
-    "silverVersion": "string", "eventId": "string", "eventType": "string",
-    "source": "string", "providerNamespace": "string", "providerRouteId": "string",
-    "providerStopId": "string", "providerVehicleId": "string",
-    "observedAt": "string", "collectedAt": "string", "archiveDate": "string",
-    "timestampBasis": "string", "claimedSegmentIds": "array",
-    "claimedMappingJson": "string", "rawPayloadJson": "string",
-    "missingFields": "array", "qualityFlags": "array", "rejectionReasons": "array",
+    "silverVersion": "string",
+    "eventId": "string",
+    "eventType": "string",
+    "source": "string",
+    "providerNamespace": "string",
+    "providerRouteId": "string",
+    "providerStopId": "string",
+    "providerVehicleId": "string",
+    "observedAt": "string",
+    "collectedAt": "string",
+    "archiveDate": "string",
+    "timestampBasis": "string",
+    "claimedSegmentIds": "array",
+    "claimedMappingJson": "string",
+    "rawPayloadJson": "string",
+    "missingFields": "array",
+    "qualityFlags": "array",
+    "rejectionReasons": "array",
     "status": "string",
 }
 POSITION = {
-    "longitude": "double", "latitude": "double", "providerStopOrder": "long",
-    "sectionOrder": "long", "sectionDistanceMeters": "double",
-    "fullSectionDistanceMeters": "double", "congestionCode": "string",
-    "providerStateCode": "string", "directionCode": "string", "stopFlag": "string",
+    "longitude": "double",
+    "latitude": "double",
+    "providerStopOrder": "long",
+    "sectionOrder": "long",
+    "sectionDistanceMeters": "double",
+    "fullSectionDistanceMeters": "double",
+    "congestionCode": "string",
+    "providerStateCode": "string",
+    "directionCode": "string",
+    "stopFlag": "string",
 }
 ARRIVAL = {"arrivalTimeBasis": "string", "sourceGeneratedAt": "string", "stopOrder": "long", "detourCode": "string"}
 for _prefix in ("first", "second"):
-    ARRIVAL.update({
-        _prefix + "VehicleId": "string", _prefix + "ArrivalSeconds": "long",
-        _prefix + "TravelTimeMinutes": "double", _prefix + "RemainingStops": "long",
-        _prefix + "VehicleSectionOrder": "long", _prefix + "FullCode": "string",
-        _prefix + "TerminalArrivalCode": "string", _prefix + "ArrivalMessage": "string",
-    })
+    ARRIVAL.update(
+        {
+            _prefix + "VehicleId": "string",
+            _prefix + "ArrivalSeconds": "long",
+            _prefix + "TravelTimeMinutes": "double",
+            _prefix + "RemainingStops": "long",
+            _prefix + "VehicleSectionOrder": "long",
+            _prefix + "FullCode": "string",
+            _prefix + "TerminalArrivalCode": "string",
+            _prefix + "ArrivalMessage": "string",
+        }
+    )
 ALL_FIELDS = dict(COMMON, **POSITION, **ARRIVAL)
 SOURCE_NAMESPACE = {
-    "seoul.bus_location": "SEOUL_BUS", "seoul.bus_arrival": "SEOUL_BUS",
-    "gbis.location": "GBIS", "gbis.arrival": "GBIS",
-    "incheon.location": "INCHEON_API", "incheon.arrival": "INCHEON_API",
+    "seoul.bus_location": "SEOUL_BUS",
+    "seoul.bus_arrival": "SEOUL_BUS",
+    "gbis.location": "GBIS",
+    "gbis.arrival": "GBIS",
+    "incheon.location": "INCHEON_API",
+    "incheon.arrival": "INCHEON_API",
 }
 
 
@@ -52,12 +80,31 @@ def text(value, identifier=False):
     return value
 
 
+# 초의 소수점 자리. 앞이 ":SS" 일 때만 잡아 시간대(+09:00)의 콜론과 섞이지 않게 한다.
+_SECOND_FRACTION = re.compile(r"(?<=:\d\d)\.(\d{1,9})")
+
+
+def _pad_fraction(value):
+    """초의 소수점 자릿수를 6자리로 맞춘다. 값 자체는 바꾸지 않는다.
+
+    파이썬 3.11 미만의 ``datetime.fromisoformat`` 은 소수점이 정확히 3자리나 6자리일 때만
+    읽는다. 서울시 버스 도착 원문의 ``mkTm`` 은 ``2026-09-18 10:02:03.0`` 처럼 한 자리로 온다.
+    Spark 컨테이너가 파이썬 3.8 이라 이 값이 통째로 버려졌고, 그 결과 Redis 의 버스 도착값에
+    ``observedAt`` 이 비어 백엔드가 버스 실시간을 100% 버리고 있었다(2026-09-18 확인).
+
+    개발 기기의 파이썬은 3.11 이상이라 로컬에서는 멀쩡히 읽혔다. 그래서 오래 드러나지 않았다.
+    컨테이너 파이썬을 올리는 것이 근본 해법이지만, 그 쪽은 Spark 판올림이 얽혀 있어
+    읽는 쪽에서 먼저 막는다.
+    """
+    return _SECOND_FRACTION.sub(lambda m: "." + (m.group(1) + "000000")[:6], value, count=1)
+
+
 def timestamp(value, allow_naive=False):
     value = text(value)
     if value is None:
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(_pad_fraction(value.replace("Z", "+00:00")))
         if parsed.tzinfo is None:
             if not allow_naive:
                 return None
@@ -70,8 +117,14 @@ def timestamp(value, allow_naive=False):
 def normalize(value):
     """Return a fixed-schema row, including REJECTED/IGNORED instead of losing input."""
     row = dict.fromkeys(ALL_FIELDS)
-    row.update(silverVersion=VERSION, missingFields=[], qualityFlags=[], rejectionReasons=[],
-               claimedSegmentIds=[], status="ACCEPTED")
+    row.update(
+        silverVersion=VERSION,
+        missingFields=[],
+        qualityFlags=[],
+        rejectionReasons=[],
+        claimedSegmentIds=[],
+        status="ACCEPTED",
+    )
     flags = row["qualityFlags"]
     try:
         event = json.loads(value) if isinstance(value, str) else value
@@ -105,7 +158,9 @@ def normalize(value):
     # Partition by collection day: source time may be missing; this is not serviceDate.
     row["archiveDate"] = row["collectedAt"][:10] if row["collectedAt"] else None
     segments = event.get("segmentIds")
-    row["claimedSegmentIds"] = segments if isinstance(segments, list) and all(isinstance(s, str) for s in segments) else []
+    row["claimedSegmentIds"] = (
+        segments if isinstance(segments, list) and all(isinstance(s, str) for s in segments) else []
+    )
     row["claimedMappingJson"] = json.dumps(payload.get("canonicalMapping"), ensure_ascii=False, sort_keys=True)
 
     def get(*names):
@@ -126,7 +181,12 @@ def normalize(value):
             if isinstance(value, bool):
                 raise ValueError()
             result = float(value)
-            if not math.isfinite(result) or result < minimum or (maximum is not None and result > maximum) or (integer and not result.is_integer()):
+            if (
+                not math.isfinite(result)
+                or result < minimum
+                or (maximum is not None and result > maximum)
+                or (integer and not result.is_integer())
+            ):
                 raise ValueError()
             if integer and int(result) > 9223372036854775807:
                 raise ValueError()
@@ -162,7 +222,11 @@ def normalize(value):
             lat = lat if lat is not None else get("gpsY", "GPS_Y")
         number("longitude", lon, minimum=-180, maximum=180)
         number("latitude", lat, minimum=-90, maximum=90)
-        if row["longitude"] is not None and row["latitude"] is not None and (row["longitude"] == 0 or row["latitude"] == 0):
+        if (
+            row["longitude"] is not None
+            and row["latitude"] is not None
+            and (row["longitude"] == 0 or row["latitude"] == 0)
+        ):
             row["longitude"] = row["latitude"] = None
             flags.append("COORDINATE_ZERO_OUTSIDE_PROVIDER_REGION")
         if row["longitude"] is None or row["latitude"] is None:
@@ -177,7 +241,11 @@ def normalize(value):
         row["directionCode"] = text(get("DIRCD"))
         row["stopFlag"] = text(get("stopFlag", "STOP_FLAG"))
     else:
-        row["arrivalTimeBasis"] = {"SEOUL_BUS": "SEOUL_EXPS_SECONDS_V1", "GBIS": "GBIS_PREDICT_SECONDS_V1", "INCHEON_API": "INCHEON_ESTIMATE_SECONDS_V1"}.get(namespace)
+        row["arrivalTimeBasis"] = {
+            "SEOUL_BUS": "SEOUL_EXPS_SECONDS_V1",
+            "GBIS": "GBIS_PREDICT_SECONDS_V1",
+            "INCHEON_API": "INCHEON_ESTIMATE_SECONDS_V1",
+        }.get(namespace)
         number("stopOrder", get("staOrd", "STA_ORD", "staOrder"), True, 1)
         row["detourCode"] = text(get("deTourAt", "DE_TOUR_AT"))
         for index, prefix in ((1, "first"), (2, "second")):

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Callable, Iterable, Optional, TypeVar
+from typing import TypeVar
 
 import fsspec
 import pyarrow as pa
@@ -31,13 +32,13 @@ RETRY_MAX_WAIT_SECONDS = 30.0
 # 기동 시(폴더 생성)는 네임노드 세이프 모드 1~2분을 통째로 기다려야 하므로 더 길게: 2+4+8+16+30+30+30 = 120초
 STARTUP_RETRY_ATTEMPTS = 8
 _RETRIABLE = (OSError, requests.exceptions.RequestException)
-_NO_RETRY_STATUS = {400, 401, 404}   # 요청 자체가 잘못된 것 — 다시 보내도 같다
+_NO_RETRY_STATUS = {400, 401, 404}  # 요청 자체가 잘못된 것 — 다시 보내도 같다
 # fsspec webhdfs 는 서버가 준 RemoteException 중 IllegalArgument→ValueError, AccessControl→PermissionError,
 # FileNotFound→FileNotFoundError 로 바꾸고 "나머지"는 RuntimeError 로 던진다. 세이프 모드(SafeModeException)·
 # StandbyException·RetriableException 이 그 나머지에 들어간다 (2026-09-09 배포 때 세이프 모드 33초 동안 9번 재시작한 원인).
 # RuntimeError 전부를 재시도하면 진짜 버그도 삼키므로, 메시지에 아래 표식이 있을 때만 재시도한다.
 _RETRIABLE_RUNTIME_MARKERS = ("safe mode", "safemode", "retriable", "standby")
-_sleep = time.sleep                  # 테스트가 바꿔 끼운다
+_sleep = time.sleep  # 테스트가 바꿔 끼운다
 
 
 def _response_status(exc: BaseException) -> int | None:
@@ -59,8 +60,13 @@ def _is_retriable(exc: BaseException) -> bool:
     return False
 
 
-def with_retry(fn: Callable[[], T], what: str, attempts: int = RETRY_ATTEMPTS,
-               backoff: float = RETRY_BACKOFF_SECONDS, max_wait: float = RETRY_MAX_WAIT_SECONDS) -> T:
+def with_retry(
+    fn: Callable[[], T],
+    what: str,
+    attempts: int = RETRY_ATTEMPTS,
+    backoff: float = RETRY_BACKOFF_SECONDS,
+    max_wait: float = RETRY_MAX_WAIT_SECONDS,
+) -> T:
     """fn 을 실행하고 짧은 장애(연결 오류·HTTP 5xx·세이프 모드)면 backoff 배수(상한 max_wait)로 기다린 뒤 다시 시도한다."""
     for attempt in range(1, attempts + 1):
         try:
@@ -70,8 +76,16 @@ def with_retry(fn: Callable[[], T], what: str, attempts: int = RETRY_ATTEMPTS,
                 raise
             wait = min(backoff * (2 ** (attempt - 1)), max_wait)
             status = _response_status(exc)
-            log.warning("%s 실패 (%s%s: %s), %.0f초 뒤 재시도 %d/%d", what, exc.__class__.__name__,
-                        f" {status}" if status else "", str(exc)[:80], wait, attempt + 1, attempts)
+            log.warning(
+                "%s 실패 (%s%s: %s), %.0f초 뒤 재시도 %d/%d",
+                what,
+                exc.__class__.__name__,
+                f" {status}" if status else "",
+                str(exc)[:80],
+                wait,
+                attempt + 1,
+                attempts,
+            )
             _sleep(wait)
     raise RuntimeError("unreachable")
 
@@ -82,7 +96,7 @@ class Storage:
     root: str
 
     @classmethod
-    def from_uri(cls, uri: str, hdfs_user: str | None = None) -> "Storage":
+    def from_uri(cls, uri: str, hdfs_user: str | None = None) -> Storage:
         options = {}
         if uri.startswith("webhdfs://") and hdfs_user:
             options["user"] = hdfs_user
@@ -98,7 +112,7 @@ class Storage:
         parent = final.rsplit("/", 1)[0]
 
         def _write_once() -> str:
-            if self.fs.exists(final):          # 앞 시도가 mv 까지 끝난 뒤 응답만 못 받은 경우
+            if self.fs.exists(final):  # 앞 시도가 mv 까지 끝난 뒤 응답만 못 받은 경우
                 return final
             self.fs.makedirs(parent, exist_ok=True)
             with self.fs.open(tmp, "wb") as f:  # 재시도면 .tmp 를 덮어쓴다
@@ -108,7 +122,7 @@ class Storage:
 
         return with_retry(_write_once, f"write {relative_path}")
 
-    def read_parquet(self, path: str, columns: Optional[Iterable[str]] = None) -> pa.Table:
+    def read_parquet(self, path: str, columns: Iterable[str] | None = None) -> pa.Table:
         """Parquet 파일을 읽는다 (replay 용). 데이터노드 재시작 중 리다이렉트 실패를 재시도로 넘긴다."""
         cols = list(columns) if columns is not None else None
 

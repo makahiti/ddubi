@@ -1,6 +1,8 @@
 """Configurable polling pause; not proof that every subway line is closed."""
+
 import re
 from datetime import date, timedelta, timezone
+
 from config import ConfigError
 
 KST = timezone(timedelta(hours=9))

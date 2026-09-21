@@ -1,15 +1,17 @@
 """내부 환경 전처리 입력 계약. 마스터 매핑과 원본 시각을 보존하고 요청 크기를 제한한다."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
+
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
-    AwareDatetime,
     StrictBool,
-    StrictStr,
     StrictFloat,
     StrictInt,
+    StrictStr,
+    model_validator,
 )
 
 
@@ -48,3 +50,43 @@ class EnvironmentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request: EnvironmentPoint
     observations: Annotated[list[EnvironmentObservation], Field(max_length=1000)]
+
+
+class OnlineFeatureBatchRequest(BaseModel):
+    """한 경로의 인접 버스 구간 Snapshot을 Redis MGET 한 번으로 읽는다."""
+
+    model_config = ConfigDict(extra="forbid")
+    requestId: Annotated[StrictStr, Field(min_length=1, max_length=100)]
+    masterVersion: Annotated[StrictStr, Field(min_length=1, max_length=64)]
+    asOf: AwareDatetime
+    segmentIds: Annotated[list[StrictStr], Field(min_length=1, max_length=1000)]
+
+    @model_validator(mode="after")
+    def unique_segments(self):
+        if len(set(self.segmentIds)) != len(self.segmentIds):
+            raise ValueError("segmentIds must be unique")
+        return self
+
+
+class OnlineFeatureBatchItem(BaseModel):
+    """한 구간의 검증 결과. 사용 불가 상태에서는 원문 Snapshot을 노출하지 않는다."""
+
+    segmentId: StrictStr
+    status: Literal["AVAILABLE", "MISSING", "STALE", "INVALID"]
+    snapshot: dict[str, Any] | None
+
+    @model_validator(mode="after")
+    def snapshot_matches_status(self):
+        if (self.status == "AVAILABLE") != (self.snapshot is not None):
+            raise ValueError("snapshot must exist only for AVAILABLE")
+        return self
+
+
+class OnlineFeatureBatchResponse(BaseModel):
+    """입력 순서를 보존한 구간별 현재 Snapshot 조회 결과다."""
+
+    requestId: StrictStr
+    featureVersion: Literal["bus-segment-feature-v1"]
+    masterVersion: StrictStr
+    asOf: AwareDatetime
+    results: list[OnlineFeatureBatchItem]

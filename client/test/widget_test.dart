@@ -876,7 +876,11 @@ void main() {
     expect(find.text('5/10개 달성했어요!'), findsNothing);
     expect(find.text('서비스 상태'), findsNothing);
     expect(find.text('회원 탈퇴'), findsNothing);
-    expect(find.byKey(const Key('accountManagementPreparing')), findsOneWidget);
+    expect(
+      find.byKey(const Key('accountManagementMenuButton')),
+      reason: '계정 관리는 눌러서 들어갈 수 있어야 한다 — 예전에는 준비 중 글자뿐이었다',
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('savedPlacesMenuButton')), findsOneWidget);
     expect(find.byKey(const Key('travelRecordsMenuButton')), findsOneWidget);
     expect(find.byKey(const Key('helpInquiryButton')), findsOneWidget);

@@ -385,7 +385,10 @@
                   "PUBLIC_TRANSIT_STEP",
                   "PROVIDER_TOTAL_FALLBACK",
                   "ML_PREVIEW",
-                  "TIMETABLE"
+                  "TIMETABLE",
+                  "ML_PRODUCTION",
+                  "BUS_HISTORICAL_REFERENCE",
+                  "BUS_GTFS_FORMULA"
                 ]
               },
               "endpointEvidence": {
@@ -490,6 +493,105 @@
               "fromName",
               "toName"
             ],
+            "additionalProperties": false
+          }
+        },
+        "guidance": {
+          "type": "object",
+          "description": "경로 안내 가능 여부. ML 운영 승인과 별개이며 legacy 응답에는 없을 수 있다.",
+          "required": [
+            "canDisplayEstimate",
+            "canAccept",
+            "source",
+            "reasons"
+          ],
+          "properties": {
+            "canDisplayEstimate": {
+              "type": "boolean"
+            },
+            "canAccept": {
+              "type": "boolean"
+            },
+            "source": {
+              "enum": [
+                "UNAVAILABLE",
+                "PROVIDER_ESTIMATE",
+                "MIXED_ESTIMATE",
+                "EXPERIMENTAL_ESTIMATE"
+              ]
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "candidateEstimates": {
+          "type": "array",
+          "description": "같은 평가와 출발시각의 후보별 계산 결과. routeId로 저장 경로와 연결한다.",
+          "items": {
+            "type": "object",
+            "required": [
+              "candidateKey",
+              "routeId",
+              "rank",
+              "assessment",
+              "departAt",
+              "estimatedArrivalAt",
+              "durationSeconds",
+              "selected",
+              "proposed"
+            ],
+            "properties": {
+              "candidateKey": {
+                "type": "string"
+              },
+              "routeId": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rank": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "assessment": {
+                "enum": [
+                  "ON_TIME_ESTIMATE",
+                  "LATE_ESTIMATE",
+                  "INSUFFICIENT_DATA",
+                  "BLOCKED"
+                ]
+              },
+              "departAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "estimatedArrivalAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "durationSeconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "proposed": {
+                "type": "boolean"
+              }
+            },
             "additionalProperties": false
           }
         }

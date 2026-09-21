@@ -20,10 +20,16 @@ ENVELOPE_SCHEMA = StructType(
         StructField("region", StringType(), True),
         StructField("occurredAt", StringType(), False),
         StructField("collectedAt", StringType(), False),
-        StructField("location", StructType([
-            StructField("latitude", StringType(), True),
-            StructField("longitude", StringType(), True),
-        ]), True),
+        StructField(
+            "location",
+            StructType(
+                [
+                    StructField("latitude", StringType(), True),
+                    StructField("longitude", StringType(), True),
+                ]
+            ),
+            True,
+        ),
         StructField("segmentIds", ArrayType(StringType()), True),  # 전처리 후 채워지는 뚜비 내부 구간 ID
         StructField("payload", StringType(), False),  # JSON 객체 → 원문 문자열
     ]
@@ -41,7 +47,11 @@ def parse_envelope(raw: DataFrame) -> DataFrame:
         F.from_json(F.col("value").cast("string"), ENVELOPE_SCHEMA).alias("e"),
     )
     return parsed.select(
-        "rawEventJson", "kafkaKey", "kafkaPartition", "kafkaOffset", "kafkaTimestamp",
+        "rawEventJson",
+        "kafkaKey",
+        "kafkaPartition",
+        "kafkaOffset",
+        "kafkaTimestamp",
         F.col("e.eventId").alias("eventId"),
         F.col("e.eventType").alias("eventType"),
         F.col("e.source").alias("source"),

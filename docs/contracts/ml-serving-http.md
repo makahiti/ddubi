@@ -22,7 +22,7 @@ GPU에서 학습한 LightGBM을 CPU로 로드하고, 요청 ID·날짜/시간에
 | 현재 참조 지원 기간 | `2026-09-10`부터 `2026-09-17`까지, 양 끝 날짜 포함 |
 | 정상 수치의 상태 | `PREVIEW`, `production_ready=false` |
 | ID 조합 검증 | 개별 ID의 vocab 존재만 확인. 노선·정류장·순번 조합 검증은 미완료 |
-| 동작 범위 | 추론과 응답 반환. 일정/경로 저장, Redis/MySQL 쓰기 없음 |
+| 동작 범위 | 추론과 응답 반환. 일정/경로·MySQL 쓰기 없음. 최신 Feature API만 Redis에 짧은 캐시를 기록 |
 
 **HTTP 200 또는 readiness 성공이 운영 추천 사용 가능을 뜻하지 않는다.** 현재 수치를
 연동 확인에 사용할 수 있지만 기존 추천 시간에 자동 반영하면 안 된다. ML 서비스 배포만으로
@@ -378,11 +378,51 @@ Backend는 우선 별도 HTTP DTO/클라이언트로 프리뷰 수치와 오류 
 합계 보존·배분 출처 기록·학습 정답/기준선 표본으로의 재사용 금지를 지켜야 한다.
 이는 HTTP 서비스가 구현하는 기능이나 분배 방식이 아니다.
 
-Redis의 현재 상태 보정, baseline_serving 조회, 카카오 시간 선택은 Backend 영역이다.
+baseline_serving 조회와 카카오 시간 선택은 Backend 영역이다. Redis 최신 원천값의 시각 검증과
+구간별 Feature 조립은 아래의 별도 API가 담당한다.
 사용자가 확인한 기준선 커버리지 0은 당시 현황이며 이 서비스가 기준선을 적재하지 않는다.
 이 API는 카카오 `raw_response`를 받거나 저장하지 않으므로 원본 경로 재현 문제도 해결하지 않는다.
 
-## 9. 상태 확인 API
+## 9. Redis 최신 Feature 조회 API
+
+`ML_REDIS_LATEST_FEATURES_ENABLED=true`로 명시적으로 켠 경우에만 사용할 수 있다.
+`ML_BUS_CROSSWALK_SHA256`이 현재 버스 crosswalk와 다르거나 활성 대응표의 메타데이터가
+일치하지 않으면 이전 마스터의 값을 Feature로 사용하지 않는다.
+
+```http
+POST /v1/bus/features:latest
+Content-Type: application/json
+
+{
+  "segmentId": "BUS:100100609:123456:123789",
+  "masterVersion": "metropolitan-bus-v6",
+  "asOf": "2026-09-18T16:10:00+09:00",
+  "passageAt": "2026-09-18T16:13:00+09:00"
+}
+```
+
+ML Serving은 활성 `segmentId→날씨 격자`, `segmentId→TOPIS 링크`, `segmentId→도시 영역`
+대응표를 읽고 Redis의 최신 원천값을 한 번에 조회한다. 미래에 수집된 값, `validFrom` 이전 값,
+예상 통과시각에 `validUntil`이 끝난 값은 Feature에 넣지 않는다. 미매핑·만료·결측은 0으로
+바꾸지 않고 `null`과 `missingFeatures`로 반환한다. 현재 시점 요청만 결과를 최대 900초 캐시하며,
+실제 `validUntil`이 더 빠르면 그 시각까지만 저장한다. 과거 시점 재현 요청은 캐시하지 않는다.
+
+현재 Snapshot을 경로 단위로 읽을 때는 `POST /v1/bus/features:batch`에 `requestId`,
+`masterVersion`, 현재 `asOf`, 고유 `segmentIds` 1~1,000개를 보낸다. 이 API는 표준 Key를 만들어
+Redis `MGET`을 정확히 한 번 실행하며 입력 순서를 보존한다. 각 결과는 `AVAILABLE`, `MISSING`,
+`STALE`, `INVALID` 중 하나다. `AVAILABLE`만 Snapshot을 반환하고 나머지는 `snapshot=null`이다.
+미래 통과시각별 결과는 CURRENT Key를 덮어쓰지 않는다. 세부 계약은
+[버스 구간 Snapshot](bus-segment-feature-snapshot.md)을 따른다.
+
+- 대응표 또는 일부 최신값 부재: HTTP 200, 해당 Feature는 `null`
+- Redis Feature 기능이 꺼짐: HTTP 503 `FEATURE_STORE_NOT_READY`
+- Redis 연결/조회 실패: HTTP 503 `FEATURE_STORE_UNAVAILABLE`
+- 잘못된 구간 ID·시각 관계: HTTP 422 `INVALID_ENVIRONMENT_POINT`
+
+TOPIS 링크 대응표가 아직 승인되지 않은 구간은 도로·사고 Feature만 결측이며, 날씨·도시·버스
+Feature 조립은 계속한다.
+
+## 10. 상태 확인 API
 
 - `GET /health/live`: 프로세스 생존 확인. HTTP 200 `{"status":"UP"}`. 모델 준비를 뜻하지 않음.
 - `GET /health/ready`: 모델 로드 성공 및 오늘 KST가 지원 범위 안이면 HTTP 200, 아래 메타데이터 반환.

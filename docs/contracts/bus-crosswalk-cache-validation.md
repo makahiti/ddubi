@@ -51,6 +51,8 @@ Collector 쪽 기존 대응표와 버전은 그대로 유지한다.
 - 재실행 시 토픽/차량/eventId를 출력 디렉터리별로 분리한 최종 도구도 500메시지로 재확인했다.
 
 측정 힙은 전체 실행 중 peak 또는 컨테이너 RSS가 아니다. 이 시험은 운영 부하·장시간 누수·강제 종료
-복구를 입증하지 않으며 운영 Spark의 임시 crosswalk OFF 설정을 해제하지 않았다.
+이 기록 당시에는 운영 Spark의 임시 crosswalk OFF 설정을 해제하지 않았다. 이후
+`recommendation-data-readiness.md` 작업에서 검증된 동일 artifact/SHA를 Compose 기본값에 연결했다.
+운영 OOM/lag 확인은 여전히 별도 배포 검증 항목이다.
 재실행 방법은 [검증 도구 설명](../../sparkjobs/tools/README.md), 범위별 결과는
 [데이터 담당 보강 결과](data-role-hardening-20260913.md)를 따른다.

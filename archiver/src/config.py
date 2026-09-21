@@ -28,7 +28,7 @@ class Settings:
     hdfs_user: str = "hadoop"  # webhdfs:// 일 때 user.name 으로 보낸다 (권한 검사는 꺼져 있지만 소유자 표기용)
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         bootstrap = _env("KAFKA_BOOTSTRAP_SERVERS")
         if not bootstrap:
             raise ConfigError("KAFKA_BOOTSTRAP_SERVERS 가 필요합니다")
@@ -40,7 +40,13 @@ class Settings:
                 raise ConfigError("ARCHIVE_URI 또는 ARCHIVE_LOCAL_DIR 가 필요합니다")
             uri = f"file://{local_dir}"
 
-        topics = tuple(t.strip() for t in (_env("ARCHIVE_TOPICS", "transport.raw,city.raw,source.poll-status") or "").split(",") if t.strip())
+        topics = tuple(
+            t.strip()
+            for t in (_env("ARCHIVE_TOPICS", "transport.raw,city.raw,source.poll-status,segment.status") or "").split(
+                ","
+            )
+            if t.strip()
+        )
         if not topics:
             raise ConfigError("ARCHIVE_TOPICS 가 비어 있습니다")
 

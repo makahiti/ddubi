@@ -9,7 +9,10 @@ Redis에 TTL과 함께 저장한다. Kafka 원문 보존은 Spark가 아니라 A
 | 잡 | 입력 토픽 | 처리 이벤트 | 출력 |
 |---|---|---|---|
 | `streaming/weather_latest.py` | `city.raw` | `weather.observation` | Redis `weather:latest:{nx}:{ny}` + HDFS `silver/weather` |
-| `streaming/realtime_latest.py` | `transport.raw,city.raw` | 버스·지하철·도로·도시·S-DoT 9종 | `docs/contracts/redis-keys.yaml`의 소스별 latest 키 |
+| `streaming/realtime_latest.py` | `transport.raw,city.raw` | 버스·지하철·도로·S-DoT | `docs/contracts/redis-keys.yaml`의 소스별 latest 키 |
+| `streaming/city_realtime_silver.py` | `city.raw` | `city.realtime` | Redis 도시 latest/forecast + 선택적 HDFS Parquet |
+| `streaming/topis_enriched.py` | `city.raw` | `topis.notice` | GMS/Kakao 정규화 → Redis JSON + 선택적 HDFS Parquet |
+| `streaming/traffic_incident_silver.py` | `city.raw` | `traffic.incident` | 링크·좌표 검증 → Redis JSON + 선택적 HDFS Parquet |
 
 서버 `.env`에 `SILVER_OUTPUT_URI`가 설정되어 있으면 Weather Silver가 Kafka의 새 관측을 자동 저장한다.
 Silver가 실패해도 Redis latest는 계속 갱신한다. Redis latest와 HDFS Silver는
@@ -29,11 +32,20 @@ Spark 컨테이너의 `/opt/ddubi/sparkjobs`에서 다음처럼 제출한다.
 ```sh
 sh submit.sh streaming/weather_latest.py
 sh submit.sh streaming/realtime_latest.py
+sh submit.sh streaming/city_realtime_silver.py
+sh submit.sh streaming/topis_enriched.py
 ```
 
-현재 저장소의 Compose에는 날씨 잡만 등록돼 있다. 비기상 잡의 자동 기동에 필요한 인프라 변경은
-[배포 요청 문서](../docs/meetings/2026-09-04-realtime-latest-deployment-handoff.md)에 서비스 정의와
-검증 절차까지 정리했으며, 인프라 담당자가 적용하기 전에는 위 명령으로 수동 실행해야 한다.
+TOPIS AI 잡의 컬럼, 좌표·반경, 결측/오류 정책과 과거 아카이브 백필은
+[TOPIS 공지 AI 전처리 계약](../docs/contracts/topis-notice-enrichment.md)을 따른다.
+교통 돌발의 LINK_ID 우선순위, EPSG:5181 변환, 위치 충돌과 마스터 승인 조건은
+[Traffic Incident Silver 계약](../docs/contracts/traffic-incident-silver.md)을 따른다.
+도시 인구·예측·도로 링크의 컬럼, WGS84 `XYLIST`, 결측 및 백필 정책은
+[City Realtime Silver 계약](../docs/contracts/city-realtime-silver.md)을 따른다.
+
+Compose의 TOPIS AI와 교통 돌발 잡은 각각 `topis-ai`, `road-silver` 프로필에서만 명시적으로 켠다.
+일반 비기상 잡의 배포 절차는
+[배포 요청 문서](../docs/meetings/2026-09-04-realtime-latest-deployment-handoff.md)를 따른다.
 
 공통 필수 환경변수는 `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`, `SPARK_CHECKPOINT_DIR`이며,
 Redis 인증을 사용하면 `REDIS_PASSWORD`도 넣는다. 비기상 잡은 기본적으로 두 원본 토픽을 모두
@@ -66,6 +78,91 @@ Collector와 같은 버전의 파일을 함께 배포·재시작하며 불일치
 파일 미설정은 `CROSSWALK_NOT_CONFIGURED`, SHA 오류는 잡 기동 실패다.
 재생성·배포 방법은 [마스터 안내](../backend/transit-master/README.md), 의미·키 규칙은
 [구간 연결 계약](../docs/contracts/metropolitan-segment-integration.md)을 따른다.
+
+Feature 조립 전에 같은 대응표를 Spark 조인용 Parquet으로 변환한다. 이 작업은 ID를
+새로 만들지 않고 SHA 검증을 통과한 `segmentId`를 그대로 옮긴다. `edges/`는 원본
+순번·방향을 보존하고, `mappings/`는 제공자 노선+이전 정류장+다음 정류장과 `segmentId`의
+대응이며, `segments/`는 중복을 제거한 구간 목록이다. `complete/`가 있는 출력만 다음
+작업의 입력으로 사용한다.
+
+```sh
+sh submit.sh batch/export_bus_segment_mapping.py \
+  --crosswalk "$BUS_CROSSWALK_PATH" \
+  --crosswalk-sha "$BUS_CROSSWALK_SHA256" \
+  --output hdfs://hdfs-namenode:9000/ddubi/master/bus-segment/version=20260918-v1
+```
+
+버스 구간을 현재 날씨 Collector의 기상청 격자와 연결하려면 같은 crosswalk와 버스
+마스터를 사용해 아래 배치를 실행한다. 출발·도착 좌표를 각각 공식 5km 격자로 변환하고,
+중간 좌표의 격자를 대표값으로 쓴다. 양 끝 격자가 다르면 `CROSSES_GRID`, 좌표가 없으면
+`UNRESOLVED`, 현재 수집하지 않는 격자는 `OUT_OF_COVERAGE`로 남긴다. 다른 서울 격자로
+억지로 바꾸지 않는다. 운영에서 `WEATHER_GRID_POINTS`를 바꿨다면 배치에도 같은 값을 준다.
+
+```sh
+sh submit.sh batch/export_bus_weather_mapping.py \
+  --crosswalk /opt/ddubi/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz \
+  --crosswalk-sha 8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246 \
+  --bus-master /opt/ddubi/transit-master/bus/metropolitan-bus-v6.json.gz \
+  --bus-master-sha 6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2 \
+  --output hdfs://hdfs-namenode:9000/ddubi/master/bus-weather-grid/version=20260918-v1
+```
+
+출력 `edges/`에는 순번별 좌표와 출발·도착·대표 격자를, `mappings/`에는 고유
+`segmentId → nx, ny`를 저장한다. `quality/`에서 상태·경계 통과 건수를 확인하고
+`complete/`가 있는 출력만 Feature 조립기의 정적 입력으로 사용한다.
+
+같은 `mappings` DataFrame은 Redis에도 배포한다. 각 `segmentId`를 Hash field로 쓰고,
+작성 중인 Hash의 전체 행 수를 확인한 뒤에만
+`ml:mapping:bus-weather:active:{masterVersion}` 포인터를 새 버전으로 바꾼다. 따라서 일부만
+작성된 대응표가 요청 처리에 노출되지 않는다. HDFS 쓰기가 실패해도 Redis 배포는 계속하며,
+Redis를 의도적으로 생략하는 검증 실행에서만 `--skip-redis`를 준다. Redis 전용 재배포는
+`--output`을 생략하고 같은 명령을 실행한다. 기본 TTL은 30일이며
+`BUS_WEATHER_MAPPING_TTL_SECONDS`로 조정한다.
+
+요청 시점의 Feature 조립기는 active 포인터에서 현재 Hash 키를 얻고, 해당 Hash에서
+`segmentId`를 `HGET`해 `nx, ny`를 찾은 다음 기존 `weather:latest:{nx}:{ny}`를 읽는다.
+이 배치는 대응표 배포까지 담당하며 통합 Feature Snapshot 생성은 별도 단계다.
+
+검토 완료 도로 대응표와 승인된 OA-13310 링크 마스터가 준비되면 버스 구간→TOPIS 링크 배치를
+실행한다. 후보·감사 파일은 입력으로 사용할 수 없으며 두 artifact의 SHA·버스 버전·유효기간과
+모든 LINK_ID 존재 여부가 맞아야 실행된다. 현재 저장소에는 승인된 운영 artifact가 없으므로 아래
+경로와 SHA를 임의 값으로 채우지 않는다.
+
+```sh
+sh submit.sh batch/export_bus_road_mapping.py \
+  --crosswalk /opt/ddubi/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz \
+  --crosswalk-sha <BUS_CROSSWALK_SHA256> \
+  --road-crosswalk /opt/ddubi/transit-master/road/<reviewed-road-crosswalk>.json \
+  --road-crosswalk-sha <ROAD_CROSSWALK_SHA256> \
+  --traffic-link-master /opt/ddubi/transit-master/road/<approved-oa13310-links>.json.gz \
+  --traffic-link-master-sha <TRAFFIC_LINK_MASTER_SHA256> \
+  --as-of 2026-09-18T12:00:00+09:00 \
+  --output hdfs://hdfs-namenode:9000/ddubi/master/bus-road-link/version=20260918-v1
+```
+
+`edges/`는 노선 순번별 링크 배열과 검증 근거, `mappings/`는 고유 segmentId별 안전한 링크
+배열을 Parquet으로 저장한다. 같은 `mappings` DataFrame을 Redis versioned Hash에도 JSON으로
+기록한다. 동일 segmentId가 서로 다른 도로 경로를 가지거나 일부 occurrence만 매핑되면 링크를
+확정하지 않고 `AMBIGUOUS` 또는 `PARTIAL`로 남긴다. HDFS 쓰기 실패는 Redis 배포를 막지 않는다.
+
+City Silver 도로 좌표가 HDFS에 쌓인 뒤 버스 구간→도시 영역 대응표를 배포한다. 도시데이터는
+서울 전체가 아니라 주요 장소만 제공하므로 먼 구간은 `OUT_OF_COVERAGE`로 보존한다.
+
+```sh
+sh submit.sh batch/export_bus_city_mapping.py \
+  --crosswalk /opt/ddubi/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz \
+  --crosswalk-sha 8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246 \
+  --bus-master /opt/ddubi/transit-master/bus/metropolitan-bus-v6.json.gz \
+  --bus-master-sha 6999b0e67eb1af391de563291ce9cf4251b5ec271307e3f24de55d22d17318e2 \
+  --city-road-input 'hdfs://hdfs-namenode:9000/ddubi/silver/city/realtime-v1/live/batches/batch=*/road-link-snapshot' \
+  --output hdfs://hdfs-namenode:9000/ddubi/master/bus-city-area/version=20260918-v1
+```
+
+기본 거리 정책은 300m, 여러 영역 판정 여유는 50m다. 운영 자료로 조정한 경우 실행 인자와
+출력의 정책값을 함께 보존한다. 위 SHA는 `metropolitan-bus-v6` 파일을 확인한 값이다.
+HDFS의 `road-link-snapshot` Parquet이 실제로 생성된 뒤 실행하고, Redis 대응표는 기본 30일
+TTL이므로 만료 전에 재배포한다. 자세한 판정은
+[버스 구간→도시 영역 계약](../docs/contracts/bus-city-mapping.md)을 따른다.
 
 ## 구간 기준선·판정 실행 준비 (2026-09-10)
 

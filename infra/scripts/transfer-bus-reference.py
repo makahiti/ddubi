@@ -29,10 +29,12 @@ def validate_row(row):
     if row['fromOrder']<1 or row['toOrder']!=row['fromOrder']+1 or row['fromStopId']==row['toStopId']: raise ValueError('INVALID_OCCURRENCE')
     if not 1<=row['dow']<=7 or not 0<=row['hourSlot']<=23: raise ValueError('INVALID_TIME_BUCKET')
     if type(row.get('meanSeconds')) not in (int,float) or not 0<row['meanSeconds']<=86400: raise ValueError('INVALID_MEAN')
-    if row.get('sampleKind') not in ('HOURLY_SOURCE_MEAN','ACTUAL_TRAVERSAL_MEAN'): raise ValueError('INVALID_SAMPLE_KIND')
-    if row['observedDates']<1 or row['sampleCount']<row['observedDates']: raise ValueError('INVALID_SAMPLES')
+    if row.get('sampleKind') not in ('HOURLY_SOURCE_MEAN','ACTUAL_TRAVERSAL_MEAN','GTFS_SCHEDULE_FORMULA'): raise ValueError('INVALID_SAMPLE_KIND')
+    if row['sampleKind']=='GTFS_SCHEDULE_FORMULA':
+        if row['observedDates']!=0 or row['sampleCount']<1: raise ValueError('INVALID_SAMPLES')
+    elif row['observedDates']<1 or row['sampleCount']<row['observedDates']: raise ValueError('INVALID_SAMPLES')
     days=(datetime.date.fromisoformat(row['observationEnd'])-datetime.date.fromisoformat(row['observationStart'])).days+1
-    if row['observedDates']>days: raise ValueError('INVALID_PERIOD')
+    if row['observationEnd']<row['observationStart'] or row['observedDates']>days: raise ValueError('INVALID_PERIOD')
     if not re.fullmatch('[a-f0-9]{64}',row.get('sourceSha256','')): raise ValueError('INVALID_SOURCE_SHA')
 
 

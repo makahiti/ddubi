@@ -8,10 +8,12 @@ Kafka 알림은 Redis ACK 후 발행하고 실패 시 같은 eventId로 재시�
 
 import os
 from datetime import datetime, timedelta, timezone
-from pyspark.sql import SparkSession, functions as F, types as T
+
 from common.kafka_source import read_events_stream
-from common.settings import Settings
 from common.road_impact import RoadImpactIndex
+from common.settings import Settings
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 # 하나의 hash가 무한히 커지지 않도록 만료 사건을 갱신 때 제거하고 1,000개 상한을 둔다.
 UPSERT = """
@@ -57,9 +59,7 @@ def normalize(events):
             "yyyyMMddHHmmss",
         ).alias("startsAt"),
         F.to_timestamp(
-            F.concat(
-                field("$.raw.expectedClearDate"), field("$.raw.expectedClearTime")
-            ),
+            F.concat(field("$.raw.expectedClearDate"), field("$.raw.expectedClearTime")),
             "yyyyMMddHHmmss",
         ).alias("expectedEndsAt"),
         field("$.raw.incidentTypeCode").alias("incidentTypeCode"),
@@ -75,10 +75,7 @@ def normalize(events):
         & F.col("providerIncidentId").rlike(r"^[0-9A-Za-z._-]{1,100}$")
         & F.col("startsAt").isNotNull()
         & (F.col("startsAt") <= F.col("collectedAt"))
-        & (
-            F.col("expectedEndsAt").isNull()
-            | (F.col("expectedEndsAt") > F.col("startsAt"))
-        )
+        & (F.col("expectedEndsAt").isNull() | (F.col("expectedEndsAt") > F.col("startsAt")))
     )
     valid = (
         valid
@@ -86,15 +83,13 @@ def normalize(events):
         & (F.length("eventId") > 0)
         & ((F.length("expectedRaw") == 0) | F.col("expectedEndsAt").isNotNull())
     )
-    return rows.filter(F.coalesce(valid, F.lit(False))), rows.filter(
-        ~F.coalesce(valid, F.lit(False))
-    )
+    return rows.filter(F.coalesce(valid, F.lit(False))), rows.filter(~F.coalesce(valid, F.lit(False)))
 
 
 def write_incidents(rows, settings, max_age, now_epoch):
     """executor별 Redis 연결을 열고 링크 이동과 최신성 비교를 한 Lua에서 처리한다."""
-    import json
     import hashlib
+    import json
 
     host, port, password = (
         settings.redis_host,
@@ -103,8 +98,9 @@ def write_incidents(rows, settings, max_age, now_epoch):
     )
 
     def partition(items):
-        import redis
         import time
+
+        import redis
 
         client = redis.Redis(
             host=host,
@@ -120,9 +116,7 @@ def write_incidents(rows, settings, max_age, now_epoch):
                 ttl = int(data["expiresEpoch"] - write_epoch)
                 if ttl <= 0:
                     continue
-                identity = hashlib.sha256(
-                    (data["source"] + ":" + data["providerIncidentId"]).encode()
-                ).hexdigest()
+                identity = hashlib.sha256((data["source"] + ":" + data["providerIncidentId"]).encode()).hexdigest()
                 client.eval(
                     UPSERT,
                     2,
@@ -188,12 +182,9 @@ def main():
         epoch = int(now.timestamp())
         valid, rejected = normalize(events)
         # 원문 격리는 배치별 경로로 재시도 때 같은 내용을 덮는다. 체크포인트는 모든 sink 성공 후 진행한다.
-        rejected.write.mode("overwrite").json(
-            required["ROAD_REJECTED_PATH"].rstrip("/") + "/" + str(batch_id)
-        )
+        rejected.write.mode("overwrite").json(required["ROAD_REJECTED_PATH"].rstrip("/") + "/" + str(batch_id))
         valid = valid.filter(
-            (F.col("collectedAt").cast("long") <= epoch)
-            & (F.col("collectedAt").cast("long") + max_age > epoch)
+            (F.col("collectedAt").cast("long") <= epoch) & (F.col("collectedAt").cast("long") + max_age > epoch)
         ).cache()
         try:
             value = (
@@ -225,34 +216,22 @@ def main():
             notices = (
                 valid.join(index, ["linkNamespace", "linkId"])
                 .filter(
-                    (
-                        F.col("pathFrom").cast("timestamp")
-                        <= F.lit(now.isoformat()).cast("timestamp")
-                    )
-                    & (
-                        F.col("pathUntil").cast("timestamp")
-                        > F.lit(now.isoformat()).cast("timestamp")
-                    )
+                    (F.col("pathFrom").cast("timestamp") <= F.lit(now.isoformat()).cast("timestamp"))
+                    & (F.col("pathUntil").cast("timestamp") > F.lit(now.isoformat()).cast("timestamp"))
                 )
                 .select(
                     "segmentId",
                     "eventId",
                     F.col("collectedAt").alias("computedAt"),
-                    F.to_timestamp(
-                        F.from_unixtime(F.col("collectedAt").cast("long") + max_age)
-                    ).alias("validUntil"),
+                    F.to_timestamp(F.from_unixtime(F.col("collectedAt").cast("long") + max_age)).alias("validUntil"),
                     F.lit("POTENTIAL_IMPACT").alias("state"),
                     F.lit(master.master_version).alias("masterVersion"),
                 )
                 .distinct()
             )
-            notices.select(
-                F.col("segmentId").alias("key"), F.to_json(F.struct("*")).alias("value")
-            ).write.format("kafka").option(
-                "kafka.bootstrap.servers", settings.kafka_bootstrap_servers
-            ).option(
-                "topic", "road.impact"
-            ).option(
+            notices.select(F.col("segmentId").alias("key"), F.to_json(F.struct("*")).alias("value")).write.format(
+                "kafka"
+            ).option("kafka.bootstrap.servers", settings.kafka_bootstrap_servers).option("topic", "road.impact").option(
                 "kafka.acks", "all"
             ).save()
         finally:

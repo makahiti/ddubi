@@ -30,14 +30,14 @@ class MockState:
     """버전별 저장소와 활성 포인터. 실제 backend 의 baseline_serving + pipeline_config 역할."""
 
     def __init__(self, min_row_ratio: float = 0.5):
-        self.versions = {}          # version -> {row_key: row}
+        self.versions = {}  # version -> {row_key: row}
         self.active_version = None
         self.previous_version = None
         self.last_activated_at = None
         self.last_shrink_reason = None
         self.min_row_ratio = min_row_ratio
-        self.request_count = 0      # 테스트에서 재시도 횟수 검증용
-        self.fail_next = 0          # n>0 이면 다음 n개 요청을 500 으로 응답 (재시도 테스트용)
+        self.request_count = 0  # 테스트에서 재시도 횟수 검증용
+        self.fail_next = 0  # n>0 이면 다음 n개 요청을 500 으로 응답 (재시도 테스트용)
         self.lock = threading.Lock()
 
 
@@ -47,7 +47,7 @@ def validate_row(row):
         return "row 가 객체가 아님"
     for field in ROW_KEY_FIELDS + ("p50", "p80", "p95", "sampleCount"):
         if field not in row:
-            return "필수 필드 누락: {}".format(field)
+            return f"필수 필드 누락: {field}"
     if row["weatherBucket"] not in WEATHER_BUCKETS:
         return "weatherBucket 은 DRY|RAIN|SNOW: {}".format(row["weatherBucket"])
     if not (isinstance(row["dow"], int) and 1 <= row["dow"] <= 7):
@@ -100,12 +100,13 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
         rows_match = ROWS_RE.match(self.path)
         activate_match = ACTIVATE_RE.match(self.path)
         if not rows_match and not activate_match:
-            return self._send(404, False, code="NOT_FOUND", message="알 수 없는 경로: {}".format(self.path))
+            return self._send(404, False, code="NOT_FOUND", message=f"알 수 없는 경로: {self.path}")
 
         baseline_type = (rows_match or activate_match).group(1)
         if baseline_type != "segment":
-            return self._send(400, False, code="INVALID_REQUEST",
-                              message="지원하지 않는 baselineType: {}".format(baseline_type))
+            return self._send(
+                400, False, code="INVALID_REQUEST", message=f"지원하지 않는 baselineType: {baseline_type}"
+            )
 
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -124,18 +125,15 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
         if not isinstance(rows, list) or not rows:
             return self._send(400, False, code="INVALID_REQUEST", message="rows 배열이 필요함")
         if len(rows) > CHUNK_MAX:
-            return self._send(400, False, code="INVALID_REQUEST",
-                              message="rows 는 요청당 최대 {}개".format(CHUNK_MAX))
+            return self._send(400, False, code="INVALID_REQUEST", message=f"rows 는 요청당 최대 {CHUNK_MAX}개")
         for i, row in enumerate(rows):
             reason = validate_row(row)
             if reason:
                 # 계약: 검증 실패 시 요청 전체 거부 (부분 저장 없음)
-                return self._send(400, False, code="INVALID_REQUEST",
-                                  message="rows[{}]: {}".format(i, reason))
+                return self._send(400, False, code="INVALID_REQUEST", message=f"rows[{i}]: {reason}")
         with state.lock:
             if version == state.active_version:
-                return self._send(409, False, code="ALREADY_ACTIVATED",
-                                  message="이미 활성화된 dataVersion: {}".format(version))
+                return self._send(409, False, code="ALREADY_ACTIVATED", message=f"이미 활성화된 dataVersion: {version}")
             bucket = state.versions.setdefault(version, {})
             for row in rows:  # upsert: 같은 키 재전송은 덮어쓴다 → 청크 재시도 안전
                 key = tuple(row[f] for f in ROW_KEY_FIELDS)
@@ -147,23 +145,28 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
         allow_shrink = payload.get("allowShrink") is True
         shrink_reason = (payload.get("shrinkReason") or "").strip()
         if allow_shrink and not shrink_reason:
-            return self._send(400, False, code="INVALID_REQUEST", message="allowShrink=true 이면 shrinkReason 이 필요함")
-        if allow_shrink and len(shrink_reason) > 100:   # 계약 maxLength 100 (VARCHAR(100))
+            return self._send(
+                400, False, code="INVALID_REQUEST", message="allowShrink=true 이면 shrinkReason 이 필요함"
+            )
+        if allow_shrink and len(shrink_reason) > 100:  # 계약 maxLength 100 (VARCHAR(100))
             return self._send(400, False, code="INVALID_REQUEST", message="shrinkReason 은 100자 이내")
         with state.lock:
             stored = len(state.versions.get(version, {}))
             if stored == 0:
-                return self._send(409, False, code="ROW_COUNT_MISMATCH",
-                                  message="업로드된 행이 없음: {}".format(version))
+                return self._send(409, False, code="ROW_COUNT_MISMATCH", message=f"업로드된 행이 없음: {version}")
             if total != stored:
-                return self._send(409, False, code="ROW_COUNT_MISMATCH",
-                                  message="totalRows={} 이지만 저장된 행은 {}".format(total, stored))
+                return self._send(
+                    409, False, code="ROW_COUNT_MISMATCH", message=f"totalRows={total} 이지만 저장된 행은 {stored}"
+                )
             if state.active_version and not allow_shrink:
                 active_rows = len(state.versions.get(state.active_version, {}))
                 if active_rows and stored < active_rows * state.min_row_ratio:
-                    return self._send(409, False, code="ROW_COUNT_DROPPED",
-                                      message="직전 활성 {}행 대비 {}행으로 급감 (기준 {})".format(
-                                          active_rows, stored, state.min_row_ratio))
+                    return self._send(
+                        409,
+                        False,
+                        code="ROW_COUNT_DROPPED",
+                        message=f"직전 활성 {active_rows}행 대비 {stored}행으로 급감 (기준 {state.min_row_ratio})",
+                    )
             # 활성 전환 + 보호 규칙: 활성·직전 버전만 남기고 삭제
             state.previous_version = state.active_version
             state.active_version = version
@@ -174,15 +177,23 @@ class MockBaselineHandler(BaseHTTPRequestHandler):
             for v in deleted:
                 del state.versions[v]
         # 응답 필드는 backend 구현(2026-09-08)과 같게: activeVersion / previousVersion / rowCount / activatedAt / purgedVersions
-        return self._send(200, True, data={
-            "activeVersion": version, "previousVersion": state.previous_version, "rowCount": stored,
-            "activatedAt": state.last_activated_at, "purgedVersions": deleted})
+        return self._send(
+            200,
+            True,
+            data={
+                "activeVersion": version,
+                "previousVersion": state.previous_version,
+                "rowCount": stored,
+                "activatedAt": state.last_activated_at,
+                "purgedVersions": deleted,
+            },
+        )
 
 
 def make_server(port=0, api_key="test-key", min_row_ratio=0.5):
     server = HTTPServer(("127.0.0.1", port), MockBaselineHandler)
-    server.api_key = api_key                      # type: ignore[attr-defined]
-    server.state = MockState(min_row_ratio)       # type: ignore[attr-defined]
+    server.api_key = api_key  # type: ignore[attr-defined]
+    server.state = MockState(min_row_ratio)  # type: ignore[attr-defined]
     return server
 
 
@@ -193,8 +204,7 @@ def main():
     parser.add_argument("--min-row-ratio", type=float, default=0.5)
     args = parser.parse_args()
     server = make_server(args.port, args.api_key, args.min_row_ratio)
-    print("mock baseline server on http://127.0.0.1:{} (api-key={})".format(
-        server.server_address[1], args.api_key))
+    print(f"mock baseline server on http://127.0.0.1:{server.server_address[1]} (api-key={args.api_key})")
     server.serve_forever()
 
 

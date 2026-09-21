@@ -66,7 +66,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -113,7 +113,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -146,6 +146,102 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/features:latest": {
+      "post": {
+        "summary": "Latest Features",
+        "description": "segmentId 대응표를 따라 Redis 최신값을 읽고 시각 검사를 통과한 Feature만 조립한다.",
+        "operationId": "latest_features_v1_bus_features_latest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvironmentPoint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bus/features:batch": {
+      "post": {
+        "summary": "Batch Features",
+        "description": "경로의 구간별 현재 Snapshot을 Redis MGET 한 번으로 읽는다.",
+        "operationId": "batch_features_v1_bus_features_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnlineFeatureBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnlineFeatureBatchResponse"
+                }
               }
             }
           },
@@ -501,6 +597,123 @@
         "title": "InvalidRequest",
         "description": "잘못된 요청의 422 계약. 입력값 자체를 로그·응답에 복제하지 않는다."
       },
+      "OnlineFeatureBatchItem": {
+        "properties": {
+          "segmentId": {
+            "type": "string",
+            "title": "Segmentid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "MISSING",
+              "STALE",
+              "INVALID"
+            ],
+            "title": "Status"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segmentId",
+          "status",
+          "snapshot"
+        ],
+        "title": "OnlineFeatureBatchItem",
+        "description": "한 구간의 검증 결과. 사용 불가 상태에서는 원문 Snapshot을 노출하지 않는다."
+      },
+      "OnlineFeatureBatchRequest": {
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Requestid"
+          },
+          "masterVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Masterversion"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Asof"
+          },
+          "segmentIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Segmentids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "requestId",
+          "masterVersion",
+          "asOf",
+          "segmentIds"
+        ],
+        "title": "OnlineFeatureBatchRequest",
+        "description": "한 경로의 인접 버스 구간 Snapshot을 Redis MGET 한 번으로 읽는다."
+      },
+      "OnlineFeatureBatchResponse": {
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "title": "Requestid"
+          },
+          "featureVersion": {
+            "type": "string",
+            "const": "bus-segment-feature-v1",
+            "title": "Featureversion"
+          },
+          "masterVersion": {
+            "type": "string",
+            "title": "Masterversion"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Asof"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/OnlineFeatureBatchItem"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requestId",
+          "featureVersion",
+          "masterVersion",
+          "asOf",
+          "results"
+        ],
+        "title": "OnlineFeatureBatchResponse",
+        "description": "입력 순서를 보존한 구간별 현재 Snapshot 조회 결과다."
+      },
       "Prediction": {
         "properties": {
           "mean_seconds": {
@@ -665,11 +878,13 @@
         "properties": {
           "detail": {
             "type": "string",
-            "enum": [
-              "MODEL_NOT_READY",
-              "MODEL_BUSY",
-              "MODEL_UNAVAILABLE"
-            ],
+          "enum": [
+            "MODEL_NOT_READY",
+            "MODEL_BUSY",
+            "MODEL_UNAVAILABLE",
+            "FEATURE_STORE_NOT_READY",
+            "FEATURE_STORE_UNAVAILABLE"
+          ],
             "title": "Detail"
           }
         },

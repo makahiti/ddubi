@@ -1,13 +1,12 @@
 """실제 Lua 실행으로 사건 링크 이동·중복·순서 역전·TTL 축소 회귀를 방어한다."""
 
 import json
+
 import fakeredis
 from streaming.road_incidents import UPSERT
 
 
-def put(
-    client, link, identity="i", at="2026-09-11T09:00:00+09:00", digest="a", ttl=600
-):
+def put(client, link, identity="i", at="2026-09-11T09:00:00+09:00", digest="a", ttl=600):
     payload = dict(eventId=identity, contentHash=digest, expiresEpoch=1000 + ttl)
     return client.eval(
         UPSERT,

@@ -107,7 +107,9 @@ def audit(directory, bus_path):
         for lid in path_links:
             road = links[lid]
             options = [s for s in standard.get(lid, []) if s['시작노드ID'] == road['시작노드ID'] and s['종료노드ID'] == road['종료노드ID']]
-            ids = sorted({s['링크ID'] for s in options})
+            # 원본 표의 빈 LINK_ID는 실제 TOPIS 링크가 아니다. 빈 문자열 하나를
+            # 유일 후보로 오인하지 않고 미매핑으로 남긴다.
+            ids = sorted({s['링크ID'].strip() for s in options if s['링크ID'].strip()})
             if len(ids) != 1:
                 missing.append(lid)
             elif not mapped or mapped[-1] != ids[0]:

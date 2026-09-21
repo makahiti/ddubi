@@ -7,7 +7,31 @@
   "bestKnownDecision": "ADVANCE_DEPARTURE",
   "proposedDepartAt": "2026-09-18T08:12:00+09:00",
   "estimatedArrivalAt": "2026-09-18T08:51:00+09:00",
-  "search": {"domain": "DEPARTURE_TIME", "evaluatedCount": 4, "complete": false, "incompleteReason": "BUDGET_EXHAUSTED"},
-  "quality": {"preview": false, "productionEligible": false, "realtimeApplied": true, "walkingApiApplied": true, "walkingApiCoverage": "ACCESS_ONLY", "costCoverage": "PARTIAL", "missingInputs": [], "fallbackReasons": ["EGRESS_WALK_FALLBACK"]},
-  "validUntil": "2099-09-18T00:05:00Z"
+  "search": {
+    "domain": "DEPARTURE_TIME",
+    "evaluatedCount": 4,
+    "complete": false,
+    "incompleteReason": "BUDGET_EXHAUSTED"
+  },
+  "quality": {
+    "preview": false,
+    "productionEligible": false,
+    "realtimeApplied": true,
+    "walkingApiApplied": true,
+    "walkingApiCoverage": "ACCESS_ONLY",
+    "costCoverage": "PARTIAL",
+    "missingInputs": [],
+    "fallbackReasons": [
+      "EGRESS_WALK_FALLBACK"
+    ]
+  },
+  "validUntil": "2099-09-18T00:05:00Z",
+  "guidance": {
+    "canDisplayEstimate": true,
+    "canAccept": false,
+    "source": "MIXED_ESTIMATE",
+    "reasons": [
+      "SEARCH_INCOMPLETE"
+    ]
+  }
 }

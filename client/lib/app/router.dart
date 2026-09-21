@@ -199,6 +199,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   authRepository: authRepository,
                   kakaoLoginService: kakaoLoginService,
                   googleLoginService: googleLoginService,
+                  naverLoginService: naverLoginService,
                 ),
               ),
             ],

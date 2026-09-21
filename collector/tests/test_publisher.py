@@ -78,11 +78,14 @@ def test_wait_ready_gives_up_after_timeout(monkeypatch):
     publisher = Publisher("kafka:9092", "test", producer=fake)
     clock = iter([0.0, 100.0, 100.0, 100.0])
     monkeypatch.setattr("publisher.time.monotonic", lambda: next(clock))
-    assert publisher.wait_ready(
-        timeout_seconds=30,
-        poll_seconds=1.0,
-        sleep=lambda _seconds: None,
-    ) is False
+    assert (
+        publisher.wait_ready(
+            timeout_seconds=30,
+            poll_seconds=1.0,
+            sleep=lambda _seconds: None,
+        )
+        is False
+    )
     assert fake.list_topics_calls == 1
 
 

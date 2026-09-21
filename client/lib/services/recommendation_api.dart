@@ -32,7 +32,8 @@ class RecommendationOverview {
   bool get hasEstimate => departureAt != null && eta != null;
   bool get historical =>
       source == 'HISTORICAL_REFERENCE' ||
-      source == 'MIXED_HISTORICAL_REFERENCE';
+      source == 'MIXED_HISTORICAL_REFERENCE' ||
+      source == 'BUS_REFERENCE';
 
   RouteOption toRouteOption(Schedule schedule) => RouteOption(
     kind: historical ? RouteKind.candidate : RouteKind.recommended,
@@ -61,6 +62,7 @@ class RecommendationOverview {
     'MIXED_PREVIEW' => '복합 교통 데이터 기준',
     'HISTORICAL_REFERENCE' ||
     'MIXED_HISTORICAL_REFERENCE' => '과거 버스 평균 포함 · 실시간 아님',
+    'BUS_REFERENCE' => '버스 기준시간 포함 · 실시간 아님',
     _ => '최신 평가 결과',
   };
 }

@@ -36,7 +36,10 @@ Spark 최신값 JSON에 `retentionSeconds`, `freshnessSeconds`, `validUntil`을 
 
 구현: `common/segment_facts.py`, `batch/segment_baseline.py`.
 
-입력은 `segment-observation.schema.json`에 따른 **실제 인접 구간 통과시간**이다. 이벤트 ID, Backend 구간 ID, 마스터 버전, 통과 완료·수집시각, 초 단위 소요시간, 날씨 분류, 출처가 필요하다. 도착예정 초·시간표 예정시간·ML 예측·8시간 간격 위치차는 실측 정답으로 받지 않는다. 결측 날씨를 DRY로 채우지 않는다.
+입력은 `segment-observation.schema.json`에 따른 **실제 인접 구간 통과시간**이다. 이벤트·구간·차량 ID,
+마스터/매핑 버전, 관측·진입·이탈·수집·만료시각, 검증 품질, 초 단위 소요시간, 날씨 분류와 출처가
+필요하다. 도착예정 초·시간표 예정시간·ML 예측·8시간 간격 위치차는 실측 정답으로 받지 않는다.
+결측 날씨를 DRY로 채우지 않는다.
 
 동일 eventId의 같은 사실은 한 번 계산한다. 같은 ID에 다른 소요시간/구간/날씨가 있으면 해당 ID 전체를 격리한다. 알려지지 않은 구간·버전, 잘못된 시각·단위·관측 종류도 `rejected`에 보존한다.
 
@@ -48,7 +51,9 @@ Spark 최신값 JSON에 `retentionSeconds`, `freshnessSeconds`, `validUntil`을 
 
 ## 4. 최근 10분 판정과 발행
 
-구현: `streaming/segment_status.py`. 현재는 **명시한 KST 분 단위 평가시각으로 실행하는 Replay/배치 진입점**이다. 상시 Kafka 원문 스트리밍·스케줄러가 운영에 연결된 상태는 아니다.
+고정시각 Replay/배치 진입점은 `streaming/segment_status.py`다. 매분 재평가하는
+`streaming/segment_status_live.py`와 Kafka 실측 ingest는 `recommendation-data` Compose 프로필에
+연결했다. 실제 통과 생산자와 검증 registry/baseline이 없으므로 아직 운영 활성화 대상은 아니다.
 
 - 평가시각 직전 600초의 실측을 관측 요일·시간대·날씨별로 묶고 가장 최근 그룹의 중앙값과 해당 P50을 비교한다. 11시 평가에서 10:59 관측은 10시 기준선을 사용한다. 서로 다른 날씨의 최신 관측시각이 같으면 임의 선택하지 않는다.
 - `delaySeconds=max(0, ceil(관측 중앙값-P50))`. slow/delayed 임계값, 최소 표본, 관측 최대 나이, 정책 버전은 실행자가 검토해 명시한다.

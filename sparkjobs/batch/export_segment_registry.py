@@ -7,10 +7,13 @@ subway_crosswalk의 SHA·버전·순서 검증을 거치며 같은 ID의 버전�
 
 import argparse
 import json
-from pyspark.sql import SparkSession, functions as F, types as T
+
 from common.bus_crosswalk import load_crosswalk
-from common.subway_crosswalk import SubwayCrosswalk
 from common.segment_facts import REGISTRY_SCHEMA
+from common.subway_crosswalk import SubwayCrosswalk
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql import types as T
 
 
 def main(argv=None):
@@ -36,19 +39,10 @@ def main(argv=None):
             )
         if args.subway:
             crosswalk = SubwayCrosswalk(args.subway, args.subway_sha)
-            content = json.dumps(
-                [
-                    dict(segmentId=s, masterVersion=crosswalk.version)
-                    for s in sorted(crosswalk.edges)
-                ]
-            )
+            content = json.dumps([dict(segmentId=s, masterVersion=crosswalk.version) for s in sorted(crosswalk.edges)])
             frames.append(
                 spark.range(1)
-                .select(
-                    F.explode(
-                        F.from_json(F.lit(content), T.ArrayType(REGISTRY_SCHEMA))
-                    ).alias("r")
-                )
+                .select(F.explode(F.from_json(F.lit(content), T.ArrayType(REGISTRY_SCHEMA))).alias("r"))
                 .select("r.*")
             )
         result = frames[0]

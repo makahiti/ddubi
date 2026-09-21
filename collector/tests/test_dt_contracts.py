@@ -7,28 +7,29 @@ from pathlib import Path
 
 import jsonschema
 
-COLLECTOR = Path(__file__).resolve().parents[1]
-ROOT = COLLECTOR.parent
-sys.path.insert(0, str(COLLECTOR / "src"))
-sys.path.insert(0, str(ROOT / "sparkjobs" / "tools"))
+# 프로젝트 경로를 먼저 등록해야 설치되지 않은 Collector·도구 모듈을 가져올 수 있다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sparkjobs" / "tools"))
 
-from events import build_event
-from poll_status import build_poll_status
-from main import run_cycle_with_status
 from config import Settings
-from sources.base import KST, PollBatch, Record, SourceSpec
+from events import build_event
 from export_transit_coordinates import build_records
+from main import run_cycle_with_status
+from poll_status import build_poll_status
+from sources.base import KST, PollBatch, Record, SourceSpec
 
-
+ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIR = ROOT / "docs" / "contracts" / "fixtures" / "conditional-departure-dt"
 EVENT_SCHEMA_DIR = ROOT / "docs" / "contracts" / "events"
 
 
 class DtContractTests(unittest.TestCase):
     def test_run_cycle_publishes_verified_empty_snapshot_status(self):
-        now = datetime.fromisoformat("2026-09-16T08:00:00+09:00")
         spec = SourceSpec(
-            "fixture.source", "transport.raw", "transport", 60,
+            "fixture.source",
+            "transport.raw",
+            "transport",
+            60,
             lambda *_: PollBatch([], complete_snapshot=True, page_count=1, scope_key="all"),
         )
         settings = Settings(source="fixture", kafka_bootstrap_servers="unused")
@@ -63,8 +64,11 @@ class DtContractTests(unittest.TestCase):
                 "timestampBasis": "provider",
                 "raw": {"mkTm": "2026-09-16 08:10:00", "exps1": "180"},
                 "canonicalMapping": {
-                    "state": "CONFIRMED", "scope": "ARRIVAL_TARGET_INCOMING_EDGE", "reason": "EXACT",
-                    "masterVersion": "master-v1", "idPolicy": "canonical-adjacent-v2",
+                    "state": "CONFIRMED",
+                    "scope": "ARRIVAL_TARGET_INCOMING_EDGE",
+                    "reason": "EXACT",
+                    "masterVersion": "master-v1",
+                    "idPolicy": "canonical-adjacent-v2",
                     "crosswalkSha256": "a" * 64,
                 },
             },
@@ -109,8 +113,14 @@ class DtContractTests(unittest.TestCase):
     def test_poll_status_builder_and_fixtures_validate(self):
         start = datetime.fromisoformat("2026-09-16T08:00:00+09:00")
         event = build_poll_status(
-            source="fixture", scope_key="all", started_at=start, finished_at=start,
-            status="SUCCESS", row_count=0, complete_snapshot=True, page_count=1,
+            source="fixture",
+            scope_key="all",
+            started_at=start,
+            finished_at=start,
+            status="SUCCESS",
+            row_count=0,
+            complete_snapshot=True,
+            page_count=1,
         )
         schema = json.loads((EVENT_SCHEMA_DIR / "source-poll-status.schema.json").read_text(encoding="utf-8"))
         checker = jsonschema.FormatChecker()
@@ -119,7 +129,9 @@ class DtContractTests(unittest.TestCase):
             jsonschema.validate(json.loads(path.read_text(encoding="utf-8")), schema, format_checker=checker)
 
     def test_coordinate_fixture_and_semantics(self):
-        schema = json.loads((ROOT / "docs" / "contracts" / "transit-coordinate-artifact.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads(
+            (ROOT / "docs" / "contracts" / "transit-coordinate-artifact.schema.json").read_text(encoding="utf-8")
+        )
         artifact = json.loads((FIXTURE_DIR / "transit-coordinates.json").read_text(encoding="utf-8"))
         jsonschema.validate(artifact, schema, format_checker=jsonschema.FormatChecker())
         subway = [row for row in artifact["records"] if row["mode"] == "SUBWAY"]
@@ -128,13 +140,37 @@ class DtContractTests(unittest.TestCase):
         self.assertIsNone(subway[1]["longitude"])
 
     def test_coordinate_export_preserves_occurrence_and_missing_values(self):
-        bus = {"version": "bus-v1", "routes": [{"namespace": "SEOUL_BUS", "routeId": "r", "stops": [
-            {"namespace": "SEOUL_BUS", "stopId": "s", "sequence": 1, "direction": "UP", "longitude": 127.0, "latitude": 37.0},
-            {"namespace": "SEOUL_BUS", "stopId": "s", "sequence": 9, "direction": "UP", "longitude": 127.0, "latitude": 37.0},
-        ]}]}
-        subway = {"dataVersion": "sub-v1", "lines": [{"subwayId": "2", "direction": "UP", "stations": [
-            {"stationId": "x", "sequence": 1}
-        ]}]}
+        bus = {
+            "version": "bus-v1",
+            "routes": [
+                {
+                    "namespace": "SEOUL_BUS",
+                    "routeId": "r",
+                    "stops": [
+                        {
+                            "namespace": "SEOUL_BUS",
+                            "stopId": "s",
+                            "sequence": 1,
+                            "direction": "UP",
+                            "longitude": 127.0,
+                            "latitude": 37.0,
+                        },
+                        {
+                            "namespace": "SEOUL_BUS",
+                            "stopId": "s",
+                            "sequence": 9,
+                            "direction": "UP",
+                            "longitude": 127.0,
+                            "latitude": 37.0,
+                        },
+                    ],
+                }
+            ],
+        }
+        subway = {
+            "dataVersion": "sub-v1",
+            "lines": [{"subwayId": "2", "direction": "UP", "stations": [{"stationId": "x", "sequence": 1}]}],
+        }
         rows = build_records(bus, subway, {})
         bus_rows = [row for row in rows if row["mode"] == "BUS"]
         self.assertEqual([row["occurrence"] for row in bus_rows], [1, 2])

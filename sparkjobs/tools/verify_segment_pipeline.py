@@ -9,16 +9,20 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / "sparkjobs"), str(ROOT / "collector/src")]
-from publisher import Publisher
-from pyspark.sql import SparkSession, functions as F
-from streaming.segment_observations import parse
-from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA, validate
-from batch.segment_baseline import aggregate
-from streaming.segment_status import evaluate, select_history, redis_rows, STATUS_FIELDS
-from common.redis_sink import write_latest_with_row_ttl
+# 실행 파일 위치와 무관하게 두 프로젝트 모듈을 먼저 찾는다. 기존 검색 순서를 유지한다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "collector/src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sparkjobs"))
 import redis
+from batch.segment_baseline import aggregate
+from common.redis_sink import write_latest_with_row_ttl
+from common.segment_facts import REGISTRY_SCHEMA, validate
+from publisher import Publisher
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from streaming.segment_observations import parse
+from streaming.segment_status import STATUS_FIELDS, evaluate, redis_rows, select_history
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
@@ -40,17 +44,25 @@ def main():
     version = "fixture-registry-v1"
     rows = []
     for day, durations in [(7, [40, 50, 60]), (0, [90, 100, 110])]:
-        at = (now - timedelta(days=day)).isoformat()
+        at = (now - timedelta(days=day, seconds=2)).isoformat()
         for i, duration in enumerate(durations):
+            exited = datetime.fromisoformat(at)
             rows.append(
                 dict(
-                    eventId=out.name + ":segment-fixture-%s-%s" % (day, i),
+                    eventId=out.name + f":segment-fixture-{day}-{i}",
                     segmentId=segment,
                     masterVersion=version,
-                    occurredAt=at,
-                    collectedAt=at,
+                    mappingVersion="fixture-mapping-v1",
+                    vehicleId=f"fixture-vehicle-{day}-{i}",
+                    occurredAt=exited.isoformat(),
+                    observedAt=(exited + timedelta(seconds=1)).isoformat(),
+                    enteredAt=(exited - timedelta(seconds=duration)).isoformat(),
+                    exitedAt=exited.isoformat(),
+                    collectedAt=(exited + timedelta(seconds=2)).isoformat(),
+                    validUntil=(exited + timedelta(minutes=5)).isoformat(),
                     weatherBucket="DRY",
                     sampleKind="ACTUAL_TRAVERSAL",
+                    quality="VERIFIED",
                     source="actual.fixture",
                     durationSeconds=float(duration),
                 )
@@ -94,9 +106,7 @@ def main():
         registry = spark.createDataFrame([(segment, version)], REGISTRY_SCHEMA)
         valid, rejected = validate(facts, registry, now.isoformat())
         assert rejected.count() == 0
-        history = valid.filter(
-            F.col("occurredAt") < F.lit(now.date().isoformat()).cast("timestamp")
-        )
+        history = valid.filter(F.col("occurredAt") < F.lit(now.date().isoformat()).cast("timestamp"))
         baseline = aggregate(history, "audit-20260913", 3, 1).cache()
         baseline_rows = [
             r.asDict()
@@ -112,32 +122,19 @@ def main():
             ).collect()
         ]
         assert baseline_rows[0]["p50"] == 50
-        current, rejected = evaluate(
-            facts, registry, baseline, now.isoformat(), 30, 60, 2, 300, "fixture-policy"
-        )
+        current, rejected = evaluate(facts, registry, baseline, now.isoformat(), 30, 60, 2, 300, "fixture-policy")
         full, changes = select_history(current, current.limit(0))
         payloads = [
-            json.loads(r.payload)
-            for r in full.select(
-                F.to_json(F.struct(*STATUS_FIELDS)).alias("payload")
-            ).collect()
+            json.loads(r.payload) for r in full.select(F.to_json(F.struct(*STATUS_FIELDS)).alias("payload")).collect()
         ]
-        assert (
-            len(payloads) == 1
-            and payloads[0]["status"] == "slow"
-            and payloads[0]["delaySeconds"] == 50
-        )
+        assert len(payloads) == 1 and payloads[0]["status"] == "slow" and payloads[0]["delaySeconds"] == 50
         write_latest_with_row_ttl(redis_rows(full), "ddubi-flow-redis", 6379, None)
         changes.select(
             F.col("segmentId").alias("key"),
             F.to_json(F.struct(*STATUS_FIELDS)).alias("value"),
-        ).write.format("kafka").option("kafka.bootstrap.servers", broker).option(
-            "topic", "segment.status"
-        ).save()
+        ).write.format("kafka").option("kafka.bootstrap.servers", broker).option("topic", "segment.status").save()
         stored = json.loads(
-            redis.Redis(host="ddubi-flow-redis", decode_responses=True).get(
-                "segment:status:" + segment
-            )
+            redis.Redis(host="ddubi-flow-redis", decode_responses=True).get("segment:status:" + segment)
         )
         assert stored == payloads[0]
         report = dict(

@@ -1,8 +1,7 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pyarrow.parquet as pq
-
 from buffer import KST, Batch, Row, hour_of
 from storage import Storage
 
@@ -84,5 +83,5 @@ def test_storage_writes_readable_parquet(tmp_path):
     assert table.column("event_id").to_pylist() == ["a", None]
     assert table.column("kafka_offset").to_pylist() == [42, 43]
     occurred = table.column("occurred_at").to_pylist()[0]
-    assert occurred.astimezone(timezone.utc) == datetime(2026, 8, 28, 6, 0, tzinfo=timezone.utc)
+    assert occurred.astimezone(UTC) == datetime(2026, 8, 28, 6, 0, tzinfo=UTC)
     assert str(table.schema.field("occurred_at").type) == "timestamp[us, tz=Asia/Seoul]"

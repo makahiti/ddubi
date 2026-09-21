@@ -9,30 +9,29 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import hashlib
 import json
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import pydantic
 from pydantic import BaseModel, ConfigDict, Field
-
 from sources.base import KST, Record, SourceSpec
 
-
 if int(pydantic.VERSION.split(".", 1)[0]) >= 2:
+
     class StrictModel(BaseModel):
         model_config = ConfigDict(extra="forbid")
 else:
+
     class StrictModel(BaseModel):
         class Config:
             extra = "forbid"
 
 
 class Location(StrictModel):
-
     latitude: float
     longitude: float
 

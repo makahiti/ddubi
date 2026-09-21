@@ -81,6 +81,7 @@ forbidden-output-check:
         - collector/**/*
         - archiver/**/*
         - sparkjobs/**/*
+        - .gitlab-ci.yml   # 검사 규칙 자체가 바뀌면 다시 돌린다
 
 # compose 문법·변수 참조 검증 (데몬 불필요: config 는 파싱만 한다)
 compose-validate:
@@ -89,6 +90,8 @@ compose-validate:
   script:
     - cd infra
     - cp .env.example .env
+    # 비밀번호 4개는 .env.example 에서 비어 있고 compose 가 필수로 요구한다. 문법 검증만 하는 자리라 더미 값을 넣는다(2026-09-18).
+    - export MYSQL_PASSWORD=ci-dummy MYSQL_ROOT_PASSWORD=ci-dummy REDIS_PASSWORD=ci-dummy GRAFANA_ADMIN_PASSWORD=ci-dummy
     - docker compose --profile core --profile collect --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
       --profile exporters config -q
@@ -213,12 +216,19 @@ backend-test:
 # 정리되기 전까지 경고로 둔다 — 정리 커밋 뒤 allow_failure 를 지운다.
 backend-lint:
   stage: test
+  # backend-test 와 같은 Maven 잡이라 같은 자원 그룹으로 묶는다. 러너 동시 실행 2 에서 둘이 겹치면 느려진다.
+  resource_group: backend-test
   image: eclipse-temurin:17-jdk
   # ratchet 은 git 이력이 필요하다. 러너의 얕은 클론에서 첫 실행을 확인하기 전까지는 경고로 두고,
   # 통과가 확인되면 이 줄을 지워 필수로 바꾼다.
   allow_failure: true
+  # 이 이미지에는 git 이 없다. 아래 script 첫 줄의 git fetch 가 바로 죽어서 검사가 시작도
+  # 못 했다(#206666). 경고로 둔 탓에 파이프라인은 통과로 보였고 실제로는 아무것도 검사하지
+  # 않았다. 같은 실수를 forbidden-output-check(alpine)에서 한 번 했다 — 거기는 apk 로 넣었다.
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
   cache:
-    key: backend-maven
+    key: backend-m2
     paths: [.m2/repository]
     unprotect: true
   variables:
@@ -233,6 +243,7 @@ backend-lint:
   rules:
     - changes:
         - backend/**/*
+        - .gitlab-ci.yml   # 검사 규칙 자체가 바뀌면 다시 돌린다
 
 # 파이썬 컨벤션 (2026-09-18). 루트 pyproject.toml 의 Ruff 규칙으로 검사한다.
 # 기존 코드 전체 정리(ruff format) 커밋 전까지는 경고로 둔다.
@@ -252,6 +263,7 @@ python-lint:
         - sparkjobs/**/*
         - tests/**/*
         - pyproject.toml
+        - .gitlab-ci.yml   # 검사 규칙 자체가 바뀌면 다시 돌린다
 
 client-test:
   extends: .flutter
@@ -265,6 +277,7 @@ client-test:
   rules:
     - changes:
         - client/**/*
+        - .gitlab-ci.yml   # 검사 규칙 자체가 바뀌면 다시 돌린다
 
 # ---------------------------------------------------------------------------
 # build (수동): 이미지 빌드 검증. dind(privileged) 러너 필요
@@ -358,8 +371,12 @@ deploy-server1:
   resource_group: deploy-server1        # 같은 서버에 git pull + compose up 두 개가 동시에 돌지 않게 (버튼 연타·재실행 대비)
   environment: { name: server1-data }
   script:
+    # 코드 받기 — 서버의 로컬 변경은 지우지 않고 stash 와 ~/deploy-backup 으로 옮긴다.
+    # 스크립트를 서버에 미리 둘 필요가 없도록 표준입력으로 흘려보낸다.
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.15.35
-      "cd ~/S15P21E202 && git fetch origin && git checkout $CI_COMMIT_BRANCH && git pull --ff-only origin $CI_COMMIT_BRANCH
+      'bash -s' -- "$CI_COMMIT_BRANCH" < infra/scripts/pre-deploy.sh
+    - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.15.35
+      "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server1.yml
        --profile core --profile collect --profile spark --profile archive --profile hdfs --profile exporters
        up -d --build
@@ -389,8 +406,11 @@ deploy-server2:
         echo "MAIL_PASSWORD=$MAIL_PASSWORD"
         echo "FIREBASE_CREDENTIALS_BASE64=$FIREBASE_CREDENTIALS_BASE64"
       } | ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220 "umask 077 && cat > ~/S15P21E202/infra/.env.backend"
+    # 코드 받기 — 서버1 과 같은 준비 스크립트를 쓴다.
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
-      "cd ~/S15P21E202 && git fetch origin && git checkout $CI_COMMIT_BRANCH && git pull --ff-only origin $CI_COMMIT_BRANCH
+      'bash -s' -- "$CI_COMMIT_BRANCH" < infra/scripts/pre-deploy.sh
+    - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
+      "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml
        --profile data --profile serving --profile hdfs2 --profile monitoring
        up -d --build

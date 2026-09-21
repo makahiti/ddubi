@@ -270,6 +270,26 @@ groups:
             datasourceUid: __expr__
             model: { refId: C, type: math, expression: "$A < 1" }
 
+      # 실측 생산자가 활성화된 뒤 판정 잡만 멈춘 경우를 잡는다. 실측 자체가 아직 없는 환경에서는 경고하지 않는다.
+      - uid: ddubi-segment-status-stalled
+        title: 구간 판정 생성 중단
+        condition: C
+        for: 5m
+        labels: { severity: warning, layer: data }
+        annotations:
+          summary: segment.observation은 30분 동안 들어왔지만 segment.status가 한 건도 생성되지 않았다. recommendation-data 프로필과 segment status 잡 로그를 확인
+          runbook: docs/contracts/recommendation-data-readiness.md
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: '((sum(increase(kafka_topic_partition_current_offset{topic="segment.observation"}[30m])) or vector(0)) > bool 0) * ((sum(increase(kafka_topic_partition_current_offset{topic="segment.status"}[30m])) or vector(0)) < bool 1)' }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: math, expression: "$A > 0" }
+
       # Spark 스트리밍 한 배치의 처리 시간(ms). 평소 3ms~13초인데, 9/11 대응표 OOM 사고 때는 32~52초로 늘다가 멈췄다.
       # 5분(트리거 간격)을 넘으면 배치가 밀리기 시작한 것이라 미리 알린다. 잡이 죽어 지표가 사라지는 경우는 "Spark 스트리밍 잡 부족" 이 잡는다 (2026-09-15)
       - uid: ddubi-spark-batch-slow
@@ -354,6 +374,50 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model: { refId: C, type: math, expression: "$A > 90" }
+
+      # OOM 킬. 컨테이너 하나가 자기 메모리 상한(mem_limit)에 닿으면 커널이 그 프로세스를 죽이고 도커가 다시 띄운다. 서비스는 몇 초 만에
+      # 돌아오기 때문에 "다운" 규칙(5분 지속)에는 걸리지 않고, 호스트 메모리도 90% 와 무관하다. 2026-09-17 23:42 MySQL 이 이렇게 죽었는데
+      # 아무 알림도 없었다. node-exporter 의 커널 OOM 카운터는 컨테이너 상한 초과도 함께 세므로 이 값이 10분 안에 늘면 알린다.
+      # 재부팅하면 카운터가 0 으로 돌아가지만 increase() 가 리셋을 알아서 건너뛴다. 사건형 규칙이라 for 는 0 이고 10분 창이 지나면 저절로 해소된다
+      - uid: ddubi-oom-kill
+        title: OOM 킬 발생 (컨테이너가 메모리 상한에 죽었음)
+        condition: C
+        for: 0m
+        labels: { severity: warning, layer: host }
+        annotations:
+          summary: 커널이 메모리 초과로 프로세스를 죽였다(도커가 다시 띄워 서비스는 곧 돌아온다). 어느 컨테이너인지 `sudo journalctl -k --since -20m | grep -i oom` 으로 확인하고 `docker ps` 재시작 횟수와 mem_limit 상향을 검토한다
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'increase(node_vmstat_oom_kill[10m])' }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: math, expression: "$A > 0" }
+
+      # MySQL·Redis 재시작. 데이터 저장소가 다시 시작되면 가동 시간(uptime)이 0 으로 돌아간다. 15분 안에 그런 리셋이 있으면 알린다.
+      # 두 저장소는 compose 값이 바뀔 때만 재생성되어 재시작이 드물기 때문에, 계획된 재부팅·배포 때 한 번 오는 알림은 정상으로 본다.
+      # backend 는 배포마다 재시작해 소음이 되므로 여기서 빼고, 기존 "backend 다운" 규칙과 서버1의 5분 감시에 맡긴다.
+      # OOM 으로 죽은 경우는 위 규칙이 따로 알려 준다 (2026-09-18)
+      - uid: ddubi-datastore-restarted
+        title: MySQL·Redis 재시작 감지
+        condition: C
+        for: 0m
+        labels: { severity: warning, layer: service }
+        annotations:
+          summary: MySQL 또는 Redis 프로세스가 15분 안에 다시 시작됐다. 계획된 재부팅·배포가 아니면 `docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' mysql redis` 와 `journalctl -k` 로 원인을 확인한다
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, instant: true, expr: 'resets(mysql_global_status_uptime[15m]) or resets(redis_uptime_in_seconds[15m])' }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: math, expression: "$A > 0" }
 
       # TLS 인증서 만료. certbot 이 12시간마다 갱신을 시도하지만 조용히 실패할 수 있다(갱신 설정에 standalone 이 남아 있음, 2026-09-15 발견).
       # blackbox 가 공개 주소를 https 로 찌를 때 알려 주는 만료 시각을 쓴다. 14일 전에 알리면 손으로 갱신할 시간이 충분하다

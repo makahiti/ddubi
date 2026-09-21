@@ -6,16 +6,30 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record KakaoWalkingResponse(String status, Route route) {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Route(Properties properties) { }
+    public record Route(Properties properties, java.util.List<Leg> legs) {}
+
+    /** 공식 legs[].steps[].properties의 안내와 거리만 보정 입력으로 사용한다. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Leg(java.util.List<Step> steps) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Step(StepProperties properties) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record StepProperties(Long distance, String guidance) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Properties(Long totalDistance, Long totalTime) {
         /** 소수·문자열·범위 초과 값을 정수 시간으로 강제 변환하지 않는다. */
-        @com.fasterxml.jackson.annotation.JsonCreator(mode = com.fasterxml.jackson.annotation.JsonCreator.Mode.DELEGATING)
+        @com.fasterxml.jackson.annotation.JsonCreator(
+                mode = com.fasterxml.jackson.annotation.JsonCreator.Mode.DELEGATING)
         public static Properties read(com.fasterxml.jackson.databind.JsonNode value) {
-            return new Properties(integer(value.path("totalDistance")),integer(value.path("totalTime")));
+            return new Properties(
+                    integer(value.path("totalDistance")), integer(value.path("totalTime")));
         }
+
         private static Long integer(com.fasterxml.jackson.databind.JsonNode value) {
-            return value.isIntegralNumber() && value.canConvertToLong()?value.longValue():null;
+            return value.isIntegralNumber() && value.canConvertToLong() ? value.longValue() : null;
         }
     }
 }

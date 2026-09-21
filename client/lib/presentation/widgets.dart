@@ -770,7 +770,11 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
       if (!mounted) return;
       setState(() {
         _results = results;
-        if (results.isEmpty) _error = '서울 안에서 검색 결과를 찾지 못했어요.';
+        // 검색 범위는 서버의 서비스 권역이 정한다. 앱이 특정 지역 이름을 단정하면
+        // 서버가 권역을 넓혔을 때 안내가 사실과 달라진다.
+        if (results.isEmpty) {
+          _error = '서비스 지역 안에서 검색 결과를 찾지 못했어요.';
+        }
       });
     } on Object {
       if (!mounted) return;

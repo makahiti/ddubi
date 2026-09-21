@@ -98,7 +98,7 @@ class DepartureHeadlineContent {
         tone: DepartureHeadlineTone.waiting,
       );
     }
-    if (evaluation.canRecommendAt(now) && depart != null && arrival != null) {
+    if (evaluation.canAcceptAt(now) && depart != null && arrival != null) {
       return DepartureHeadlineContent(
         title: '${formatClock(depart)}에 나가면 ${formatClock(arrival)} 도착',
         detail: _marginDetail(evaluation, arrival),
@@ -114,15 +114,19 @@ class DepartureHeadlineContent {
         tone: DepartureHeadlineTone.reference,
       );
     }
-    // 확정 조건은 못 넘겼지만 계산이 끝난 결과: 시각을 참고값으로 보여준다(2026-09-18 결정).
-    // 색(파랑)과 "참고"라는 말로 확정과 구분한다. 적용 버튼은 카드의 규칙이 그대로 잠근다.
-    if (evaluationHasReferenceTimes(evaluation) &&
+    // 확정은 아니지만 서버가 보여도 된다고 한 결과: 시각을 그대로 보여준다.
+    // 색(파랑)과 문구로 확정과 구분한다. 적용 버튼은 서버 판단이 잠근다.
+    if (evaluation.canDisplayEstimateAt(now) &&
         depart != null &&
         arrival != null) {
       final reason = evaluationShortfallReason(evaluation);
       return DepartureHeadlineContent(
         title: '${formatClock(depart)}에 나가면 ${formatClock(arrival)} 도착 예상',
-        detail: reason == null ? '아직 확정 전 참고값이에요.' : '아직 확정 전 참고값이에요. $reason',
+        detail: evaluation.guidance.isProviderEstimate
+            ? '기본 경로 기준 예상이에요. 실시간 정보가 들어오면 더 정확해져요.'
+            : reason == null
+            ? '아직 확정 전 참고값이에요.'
+            : '아직 확정 전 참고값이에요. $reason',
         tone: DepartureHeadlineTone.reference,
       );
     }

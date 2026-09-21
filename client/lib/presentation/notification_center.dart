@@ -25,6 +25,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   late Future<NotificationInbox> _inbox;
   _NotificationFilter _filter = _NotificationFilter.all;
   bool _selectionMode = false;
+  bool _deleting = false;
   final Set<String> _selectedIds = {};
 
   @override
@@ -42,9 +43,53 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     });
   }
 
-  void _showDeleteUnavailable() {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('선택한 알림 삭제 기능은 준비 중이에요.')));
+  /// 고른 알림을 지운다. 되돌릴 수 없으므로 먼저 묻는다.
+  ///
+  /// 서버는 발송 이력을 남기고 알림함에서만 감춘다. 그래서 지운 뒤에도 같은 상황의 알림이
+  /// 다시 오지는 않는다.
+  Future<void> _deleteSelected() async {
+    final ids = _selectedIds.toList(growable: false);
+    if (ids.isEmpty || _deleting) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('알림 ${ids.length}개를 지울까요?'),
+        content: const Text('지운 알림은 알림함에서 사라져요. 되돌릴 수 없어요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    try {
+      await widget.api.deleteNotifications(ids);
+      if (!mounted) return;
+      setState(() {
+        _selectedIds.clear();
+        _selectionMode = false;
+      });
+      _reload();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('알림 ${ids.length}개를 지웠어요.')));
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('알림을 지우지 못했어요. 잠시 뒤 다시 시도해 주세요.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
   }
 
   @override
@@ -90,8 +135,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             key: const Key('notificationDeleteButton'),
             icon: Icons.delete_outline_rounded,
             label: '휴지통',
-            onTap: selecting && _selectedIds.isNotEmpty
-                ? _showDeleteUnavailable
+            onTap: selecting && _selectedIds.isNotEmpty && !_deleting
+                ? _deleteSelected
                 : null,
           ),
           const SizedBox(width: 6),
@@ -110,7 +155,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     onFilterChanged: (filter) => setState(() => _filter = filter),
     onSelectionChanged: _toggleItem,
     onToggleAll: _toggleAll,
-    onDelete: _selectedIds.isEmpty ? null : _showDeleteUnavailable,
+    onDelete: _selectedIds.isEmpty || _deleting ? null : _deleteSelected,
     onMarkAllRead: _markAllRead,
     onOpen: _openNotification,
     onOpenSettings: _openNotificationSettings,
@@ -162,7 +207,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         onFilterChanged: (filter) => setState(() => _filter = filter),
         onSelectionChanged: _toggleItem,
         onToggleAll: _toggleAll,
-        onDelete: _selectedIds.isEmpty ? null : _showDeleteUnavailable,
+        onDelete: _selectedIds.isEmpty || _deleting ? null : _deleteSelected,
         onMarkAllRead: _markAllRead,
         onOpen: _openNotification,
         onOpenSettings: _openNotificationSettings,

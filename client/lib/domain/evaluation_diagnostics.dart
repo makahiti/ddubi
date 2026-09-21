@@ -60,6 +60,7 @@ class EvaluationDiagnostics {
     required this.versions,
     required this.globalCodes,
     this.dataVersion,
+    this.referenceKind,
   });
 
   final List<StepDiagnostics> steps;
@@ -68,8 +69,11 @@ class EvaluationDiagnostics {
   /// step 접두어가 없는 코드(EGRESS_WALK_FALLBACK 등).
   final List<String> globalCodes;
 
-  /// 과거 자료 버전. reason `HISTORICAL_REFERENCE_DATA_VERSION:<값>` 또는 versions 에서 읽는다.
+  /// 버스 기준자료 버전. versions.busReference 또는 reason 에서 읽는다.
   final String? dataVersion;
+
+  /// 버스 기준자료 종류. GTFS_SCHEDULE_FORMULA 는 시간표 계산값이고 실측이 아니다.
+  final String? referenceKind;
 
   static final RegExp _stepPrefix = RegExp(r'^(step-\d+|leg-\d+)$');
 
@@ -77,6 +81,7 @@ class EvaluationDiagnostics {
     final byStep = <String, List<List<String>>>{};
     final global = <String>[];
     String? dataVersion;
+    String? referenceKind;
     for (final raw in evaluation.quality.fallbackReasons) {
       final parts = raw.split(':');
       if (parts.length >= 2 && _stepPrefix.hasMatch(parts.first)) {
@@ -88,9 +93,18 @@ class EvaluationDiagnostics {
       if (versionIndex >= 0 && versionIndex + 1 < parts.length) {
         dataVersion ??= parts.sublist(versionIndex + 1).join(':');
       }
+      final kindIndex = parts.indexOf('BUS_REFERENCE_KIND');
+      if (kindIndex >= 0 && kindIndex + 1 < parts.length) {
+        referenceKind ??= parts.sublist(kindIndex + 1).join(':');
+      }
     }
     final versions = evaluation.versions?.values ?? const <String, String>{};
-    dataVersion ??= versions['dataVersion'] ?? versions['data'];
+    referenceKind = versions['busReferenceKind'] ?? referenceKind;
+    dataVersion =
+        versions['busReference'] ??
+        dataVersion ??
+        versions['dataVersion'] ??
+        versions['data'];
 
     final steps = <StepDiagnostics>[];
     for (final entry in byStep.entries) {
@@ -164,6 +178,7 @@ class EvaluationDiagnostics {
       versions: Map.unmodifiable(versions),
       globalCodes: List.unmodifiable(global),
       dataVersion: dataVersion,
+      referenceKind: referenceKind,
     );
   }
 

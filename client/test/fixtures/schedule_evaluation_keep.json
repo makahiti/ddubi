@@ -32,7 +32,10 @@
       "fromName": "집",
       "toName": "정류장",
       "durationSeconds": 305,
-      "endpointEvidence": {"verified": true, "source": "STOP_MASTER"}
+      "endpointEvidence": {
+        "verified": true,
+        "source": "STOP_MASTER"
+      }
     },
     {
       "sequence": 2,
@@ -63,5 +66,11 @@
     }
   ],
   "computedAt": "2026-09-17T14:45:00Z",
-  "validUntil": "2099-09-17T15:00:00Z"
+  "validUntil": "2099-09-17T15:00:00Z",
+  "guidance": {
+    "canDisplayEstimate": true,
+    "canAccept": true,
+    "source": "MIXED_ESTIMATE",
+    "reasons": []
+  }
 }

@@ -45,6 +45,7 @@ public class SubwayTimetable {
     }
     private final Data data;
     private final String unavailableReason;
+    private final Map<List<String>,List<Trip>> index;
 
     /** 경로는 서버 설정 전용이다. 32 MiB 초과 파일과 불완전한 운행표는 전체 거절하여 부분 적재를 숨기지 않는다. */
     @org.springframework.beans.factory.annotation.Autowired
@@ -62,13 +63,29 @@ public class SubwayTimetable {
                 reason = null;
             } catch (Exception invalid) { loaded = null; reason = "SUBWAY_TIMETABLE_INVALID"; }
         }
-        data = loaded; unavailableReason = reason;
+        data = loaded; unavailableReason = reason; index=buildIndex(loaded);
     }
 
     /** 고정 증거 Replay와 테스트용 입력도 운영과 같은 검증을 거친다. */
-    SubwayTimetable(Data data) { this.data = validate(data); this.unavailableReason = null; }
+    SubwayTimetable(Data data) { this.data = validate(data); this.unavailableReason = null; index=buildIndex(this.data); }
     public Data data() { return data; }
     public String unavailableReason() { return unavailableReason; }
+
+    /** canonical 노선·방향·승차역으로 후보를 좁힌다. 회차와 실제 연속 구간 검증은 소비자가 수행한다. */
+    public List<Trip> tripsFor(String line,String direction,String station) {
+        if(line==null || direction==null || station==null) return List.of();
+        return index.getOrDefault(List.of(line,direction,station),List.of());
+    }
+    private static Map<List<String>,List<Trip>> buildIndex(Data data) {
+        var grouped=new HashMap<List<String>,List<Trip>>();
+        if(data!=null) for(var trip:data.trips()) {
+            var seen=new HashSet<String>();
+            for(var call:trip.calls()) if(seen.add(call.stationId()))
+                grouped.computeIfAbsent(List.of(trip.lineId(),trip.direction(),call.stationId()),k->new ArrayList<>()).add(trip);
+        }
+        grouped.replaceAll((k,v)->List.copyOf(v));
+        return Map.copyOf(grouped);
+    }
 
     private static Data validate(Data d) {
         if (d == null || blank(d.version()) || blank(d.masterDataVersion()) || blank(d.source())

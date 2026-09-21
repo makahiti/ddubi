@@ -47,16 +47,19 @@ void main() {
   test('검증용(preview) 결과는 시각을 참고값으로 보여주되 확정 색을 쓰지 않는다', () async {
     final raw = await _raw('keep');
     (raw['quality'] as Map<String, dynamic>)['preview'] = true;
-    raw['computedAt'] = now
-        .subtract(const Duration(minutes: 2))
-        .toUtc()
-        .toIso8601String();
+    raw['guidance'] = {
+      'canDisplayEstimate': true,
+      'canAccept': false,
+      'source': 'EXPERIMENTAL_ESTIMATE',
+      'reasons': ['ML_TEST_RESULT_NOT_ACCEPTABLE'],
+    };
+    // 만료 동작은 위 시험에서 따로 확인한다. 여기서는 유효한 결과로 둔다.
     raw['validUntil'] = now
-        .subtract(const Duration(minutes: 1))
+        .add(const Duration(minutes: 1))
         .toUtc()
         .toIso8601String();
     final preview = ScheduleEvaluationV2.fromJson(raw);
-    expect(preview.canAcceptAt(now), isFalse, reason: '적용 규칙은 그대로다');
+    expect(preview.canAcceptAt(now), isFalse, reason: '시험 예측이 섞이면 수락은 막힌다');
 
     final content = DepartureHeadlineContent.of(preview, now);
 

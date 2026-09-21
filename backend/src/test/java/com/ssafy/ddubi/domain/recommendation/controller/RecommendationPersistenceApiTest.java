@@ -63,7 +63,7 @@ class RecommendationPersistenceApiTest extends IntegrationTestSupport {
     @BeforeEach
     void fixture() throws Exception {
         now = Instant.now();
-        // 예측 서비스는 아직 붙어 있지 않다. 지금 운영에서 실제로 나오는 상태 그대로 둔다.
+        // ML 미설정 시나리오를 고정한다. 실제 운영 서버의 설정 여부와는 독립적인 fixture다.
         when(mlClient.predict(any())).thenReturn(BusPreviewClient.Estimate.unavailable("ML_NOT_CONFIGURED"));
         when(routeClient.search(any())).thenReturn(new RouteSearchResult("KAKAO", now, null,
                 List.of(RouteEvidenceAssemblerTest.candidate(0, 1500, 30),
@@ -125,25 +125,44 @@ class RecommendationPersistenceApiTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("저장은 되어도 수락과 자동 알림은 여전히 막혀 있다")
-    void storingDoesNotUnblockAcceptOrNotification() throws Exception {
-        String evaluated = http.perform(post("/api/v1/schedules/{id}/recommendations", scheduleId).param("version","1")
-                .header("Authorization", bearer)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String evaluationId = json.readTree(evaluated).path("data").path("evaluationId").asText();
+    @DisplayName("기본 경로 예상은 HTTP로 수락할 수 있지만 모델 승인과 자동 알림은 바뀌지 않는다")
+    void providerEstimateCanBeAcceptedWithoutModelApprovalOrAutomaticNotification() throws Exception {
+        // 2026-09-18 정책: 모델 승인 플래그는 안내·수락 자격과 분리한다. 409 기대를 유지하면
+        // 정상적인 기본 경로 수락(200)을 CI가 실패로 오인하므로 실제 v2 안내 계약까지 검증한다.
+        String evaluated = http.perform(post("/api/v1/schedules/{id}/recommendations", scheduleId).param("version","2")
+                .header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.guidance.canDisplayEstimate").value(true))
+                .andExpect(jsonPath("$.data.guidance.canAccept").value(true))
+                .andExpect(jsonPath("$.data.guidance.source").value("PROVIDER_ESTIMATE"))
+                .andExpect(jsonPath("$.data.quality.productionEligible").value(false))
+                .andExpect(jsonPath("$.data.decision").value("KEEP_DEPARTURE"))
+                .andReturn().getResponse().getContentAsString();
+        var evaluation = json.readTree(evaluated).path("data");
+        String evaluationId = evaluation.path("evaluationId").asText();
+        long proposedRouteId = evaluation.path("proposedRouteId").asLong();
+        assertThat(proposedRouteId).isPositive();
 
         http.perform(post("/api/v1/schedules/{id}/recommendations/accept", scheduleId).header("Authorization", bearer)
-                        .contentType("application/json").content("{\"evaluationId\":\"" + evaluationId + "\"}"))
-                .andExpect(status().isConflict());
+                        .contentType("application/json").content(json.writeValueAsString(Map.of("evaluationId",evaluationId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("PENDING"));
+
+        // 단순 HTTP 성공에 그치지 않고 수락된 평가와 실제 선택 경로를 저장했는지 확인한다.
+        assertThat(jdbc.queryForObject("SELECT accepted_evaluation_id FROM schedule_evaluation WHERE schedule_id=?",
+                String.class,scheduleId)).isEqualTo(evaluationId);
+        assertThat(jdbc.queryForObject("SELECT id FROM route WHERE schedule_id=? AND is_selected=true",
+                Long.class,scheduleId)).isEqualTo(proposedRouteId);
 
         assertThat(jdbc.queryForObject(
                 "SELECT notification_json FROM schedule_evaluation WHERE schedule_id=?", String.class, scheduleId))
-                .as("검증 전 값으로 폰을 울리지 않는다").isNull();
+                .as("수동 수락이 자동 알림을 활성화하지 않는다").isNull();
         // 출발시각은 생 JDBC 로 읽지 않는다. hibernate.jdbc.time_zone=Asia/Seoul 이라 JPA 의
         // 쓰기/읽기는 서로 역변환이라 짝이 맞지만, 그 사이에 생 JDBC 로 끼어들면 JVM 이 UTC 인
         // CI 에서만 9시간 어긋난 값이 보인다. 애플리케이션이 실제로 읽는 경로로 확인한다.
         assertThat(schedules.findById(scheduleId).orElseThrow().getPlannedDepartAt())
-                .as("수락이 막혔으니 출발시각도 그대로다")
-                .isEqualTo(LocalDateTime.ofInstant(now.plusSeconds(600), KST).withNano(0));
+                .as("KEEP_DEPARTURE 제안의 출발시각을 그대로 수락한다")
+                .isEqualTo(LocalDateTime.ofInstant(Instant.parse(evaluation.path("proposedDepartAt").asText()), KST));
     }
 
     @Test

@@ -109,7 +109,10 @@ def fetch_bus_location(
         )
         if response.status_code != 200:
             # 인증키가 포함된 요청 URL은 예외 메시지에 넣지 않는다.
-            raise BusLocationError(f"서울 버스위치 API가 HTTP {response.status_code}을 반환했습니다", retryable=response.status_code == 408 or 500 <= response.status_code <= 599)
+            raise BusLocationError(
+                f"서울 버스위치 API가 HTTP {response.status_code}을 반환했습니다",
+                retryable=response.status_code == 408 or 500 <= response.status_code <= 599,
+            )
         try:
             data = response.json()
         except ValueError as exc:
@@ -119,7 +122,10 @@ def fetch_bus_location(
         _validate_api_response(data)
         return data
     except httpx.HTTPError as exc:
-        raise BusLocationError(f"서울 버스위치 API 연결에 실패했습니다: {type(exc).__name__}", retryable=isinstance(exc, httpx.TransportError)) from None
+        raise BusLocationError(
+            f"서울 버스위치 API 연결에 실패했습니다: {type(exc).__name__}",
+            retryable=isinstance(exc, httpx.TransportError),
+        ) from None
     finally:
         if owns_client:
             http_client.close()
@@ -168,9 +174,7 @@ def fetch_all_bus_locations(
 ) -> dict[str, Any]:
     """노선 ID를 순차 호출해 서울 전체 노선의 버스 위치를 반환한다."""
     if requests_per_second <= 0 or requests_per_second > MAX_REQUESTS_PER_SECOND:
-        raise BusLocationError(
-            f"초당 요청 수는 1 이상 {MAX_REQUESTS_PER_SECOND} 이하여야 합니다"
-        )
+        raise BusLocationError(f"초당 요청 수는 1 이상 {MAX_REQUESTS_PER_SECOND} 이하여야 합니다")
 
     owns_client = client is None
     http_client = client or httpx.Client(timeout=httpx.Timeout(15.0, connect=5.0))
@@ -263,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         route_ids = load_bus_route_ids(args.route_ids_file)
         data = fetch_all_bus_locations(
             api_key,
-            route_ids[:args.route_limit],
+            route_ids[: args.route_limit],
             requests_per_second=args.requests_per_second,
         )
     save_json(data, args.output)
@@ -277,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("bus_location")
 
 

@@ -14,17 +14,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "sparkjobs"))
-sys.path.insert(0, str(ROOT / "collector/src"))
-from publisher import Publisher
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "sparkjobs"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "collector/src"))
+import redis
 from bus_crosswalk import BusCrosswalk
 from common.bus_crosswalk import load_crosswalk
 from common.kafka_source import read_events_stream
 from common.settings import Settings
+from publisher import Publisher
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 from streaming.realtime_latest import process_batch
-from pyspark.sql import SparkSession, functions as F
-import redis
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
@@ -40,8 +42,7 @@ def main():
     broker = "ddubi-hardening-kafka:9092"
     topic = "audit-transport-" + out.name
     if len(topic) > 249 or any(
-        c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
-        for c in topic
+        c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for c in topic
     ):
         raise ValueError("output directory name must be Kafka topic safe")
     cache = redis.Redis(host="ddubi-hardening-redis", decode_responses=True)
@@ -80,9 +81,7 @@ def main():
     def consume(frame, batch_id):
         started = time.perf_counter()
         process_batch(frame, batch_id, settings, crosswalk)
-        heap = (
-            spark._jvm.java.lang.management.ManagementFactory.getMemoryMXBean().getHeapMemoryUsage()
-        )
+        heap = spark._jvm.java.lang.management.ManagementFactory.getMemoryMXBean().getHeapMemoryUsage()
         metrics.append(
             dict(
                 batchId=batch_id,
@@ -119,7 +118,7 @@ def main():
                 mapping["masterVersion"] = "fixture-other-version"
             payload["canonicalMapping"] = mapping
             event = dict(
-                eventId=run_id + "audit-%s-%s-%s" % (batch, old, i),
+                eventId=run_id + f"audit-{batch}-{old}-{i}",
                 eventType="bus.position",
                 source="seoul.bus_location",
                 region="SEOUL",
@@ -141,7 +140,7 @@ def main():
         for batch in range(a.batches):
             send(batch)
             value = json.loads(cache.get(prefix + "0"))
-            assert value["eventId"] == run_id + "audit-%s-False-0" % batch
+            assert value["eventId"] == run_id + f"audit-{batch}-False-0"
             assert value["segmentIds"] == [edge["segmentId"]]
             assert value["canonicalMapping"]["crosswalkSha256"] == sha
         before = cache.get(prefix + "0")
@@ -167,8 +166,7 @@ def main():
             mismatchRejected=True,
             sparkVersion=spark.version,
             batches=metrics,
-            inMemoryPlan="InMemoryTableScan"
-            in crosswalk[0]._jdf.queryExecution().executedPlan().toString(),
+            inMemoryPlan="InMemoryTableScan" in crosswalk[0]._jdf.queryExecution().executedPlan().toString(),
             productionValidated=False,
         )
         (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

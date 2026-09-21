@@ -51,7 +51,11 @@ class ConditionalDeparturePersistenceTest extends IntegrationTestSupport {
         assertThat(response.schemaVersion()).isEqualTo("schedule-evaluation-v2");
         assertThat(response.meetsAdjustedTarget()).isTrue();assertThat(response.quality().productionEligible()).isFalse();
         assertThat(repository.findById(id).orElseThrow().getPlannedDepartAt()).isEqualTo(local(now.plusSeconds(1800)));
-        assertThatThrownBy(()->store.accept(id,owner,outcome.evaluationId(),now)).isInstanceOf(BusinessException.class);
+        assertThat(response.guidance().canAccept()).isTrue();
+        store.accept(id,owner,outcome.evaluationId(),now);
+        assertThat(repository.findById(id).orElseThrow().getPlannedDepartAt()).isEqualTo(local(now.plusSeconds(1200)));
+        // 같은 평가 수락은 멱등적이며 모델 승인 플래그와 무관하다.
+        store.accept(id,owner,outcome.evaluationId(),now);
     }
     @Test void sameTimestampInputChangeCannotCompleteOldLease() {
         var job=store.claim(id,owner,now);

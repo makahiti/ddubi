@@ -107,7 +107,7 @@ URI 누락·형식 오류를 기동 설정 오류로 만들고 싶을 때만 사
 
 - 운영 서버 배포 및 실제 Kafka→HDFS Streaming 검증
 - 새 `batch/weather_silver_backfill.py`의 운영 실행 검증 (과거 원본을 별도 버전 경로로 복구하는 코드는 추가됨)
-- `segmentId → (nx, ny)` 대응표 생성
+- `batch/export_bus_weather_mapping.py` 구현의 운영 HDFS 실행 및 결과 검토
 - 서울 14개 외 경기·인천 격자 수집
 - Redis 소비자의 새 `features` 전환
 

@@ -3,8 +3,10 @@ package com.ssafy.ddubi.domain.auth.controller;
 import com.ssafy.ddubi.domain.auth.dto.request.EmailVerificationConfirmRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.EmailVerificationRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.LocalLoginRequest;
+import com.ssafy.ddubi.domain.auth.dto.request.EmailChangeRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.LocalSignupRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.LogoutRequest;
+import com.ssafy.ddubi.domain.auth.dto.request.PasswordChangeRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthAccessTokenLoginRequest;
 import com.ssafy.ddubi.domain.auth.dto.request.OAuthIdTokenLoginRequest;
@@ -13,6 +15,7 @@ import com.ssafy.ddubi.domain.auth.dto.request.SocialLinkRequest;
 import com.ssafy.ddubi.domain.auth.dto.response.SocialLinkResponse;
 import com.ssafy.ddubi.domain.auth.dto.request.TokenRefreshRequest;
 import com.ssafy.ddubi.domain.auth.dto.response.AuthTokenResponse;
+import com.ssafy.ddubi.domain.auth.dto.response.EmailChangeResponse;
 import com.ssafy.ddubi.domain.auth.dto.response.OAuthLoginResponse;
 import com.ssafy.ddubi.domain.auth.entity.AuthProvider;
 import com.ssafy.ddubi.domain.auth.service.AuthService;
@@ -26,6 +29,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -60,6 +64,51 @@ public class AuthController {
             @Valid @RequestBody EmailVerificationConfirmRequest request) {
         emailVerificationService.confirm(request);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "비밀번호 변경",
+            description = """
+                    로그인한 본인의 비밀번호를 바꾼다. 지금 쓰는 비밀번호를 함께 보낸다.
+
+                    **바꾸면 다른 기기는 전부 로그아웃된다.** 비밀번호를 바꾸는 흔한 이유가
+                    "누가 내 계정을 쓰는 것 같다" 인데, 세션을 두면 이미 들어와 있는 쪽은
+                    계속 들어와 있다. 요청한 기기만 새 토큰을 받아 이어서 쓴다.
+
+                    | 상황 | 응답 |
+                    |---|---|
+                    | 현재 비밀번호 불일치 | 401 `UNAUTHORIZED` |
+                    | 새 비밀번호가 지금 것과 같음 | 400 `INVALID_REQUEST` |
+                    | 소셜로만 가입한 계정 | 400 `INVALID_REQUEST` |
+
+                    AUTH-008""")
+    @PatchMapping("/password")
+    public ApiResponse<AuthTokenResponse> changePassword(
+            @LoginUserId Long userId,
+            @Valid @RequestBody PasswordChangeRequest request) {
+        return ApiResponse.success(authService.changePassword(userId, request));
+    }
+
+    @Operation(summary = "이메일 변경",
+            description = """
+                    로그인한 본인의 이메일을 바꾼다. **새 주소의 인증을 먼저 마쳐야 한다** —
+                    `POST /auth/email/verification` → `.../confirm` 순서는 가입과 같다.
+
+                    비밀번호가 있는 계정이면 비밀번호도 함께 보낸다. 소셜로만 가입한 계정은 비워 둔다.
+
+                    토큰은 그대로 쓴다. 다음 로그인부터 새 이메일을 쓴다.
+
+                    | 상황 | 응답 |
+                    |---|---|
+                    | 인증을 안 마친 주소 | 400 `INVALID_REQUEST` |
+                    | 이미 쓰는 이메일 | 409 `DUPLICATE_RESOURCE` |
+                    | 비밀번호 불일치 | 401 `UNAUTHORIZED` |
+
+                    AUTH-009""")
+    @PatchMapping("/email")
+    public ApiResponse<EmailChangeResponse> changeEmail(
+            @LoginUserId Long userId,
+            @Valid @RequestBody EmailChangeRequest request) {
+        return ApiResponse.success(authService.changeEmail(userId, request));
     }
 
     @Operation(summary = "로컬 회원가입",

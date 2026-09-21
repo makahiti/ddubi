@@ -4,38 +4,66 @@ import json
 from datetime import date, datetime
 
 import pytest
-from pyspark.sql import SparkSession
-
 from batch.weather_baseline import aggregate
 from common.archive_source import lookback_window, read_archive_events
+from pyspark.sql import SparkSession
 from streaming.weather_latest import transform
 
 
 @pytest.fixture(scope="session")
 def spark():
     s = (
-        SparkSession.builder.master("local[1]").appName("test-weather-baseline")
-        .config("spark.sql.session.timeZone", "Asia/Seoul").config("spark.sql.shuffle.partitions", "1")
-        .config("spark.ui.enabled", "false").getOrCreate()
+        SparkSession.builder.master("local[1]")
+        .appName("test-weather-baseline")
+        .config("spark.sql.session.timeZone", "Asia/Seoul")
+        .config("spark.sql.shuffle.partitions", "1")
+        .config("spark.ui.enabled", "false")
+        .getOrCreate()
     )
     yield s
     s.stop()
 
 
 def _archive_row(event_id, occurred, nx, ny, temp, pty, date_str, hour, offset):
-    value = json.dumps({
-        "eventId": event_id, "eventType": "weather.observation", "source": "kma.ultra-srt-ncst",
-        "occurredAt": occurred, "collectedAt": occurred,
-        "payload": {"district": "종로구", "nx": nx, "ny": ny, "baseDate": date_str.replace("-", ""), "baseTime": f"{hour:02d}00",
-                    "observations": {"T1H": temp, "REH": 60.0, "WSD": 2.0, "RN1": 0.0, "PTY": pty}},
-    }, ensure_ascii=False)
-    return (f"{nx}:{ny}", value, event_id, "weather.observation", "kma.ultra-srt-ncst",
-            datetime.fromisoformat(occurred), datetime.fromisoformat(occurred), 0, offset, datetime.fromisoformat(occurred), date_str, hour)
+    value = json.dumps(
+        {
+            "eventId": event_id,
+            "eventType": "weather.observation",
+            "source": "kma.ultra-srt-ncst",
+            "occurredAt": occurred,
+            "collectedAt": occurred,
+            "payload": {
+                "district": "종로구",
+                "nx": nx,
+                "ny": ny,
+                "baseDate": date_str.replace("-", ""),
+                "baseTime": f"{hour:02d}00",
+                "observations": {"T1H": temp, "REH": 60.0, "WSD": 2.0, "RN1": 0.0, "PTY": pty},
+            },
+        },
+        ensure_ascii=False,
+    )
+    return (
+        f"{nx}:{ny}",
+        value,
+        event_id,
+        "weather.observation",
+        "kma.ultra-srt-ncst",
+        datetime.fromisoformat(occurred),
+        datetime.fromisoformat(occurred),
+        0,
+        offset,
+        datetime.fromisoformat(occurred),
+        date_str,
+        hour,
+    )
 
 
-ARCHIVE_SCHEMA = ("kafka_key string, value string, event_id string, event_type string, source string, "
-                  "occurred_at timestamp, collected_at timestamp, kafka_partition int, kafka_offset long, kafka_timestamp timestamp, "
-                  "date string, hour int")
+ARCHIVE_SCHEMA = (
+    "kafka_key string, value string, event_id string, event_type string, source string, "
+    "occurred_at timestamp, collected_at timestamp, kafka_partition int, kafka_offset long, kafka_timestamp timestamp, "
+    "date string, hour int"
+)
 
 
 def _write_archive(spark, tmp_path):
@@ -49,9 +77,29 @@ def _write_archive(spark, tmp_path):
         # 날짜 창 밖 (걸러져야 함)
         _archive_row("d", "2026-07-01T09:00:00+09:00", 60, 127, 99.0, 0.0, "2026-07-01", 9, 5),
         # 다른 이벤트 유형 (걸러져야 함)
-        (None, json.dumps({"eventId": "s", "eventType": "sample.heartbeat", "source": "sample",
-                           "occurredAt": "2026-08-24T09:00:00+09:00", "collectedAt": "2026-08-24T09:00:00+09:00", "payload": {}}),
-         "s", "sample.heartbeat", "sample", datetime(2026, 8, 24, 9), datetime(2026, 8, 24, 9), 0, 6, datetime(2026, 8, 24, 9), "2026-08-24", 9),
+        (
+            None,
+            json.dumps(
+                {
+                    "eventId": "s",
+                    "eventType": "sample.heartbeat",
+                    "source": "sample",
+                    "occurredAt": "2026-08-24T09:00:00+09:00",
+                    "collectedAt": "2026-08-24T09:00:00+09:00",
+                    "payload": {},
+                }
+            ),
+            "s",
+            "sample.heartbeat",
+            "sample",
+            datetime(2026, 8, 24, 9),
+            datetime(2026, 8, 24, 9),
+            0,
+            6,
+            datetime(2026, 8, 24, 9),
+            "2026-08-24",
+            9,
+        ),
     ]
     df = spark.createDataFrame(rows, ARCHIVE_SCHEMA)
     df.write.partitionBy("date", "hour").parquet(str(tmp_path / "city.raw"))

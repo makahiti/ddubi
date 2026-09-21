@@ -1,4 +1,5 @@
 """Validate codes before totals; normalize only explicit no-data responses."""
+
 import re
 
 
@@ -12,9 +13,13 @@ def validated_rows(data, list_name, error_type):
     if not isinstance(code, str) or not re.fullmatch(r"[A-Z]+-[0-9]{3}", code):
         raise error_type("지하철 API 결과 코드가 올바르지 않습니다")
     if code not in ("INFO-000", "INFO-200"):
-        raise error_type("지하철 API 오류(%s)" % code)
+        raise error_type(f"지하철 API 오류({code})")
     other = data.get("RESULT")
-    if isinstance(data.get("errorMessage"), dict) and isinstance(other, dict) and other.get("CODE", other.get("code", code)) != code:
+    if (
+        isinstance(data.get("errorMessage"), dict)
+        and isinstance(other, dict)
+        and other.get("CODE", other.get("code", code)) != code
+    ):
         raise error_type("지하철 API 결과 코드가 서로 모순됩니다")
     total = metadata.get("total", data.get("list_total_count"))
     if code == "INFO-200" and total in (None, ""):
@@ -26,9 +31,9 @@ def validated_rows(data, list_name, error_type):
     if code == "INFO-200" and rows is None:
         rows = []
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-        raise error_type("지하철 API의 %s가 객체 배열이 아닙니다" % list_name)
+        raise error_type(f"지하철 API의 {list_name}가 객체 배열이 아닙니다")
     if code == "INFO-200" and (total != 0 or rows):
         raise error_type("지하철 API 데이터 없음 응답에 데이터가 있어 모순됩니다")
     if len(rows) != total:
-        raise error_type("전체 %d건 중 %d건 수신: 불완전 지하철 응답" % (total, len(rows)))
+        raise error_type(f"전체 {total:d}건 중 {len(rows):d}건 수신: 불완전 지하철 응답")
     return dict(data, **{list_name: rows}), total, rows

@@ -12,10 +12,9 @@ import signal
 import sys
 import threading
 
-from confluent_kafka import Consumer, KafkaError, TopicPartition
-
 from buffer import Batch, Row, hour_of
 from config import ConfigError, Settings
+from confluent_kafka import Consumer, KafkaError, TopicPartition
 from storage import Storage
 
 log = logging.getLogger("archiver")
@@ -44,7 +43,9 @@ class Archiver:
         같은 토픽의 이전 시간 배치가 남아 있는데 새 시간 배치만 먼저 커밋하면, 그 사이 죽었을 때
         이전 시간 데이터를 잃는다. 그래서 토픽 단위로 모두 쓰고 나서 커밋한다.
         """
-        due_topics = {b.topic for b in self.batches.values() if b.is_due(self.settings.flush_seconds, self.settings.max_bytes)}
+        due_topics = {
+            b.topic for b in self.batches.values() if b.is_due(self.settings.flush_seconds, self.settings.max_bytes)
+        }
         for topic in due_topics:
             self.flush_topic(topic)
 
@@ -74,7 +75,13 @@ class Archiver:
     # ---- 루프 ----
     def run(self, stop: threading.Event) -> None:
         self.consumer.subscribe(list(self.settings.topics), on_revoke=self._on_revoke)
-        log.info("start topics=%s archive=%s flush=%ss max=%dB", self.settings.topics, self.settings.archive_uri, self.settings.flush_seconds, self.settings.max_bytes)
+        log.info(
+            "start topics=%s archive=%s flush=%ss max=%dB",
+            self.settings.topics,
+            self.settings.archive_uri,
+            self.settings.flush_seconds,
+            self.settings.max_bytes,
+        )
         while not stop.is_set():
             msg = self.consumer.poll(1.0)
             if msg is not None:

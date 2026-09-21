@@ -27,7 +27,7 @@ class EvaluationDiagnosticsPanel extends StatelessWidget {
       'validUntil=${_iso(evaluation.validUntil)} nextEvaluationAt=${_iso(evaluation.nextEvaluationAt)}',
       'ML 요약: ${mlApplicationLabel(diagnostics.mlSummary)}',
       '과거 평균 요약: ${historicalApplicationLabel(diagnostics.historicalSummary)}',
-      'modelVersion=${diagnostics.modelVersion ?? '-'} dataVersion=${diagnostics.dataVersion ?? '-'}',
+      'modelVersion=${diagnostics.modelVersion ?? '-'} dataVersion=${diagnostics.dataVersion ?? '-'} referenceKind=${diagnostics.referenceKind ?? '-'}',
       for (final entry in diagnostics.versions.entries)
         'versions.${entry.key}=${entry.value}',
       'quality: preview=${quality.preview} productionEligible=${quality.productionEligible} '

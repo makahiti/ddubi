@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from copy import deepcopy
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -59,10 +59,7 @@ def test_zero_requires_complete_feed_and_conflicts_are_missing():
     event["feedComplete"] = True
     assert prepare(request(), [event])["features"]["accidentCount"] == 0
     out = prepare(request(), [obs(), obs(values={"temperatureC": 21})])
-    assert (
-        out["conflictingKinds"] == ["weather"]
-        and out["features"]["temperatureC"] is None
-    )
+    assert out["conflictingKinds"] == ["weather"] and out["features"]["temperatureC"] is None
 
 
 def test_training_uses_serving_features_and_holds_late_labels():
@@ -86,10 +83,7 @@ def test_training_uses_serving_features_and_holds_late_labels():
     samples[0]["label"]["availableAt"] = "2026-09-09T09:12:00+09:00"
     result = build(samples, [obs()])
     assert [len(result[k]) for k in ("train", "test", "withheld")] == [6, 3, 1]
-    assert (
-        result["test"][-1]["features"]
-        == prepare(samples[-1]["request"], [obs()])["features"]
-    )
+    assert result["test"][-1]["features"] == prepare(samples[-1]["request"], [obs()])["features"]
     samples[0]["label"]["kind"] = "ETA"
     with pytest.raises(ValueError, match="prediction is not label"):
         build(samples, [])
@@ -108,9 +102,7 @@ def test_invalid_values_and_future_actual_are_missing():
     assert prepare(request(), [obs(values=[])])["rejectedObservations"] == 1
 
 
-def test_http_preparation_matches_training_and_missing_model_is_503(
-    monkeypatch, tmp_path
-):
+def test_http_preparation_matches_training_and_missing_model_is_503(monkeypatch, tmp_path):
     from app import create_app
     from fastapi.testclient import TestClient
 
@@ -121,13 +113,9 @@ def test_http_preparation_matches_training_and_missing_model_is_503(
         response = client.post("/v1/bus/environment:prepare", json=payload)
         assert response.status_code == 200
         assert response.json()["features"] == prepare(request(), [obs()])["features"]
-        assert (
-            client.post("/v1/bus/environment:predict", json=payload).status_code == 503
-        )
+        assert client.post("/v1/bus/environment:predict", json=payload).status_code == 503
         payload["label"] = {"seconds": 100}
-        assert (
-            client.post("/v1/bus/environment:prepare", json=payload).status_code == 422
-        )
+        assert client.post("/v1/bus/environment:prepare", json=payload).status_code == 422
 
 
 def test_training_checks_reject_date_overlap_and_missing_histories():
@@ -149,7 +137,9 @@ def test_training_checks_reject_date_overlap_and_missing_histories():
 
 
 def test_preparation_cli_writes_verifiable_splits(tmp_path, monkeypatch):
-    import json, hashlib
+    import hashlib
+    import json
+
     from tools.prepare_environment_training import main
     from tools.train_environment_model import check
 
@@ -182,9 +172,7 @@ def test_preparation_cli_writes_verifiable_splits(tmp_path, monkeypatch):
             row[k] = row[k].replace("2026-09-10", f"2026-09-{day:02d}")
         observations.append(row)
     for name, rows in [("samples", samples), ("observations", observations)]:
-        (tmp_path / (name + ".jsonl")).write_text(
-            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8"
-        )
+        (tmp_path / (name + ".jsonl")).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     output = tmp_path / "prepared"
     monkeypatch.setattr(
         sys,

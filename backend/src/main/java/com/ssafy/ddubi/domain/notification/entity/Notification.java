@@ -96,6 +96,15 @@ public class Notification extends BaseTimeEntity {
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
+    /**
+     * 사용자가 알림함에서 지운 시각. NULL 이면 보인다.
+     *
+     * <p>행을 지우지 않는 이유는 V12 마이그레이션 주석에 있다 — 이 표는 알림함이면서
+     * 발송 이력이고, 재발송 억제가 그 이력을 근거로 판단한다.
+     */
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Builder
     private Notification(User user, Schedule schedule, Long recommendationId,
                          NotificationType type, String title, String body,
@@ -165,5 +174,17 @@ public class Notification extends BaseTimeEntity {
         if (this.readAt == null) {
             this.readAt = readAt;
         }
+    }
+
+    /** 알림함에서 감춘다. 발송 이력은 그대로 남는다. */
+    public void hide(LocalDateTime deletedAt) {
+        if (this.deletedAt == null) {
+            this.deletedAt = deletedAt;
+        }
+    }
+
+    /** 사용자가 이미 지운 알림인가. 지운 알림은 조회에서 없는 것으로 다룬다. */
+    public boolean isHidden() {
+        return deletedAt != null;
     }
 }

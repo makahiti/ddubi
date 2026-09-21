@@ -1,0 +1,202 @@
+"""Kafka traffic.incident -> verified link/coordinate Silver -> Redis JSON and optional HDFS Parquet."""
+
+import json
+import logging
+import os
+import sys
+from urllib.parse import urlsplit
+
+from common.kafka_source import read_events_stream
+from common.redis_sink import write_latest_with_row_ttl
+from common.settings import Settings
+from common.traffic_incident_enrichment import VerifiedLinkMaster, normalize_incident
+from common.traffic_incident_policy import policy
+from common.traffic_incident_runtime import supervise
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql import types as T
+
+JOB = "traffic_incident_silver"
+TOPIC = "city.raw"
+log = logging.getLogger(JOB)
+
+STRINGS = (
+    "silverVersion",
+    "eventId",
+    "source",
+    "providerIncidentId",
+    "contentHash",
+    "collectedAt",
+    "startedAt",
+    "expectedClearAt",
+    "validUntil",
+    "lifecycleStatus",
+    "incidentTypeCode",
+    "incidentDetailTypeCode",
+    "description",
+    "inputLinkNamespace",
+    "inputLinkId",
+    "matchedLinkId",
+    "matchedRoadName",
+    "matchedDistrictName",
+    "matchedStartNodeId",
+    "matchedEndNodeId",
+    "locationMatchType",
+    "linkMasterStatus",
+    "linkMasterVersion",
+    "linkMasterEvidenceRef",
+    "sourceCrs",
+    "coordinateStatus",
+    "descriptionRoadName",
+    "descriptionDirection",
+    "descriptionLaneControl",
+    "descriptionRegion",
+    "processingStatus",
+    "rawPayloadJson",
+)
+SCHEMA = T.StructType(
+    [T.StructField(name, T.StringType()) for name in STRINGS]
+    + [
+        T.StructField(name, T.DoubleType())
+        for name in ("grs80tmX", "grs80tmY", "latitude", "longitude", "linkCoordinateDistanceMeters")
+    ]
+    + [T.StructField("nearbyCandidateCount", T.IntegerType())]
+    + [
+        T.StructField(name, T.ArrayType(T.StringType()))
+        for name in ("missingFields", "qualityFlags", "rejectionReasons")
+    ]
+)
+
+
+def output_uri(env):
+    value = env.get("TRAFFIC_INCIDENT_SILVER_OUTPUT_URI", "").strip().rstrip("/")
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme not in ("hdfs", "file") or not parsed.path or (parsed.scheme == "hdfs" and not parsed.netloc):
+        log.error("Invalid TRAFFIC_INCIDENT_SILVER_OUTPUT_URI; HDFS disabled while Redis remains enabled")
+        return None
+    return value
+
+
+def load_master(env):
+    return VerifiedLinkMaster.load(
+        env.get("TRAFFIC_LINK_MASTER_PATH", "").strip(), env.get("TRAFFIC_LINK_MASTER_SHA256", "").strip()
+    )
+
+
+def enrich_batch(batch, master, stale_seconds, direct_tolerance, nearby_max):
+    values = batch.filter(F.col("eventType") == "traffic.incident").select("rawEventJson").collect()
+    unique, rows = {}, []
+    for item in values:
+        try:
+            event = json.loads(item.rawEventJson)
+            payload = event.get("payload") or {}
+            key = (payload.get("providerIncidentId"), payload.get("contentHash") or item.rawEventJson)
+            unique[key] = event
+        except (TypeError, ValueError):
+            continue
+    for event in unique.values():
+        rows.append(normalize_incident(event, master, stale_seconds, direct_tolerance, nearby_max))
+    return batch.sparkSession.createDataFrame(rows, SCHEMA) if rows else batch.sparkSession.createDataFrame([], SCHEMA)
+
+
+def redis_rows(df):
+    valid_until = F.to_timestamp("validUntil")
+    eligible = df.filter(
+        F.col("processingStatus").isin("VALID", "PARTIAL")
+        & F.col("providerIncidentId").isNotNull()
+        & (valid_until > F.current_timestamp())
+    )
+    collected = F.date_format(F.to_timestamp("collectedAt"), "yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
+    # 공통 Redis sink가 지연 도착한 과거 관측으로 최신값을 되돌리지 않도록
+    # 실제 사건 발생시각이 아니라 이 활성 스냅샷을 관측한 시각을 정렬 기준으로 함께 기록한다.
+    json_fields = [F.col(name) for name in df.columns] + [F.col("collectedAt").alias("_latestOrderAt")]
+    return eligible.select(
+        F.concat(F.lit("traffic:latest:incident-silver:"), "providerIncidentId").alias("redisKey"),
+        F.to_json(F.struct(*json_fields), {"ignoreNullFields": "false"}).alias("redisValue"),
+        F.greatest(F.lit(60), valid_until.cast("long") - F.current_timestamp().cast("long"))
+        .cast("int")
+        .alias("ttlSeconds"),
+        collected.alias("occurredAtOrder"),
+        collected.alias("collectedAtOrder"),
+    )
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    incident_policy = policy(os.environ)
+    settings, target = Settings.from_env(), output_uri(os.environ)
+    master = load_master(os.environ)
+    if not master.available:
+        log.warning("Verified traffic link master is unavailable; no DIRECT/NEARBY mapping will be produced")
+    spark = (
+        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
+    )
+    events = read_events_stream(spark, settings, TOPIC)
+
+    def normalize(frame):
+        return enrich_batch(
+            frame,
+            master,
+            incident_policy.stale_seconds,
+            incident_policy.direct_tolerance_meters,
+            incident_policy.nearby_max_meters,
+        )
+
+    def redis_batch(frame, batch_id):
+        normalized = normalize(frame).cache()
+        try:
+            rows = redis_rows(normalized).cache()
+            try:
+                count = rows.count()
+                if count:
+                    write_latest_with_row_ttl(rows, settings.redis_host, settings.redis_port, settings.redis_password)
+                log.info("batch=%d incidentRows=%d redisKeys=%d", batch_id, normalized.count(), count)
+            finally:
+                rows.unpersist()
+        finally:
+            normalized.unpersist()
+
+    def start_redis():
+        return (
+            events.writeStream.foreachBatch(redis_batch)
+            .option("checkpointLocation", settings.checkpoint_for(JOB))
+            .trigger(processingTime="30 seconds")
+            .queryName(JOB)
+            .start()
+        )
+
+    start_silver = None
+    if target:
+
+        def silver_batch(frame, batch_id):
+            normalized = normalize(frame).withColumn("eventDate", F.to_date("collectedAt"))
+            batch_path = target + "/batches/batch=" + str(batch_id)
+            normalized.write.mode("overwrite").partitionBy(
+                "processingStatus", "locationMatchType", "eventDate"
+            ).parquet(batch_path + "/data")
+            spark.createDataFrame([(int(batch_id),)], ["batchId"]).write.mode("overwrite").json(
+                batch_path + "/complete"
+            )
+
+        def start_silver_query():
+            return (
+                events.writeStream.foreachBatch(silver_batch)
+                .option("checkpointLocation", settings.checkpoint_for(JOB + "_silver"))
+                .trigger(processingTime="10 minutes")
+                .queryName(JOB + "_silver")
+                .start()
+            )
+
+        start_silver = start_silver_query
+    else:
+        log.warning("TRAFFIC_INCIDENT_SILVER_OUTPUT_URI is empty; HDFS disabled while Redis remains enabled")
+    try:
+        supervise(start_redis, start_silver)
+    finally:
+        spark.stop()
+
+
+if __name__ == "__main__":
+    main()

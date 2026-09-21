@@ -6,6 +6,7 @@ passageAt은 예측 통과시각이므로 실제 진입시각을 대신하지 �
 """
 
 import math
+
 from environment_features import instant
 
 LABEL_VERSION = "environment-label-v2"
@@ -17,17 +18,11 @@ def validate_label(request, label):
     if kind not in ("ACTUAL_TRAVERSAL", "HOURLY_MEAN_BUS_SEGMENT"):
         raise ValueError("prediction is not label")
     if label.get("verified") is not True or any(
-        not isinstance(label.get(k), str) or not label[k].strip()
-        for k in ("source", "eventId")
+        not isinstance(label.get(k), str) or not label[k].strip() for k in ("source", "eventId")
     ):
         raise ValueError("label provenance required")
     seconds = label.get("seconds")
-    if (
-        isinstance(seconds, bool)
-        or not isinstance(seconds, (int, float))
-        or not math.isfinite(seconds)
-        or seconds <= 0
-    ):
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) or seconds <= 0:
         raise ValueError("positive finite seconds required")
     cutoff = instant(request["asOf"])
     completed = instant(label["completedAt"])
@@ -39,9 +34,7 @@ def validate_label(request, label):
         started = instant(label["startedAt"])
         if started < cutoff or started >= completed:
             raise ValueError("actual traversal interval invalid")
-        if not math.isclose(
-            (completed - started).total_seconds(), seconds, rel_tol=0, abs_tol=0.000001
-        ):
+        if not math.isclose((completed - started).total_seconds(), seconds, rel_tol=0, abs_tol=0.000001):
             raise ValueError("actual duration differs from timestamps")
     return kind
 
@@ -52,14 +45,10 @@ def quality_report(splits):
 
     result = {}
     for name, rows in splits.items():
-        missing = Counter(
-            k for r in rows for k, v in r["features"].items() if v is None
-        )
+        missing = Counter(k for r in rows for k, v in r["features"].items() if v is None)
         result[name] = dict(
             rows=len(rows),
-            allEnvironmentMissingRows=sum(
-                all(v is None for v in r["features"].values()) for r in rows
-            ),
+            allEnvironmentMissingRows=sum(all(v is None for v in r["features"].values()) for r in rows),
             missingByFeature=dict(sorted(missing.items())),
             conflictingRows=sum(bool(r["conflictingKinds"]) for r in rows),
             rejectedObservationReferences=sum(r["rejectedObservations"] for r in rows),

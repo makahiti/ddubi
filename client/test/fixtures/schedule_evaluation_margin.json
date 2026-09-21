@@ -6,6 +6,21 @@
   "decision": "MARGIN_UNAVAILABLE",
   "proposedDepartAt": "2026-09-18T08:25:00+09:00",
   "estimatedArrivalAt": "2026-09-18T08:55:00+09:00",
-  "quality": {"preview": false, "productionEligible": true, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "COMPLETE", "missingInputs": [], "fallbackReasons": []},
-  "validUntil": "2099-09-18T00:05:00Z"
+  "quality": {
+    "preview": false,
+    "productionEligible": true,
+    "realtimeApplied": false,
+    "walkingApiApplied": false,
+    "walkingApiCoverage": "NONE",
+    "costCoverage": "COMPLETE",
+    "missingInputs": [],
+    "fallbackReasons": []
+  },
+  "validUntil": "2099-09-18T00:05:00Z",
+  "guidance": {
+    "canDisplayEstimate": true,
+    "canAccept": true,
+    "source": "PROVIDER_ESTIMATE",
+    "reasons": []
+  }
 }

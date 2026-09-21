@@ -11,8 +11,10 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import unquote
+
 from config import ConfigError
 from request_budget import RequestBudget
+
 from sources.base import Record, SourceSpec, now_kst
 from sources.kafka_adapter import _crosswalk
 
@@ -81,9 +83,7 @@ def to_record(name, raw, target, crosswalk=None):
         raw=raw,
         observedAt=received.isoformat(),
         timestampBasis="received",
-        contentHash=hashlib.sha256(
-            json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()
-        ).hexdigest(),
+        contentHash=hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
     )
     if not payload["providerRouteId"]:
         raise ValueError("provider route ID missing")
@@ -101,9 +101,7 @@ def to_record(name, raw, target, crosswalk=None):
             crosswalkSha256=None,
         )
     )
-    payload["canonicalMapping"] = {
-        k: v for k, v in mapping.items() if k != "segmentIds"
-    }
+    payload["canonicalMapping"] = {k: v for k, v in mapping.items() if k != "segmentIds"}
     key = ":".join(
         (
             namespace,
@@ -125,11 +123,7 @@ def collect(name, settings, client):
     """명시한 대상만 페이지 끝까지 수집한다. 페이지 누락/전체 건수 변경은 부분 성공으로 숨기지 않는다."""
     namespace, key_name, url, target_param, _ = SERVICES[name]
     targets = list(
-        dict.fromkeys(
-            t.strip()
-            for t in settings.extra.get("REGIONAL_BUS_TARGET_IDS", "").split(",")
-            if t.strip()
-        )
+        dict.fromkeys(t.strip() for t in settings.extra.get("REGIONAL_BUS_TARGET_IDS", "").split(",") if t.strip())
     )
     if not targets or any(not re.fullmatch(r"[0-9]{1,30}", t) for t in targets):
         raise ConfigError("REGIONAL_BUS_TARGET_IDS requires explicit provider IDs")
@@ -167,9 +161,7 @@ def collect(name, settings, client):
                 response = client.get(url, params=params, timeout=30)
                 response.raise_for_status()
                 rows, total = parse_page(response.content, namespace)
-                if total < 0 or (
-                    previous_total is not None and total != previous_total
-                ):
+                if total < 0 or (previous_total is not None and total != previous_total):
                     raise ValueError("provider pagination changed")
                 previous_total = total
                 count += len(rows)
@@ -183,9 +175,7 @@ def collect(name, settings, client):
         return records
     except Exception as exc:
         # URL query에는 인증키가 있으므로 원본 HTTP 예외나 본문을 로그로 전파하지 않는다.
-        raise RuntimeError(
-            "regional bus collection failed: " + type(exc).__name__
-        ) from None
+        raise RuntimeError("regional bus collection failed: " + type(exc).__name__) from None
     finally:
         client.event_hooks["request"].remove(hook)
 

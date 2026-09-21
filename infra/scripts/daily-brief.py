@@ -124,7 +124,7 @@ echo "@@kafka"; docker exec kafka du -s --block-size=1 /var/lib/kafka/data 2>/de
 echo "@@deploy"; cd ~/S15P21E202 && git log -1 --format='%h %cd' --date=format:'%m-%d %H:%M' && stat -c %y .git/FETCH_HEAD 2>/dev/null | cut -c1-16
 echo "@@nn_backup"; tail -n 1 ~/backups/hdfs-name/backup.log 2>/dev/null || echo "로그 없음"
 echo "@@spark_started"; docker inspect spark-streaming-realtime spark-streaming-weather --format '{{.Name}} {{.State.StartedAt}}' 2>/dev/null
-echo "@@sparkjobs_commit"; cd ~/S15P21E202 && git log -1 --format=%ct -- sparkjobs
+echo "@@sparkjobs_commit"; cd ~/S15P21E202 && git log -1 --format=%ct -- sparkjobs/streaming sparkjobs/common sparkjobs/batch sparkjobs/submit.sh sparkjobs/requirements.txt
 """
 
 
@@ -151,6 +151,8 @@ echo "@@errors"; printf "backend %s
 " "$(docker logs backend --since %(h)dh 2>&1 | grep -cE ' ERROR ')"
 echo "@@deploy"; cd ~/S15P21E202 && git log -1 --format='%h %cd' --date=format:'%m-%d %H:%M' && stat -c %y .git/FETCH_HEAD 2>/dev/null | cut -c1-16
 echo "@@redis_nottl"; docker exec redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan | awk "{print \"TTL \" \$0}" | redis-cli -a "$REDIS_PASSWORD" --no-auth-warning | grep -c "^-1$"'
+echo "@@segment_status_keys"; docker exec redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "segment:status:*" | wc -l'
+echo "@@segment_status_bad_ttl"; docker exec redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "segment:status:*" | awk "{print \"TTL \" \$0}" | redis-cli -a "$REDIS_PASSWORD" --no-auth-warning | grep -cE "^(-1|-2)$"'
 echo "@@cert"; echo | openssl s_client -connect localhost:443 -servername j15e202.p.ssafy.io 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2
 """.replace("%(h)d", str(WINDOW_H))], timeout=60)
     return _split_sections(out or "")
@@ -246,7 +248,10 @@ def _docker_ts(text):
 
 
 def _stale_spark_jobs(rem):
-    """sparkjobs 마지막 커밋보다 먼저 시작된 Spark 스트리밍 잡 이름 목록. 자료가 없거나 이상하면 빈 목록(조용히 넘어가지 않도록 호출 쪽에서 조회 실패는 따로 표시)."""
+    """Spark 실행 코드(streaming·common·batch·submit.sh·requirements.txt)의 마지막 커밋보다 먼저 시작된
+    스트리밍 잡 이름 목록. tools·tests·examples 처럼 돌고 있는 잡과 무관한 파일이 바뀐 것은 세지 않는다.
+    (9/17: tools 파일 하나가 바뀐 것을 "realtime 재시작 필요" 로 잘못 잡아 폴더 전체 비교를 실행 코드만으로 좁힘)
+    자료가 없거나 이상하면 빈 목록(조용히 넘어가지 않도록 호출 쪽에서 조회 실패는 따로 표시)."""
     try:
         commit_ts = int((rem.get("sparkjobs_commit") or [""])[0].strip())
     except (ValueError, AttributeError):
@@ -303,7 +308,7 @@ def build(env):
         w("서비스", f"5xx {int(http_5xx)}건")
 
     # --- 데이터 ---
-    intake = by_label(f'sum by (topic) (increase(kafka_topic_partition_current_offset{{topic=~"city.raw|transport.raw|segment.status"}}[{WINDOW_H}h]))', "topic")
+    intake = by_label(f'sum by (topic) (increase(kafka_topic_partition_current_offset{{topic=~"city.raw|transport.raw|segment.observation|segment.status"}}[{WINDOW_H}h]))', "topic")
     lag = scalar("sum(kafka_consumergroup_lag)")
     spark_apps = scalar('metrics_master_apps_Value{type="gauges"}')
     spark_workers = scalar('metrics_master_aliveWorkers_Value{type="gauges"}')
@@ -315,6 +320,8 @@ def build(env):
     hdfs_total = scalar("hdfs_namenode_capacity_total_bytes")
     if up_total is not None and (intake.get("city.raw") or 0) == 0:  # Prometheus 자체가 죽었을 땐 "조회 실패" 로만 경고한다
         w("데이터", "city.raw 유입 0")
+    if (intake.get("segment.observation") or 0) > 0 and (intake.get("segment.status") or 0) == 0:
+        w("데이터", "구간 실측은 들어오지만 segment.status 생성 0")
     if spark_apps is not None and spark_apps < 2:
         w("데이터", "Spark 잡 부족")
     if hdfs_live is not None and hdfs_live < 2:
@@ -383,6 +390,17 @@ def build(env):
             pass
     if redis_nottl:
         w("서비스", f"Redis TTL 없는 키 {redis_nottl}")
+    segment_status_keys = None
+    segment_status_bad_ttl = None
+    try:
+        if loc.get("segment_status_keys"):
+            segment_status_keys = int(loc["segment_status_keys"][0])
+        if loc.get("segment_status_bad_ttl"):
+            segment_status_bad_ttl = int(loc["segment_status_bad_ttl"][0])
+    except ValueError:
+        pass
+    if segment_status_keys and segment_status_bad_ttl:
+        w("데이터", f"segment status TTL 오류 {segment_status_bad_ttl}건")
     cert_days = cert_days_left(loc["cert"][0]) if loc.get("cert") else None
     if cert_days is not None and cert_days < 30:
         w("운영", f"인증서 {cert_days}일 남음")
@@ -436,7 +454,7 @@ def build(env):
     # 9/15 에 dt 가 올린 Redis TTL 이 나흘 동안 적용되지 않은 채 발견됐다. 잡 시작 시각이 sparkjobs 마지막 커밋 시각보다 앞서면 알린다.
     stale_jobs = _stale_spark_jobs(rem) if rem else []
     if stale_jobs:
-        w("데이터", "Spark 잡 재시작 필요(" + ", ".join(stale_jobs) + " — sparkjobs 코드 변경 뒤 미재시작)")
+        w("데이터", "Spark 잡 재시작 필요(" + ", ".join(stale_jobs) + " — Spark 실행 코드 변경 뒤 미재시작)")
 
     def light(area):
         return "🔴" if any(k in " ".join(warns[area]) for k in ("다운", "Missing", "부족", "유입 0", "조회 실패")) else ("🟡" if warns[area] else "🟢")
@@ -458,7 +476,7 @@ def build(env):
 
     rows = [
         ("서비스", f"backend {'✓' if backend_up == 1 else '✗'} · ML {'✓' if ml_up == 1 else ('✗' if ml_up is not None else '?')} · MySQL 연결 {fmt(mysql_conn)}/{fmt(mysql_max)} · Redis {fmt(redis_pct, 1, '%')} (키 {fmt(redis_keys)}, TTL 없는 키 {fmt(redis_nottl)}) · 요청 {fmt(http_all)} / 5xx {fmt(http_5xx)}"),
-        ("데이터", f"유입 {intake_txt} · 아카이버 랙 {fmt(lag)} · Spark 잡 {fmt(spark_apps)}/2 worker {fmt(spark_workers)}/2 · 배치 지연 {latency_txt}"),
+        ("데이터", f"유입 {intake_txt} · segment Redis 키 {fmt(segment_status_keys)} (TTL 오류 {fmt(segment_status_bad_ttl)}) · 아카이버 랙 {fmt(lag)} · Spark 잡 {fmt(spark_apps)}/2 worker {fmt(spark_workers)}/2 · 배치 지연 {latency_txt}"),
         ("저장", f"HDFS Live {fmt(hdfs_live)} · Under-rep {fmt(hdfs_under)} · Missing {fmt(hdfs_missing)} · 사용 {human(hdfs_used)} · 아카이브 새 파일 {fmt(new_files)} · Kafka {human(kafka_bytes)}"),
         ("자원", f"디스크 서버1/2 {disk_txt} · 메모리 서버1/2 {mem_txt}"),
         ("안정성", f"수집 대상 {fmt(up_ok)}/{fmt(up_total)} · 알림 발동 {fmt(firing_n) if firing_n is not None else '?'}{(' (' + ', '.join(firing) + ')') if firing else ''} · 재시작 {restarts_txt} · 오류 로그 {errors_txt}"),

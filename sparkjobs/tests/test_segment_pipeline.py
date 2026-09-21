@@ -2,20 +2,24 @@
 
 import hashlib
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
+
 import pytest
-from pyspark.sql import SparkSession, functions as F, types as T
+from batch.segment_baseline import aggregate
 from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA, validate
 from common.subway_crosswalk import SubwayCrosswalk
-from batch.segment_baseline import aggregate
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from pyspark.sql import types as T
 from streaming.segment_status import (
     BASELINE_SCHEMA,
     BLOCKAGE_SCHEMA,
     STATUS_FIELDS,
     evaluate,
-    select_history,
-    redis_rows,
     publish_prepared,
+    redis_rows,
+    select_history,
 )
 
 
@@ -36,37 +40,39 @@ def spark():
 def frame(spark, rows, schema):
     return (
         spark.range(1)
-        .select(
-            F.explode(F.from_json(F.lit(json.dumps(rows)), T.ArrayType(schema))).alias(
-                "r"
-            )
-        )
+        .select(F.explode(F.from_json(F.lit(json.dumps(rows)), T.ArrayType(schema))).alias("r"))
         .select("r.*")
     )
 
 
 def fact(i, duration, **extra):
-    return dict(
+    exited = datetime.fromisoformat("2026-09-10T10:09:00+09:00")
+    result = dict(
         eventId=str(i),
         segmentId="SUB:2:A:B",
         masterVersion="master1",
-        occurredAt="2026-09-10T10:09:00+09:00",
+        mappingVersion="fixture-mapping-v1",
+        vehicleId="fixture-vehicle-" + str(i),
+        occurredAt=exited.isoformat(),
+        observedAt=(exited + timedelta(seconds=5)).isoformat(),
+        enteredAt=(exited - timedelta(seconds=float(duration))).isoformat(),
+        exitedAt=exited.isoformat(),
         collectedAt="2026-09-10T10:09:10+09:00",
+        validUntil="2026-09-10T10:14:00+09:00",
         weatherBucket="DRY",
         sampleKind="ACTUAL_TRAVERSAL",
+        quality="VERIFIED",
         source="actual.fixture",
         durationSeconds=float(duration),
-        **extra,
     )
+    result.update(extra)
+    return result
 
 
 def registry(spark):
     return frame(
         spark,
-        [
-            dict(segmentId=s, masterVersion="master1")
-            for s in ["SUB:2:A:B", "SUB:2:B:C"]
-        ],
+        [dict(segmentId=s, masterVersion="master1") for s in ["SUB:2:A:B", "SUB:2:B:C"]],
         REGISTRY_SCHEMA,
     )
 
@@ -81,12 +87,18 @@ def test_actual_only_dedup_conflicts_and_hand_calculated_percentiles(spark):
         dict(fact("weather", 20), weatherBucket=None),
         dict(fact("version", 20), masterVersion="other"),
         dict(fact("future", 20), collectedAt="2026-09-11T00:00:00+09:00"),
+        dict(fact("estimated", 20), quality="ESTIMATED"),
+        dict(fact("vehicle", 20), vehicleId=None),
+        dict(fact("duration-mismatch", 20), durationSeconds=25.0),
     ]
-    valid, rejected = validate(
-        frame(spark, rows, FACT_SCHEMA), registry(spark), "2026-09-10T10:10:00+09:00"
-    )
+    valid, rejected = validate(frame(spark, rows, FACT_SCHEMA), registry(spark), "2026-09-10T10:10:00+09:00")
     assert valid.count() == 10
-    assert rejected.count() == 6
+    assert rejected.count() == 9
+    assert {row.rejectionReason for row in rejected.collect()} >= {
+        "UNVERIFIED_TRAVERSAL",
+        "MISSING_VEHICLE_ID",
+        "DURATION_TIME_MISMATCH",
+    }
     result = aggregate(valid, "baseline1", 5, 1).first()
     assert (
         result.p50,
@@ -121,9 +133,7 @@ def baseline(spark):
 
 
 def test_delay_unknown_stale_and_history_cadence(spark):
-    facts = frame(
-        spark, [fact(i, d) for i, d in enumerate([90, 100, 110])], FACT_SCHEMA
-    )
+    facts = frame(spark, [fact(i, d) for i, d in enumerate([90, 100, 110])], FACT_SCHEMA)
     current, rejected = evaluate(
         facts,
         registry(spark),
@@ -136,16 +146,10 @@ def test_delay_unknown_stale_and_history_cadence(spark):
         "fixture-policy",
     )
     results = {r.segmentId: r for r in current.collect()}
-    assert (
-        results["SUB:2:A:B"].status == "slow"
-        and results["SUB:2:A:B"].delaySeconds == 50
-    )
+    assert results["SUB:2:A:B"].status == "slow" and results["SUB:2:A:B"].delaySeconds == 50
     assert results["SUB:2:A:B"].confidence == pytest.approx(0.8)
     assert results["SUB:2:A:B"].validUntil == "2026-09-10T10:14:00+09:00"
-    assert (
-        results["SUB:2:B:C"].status == "unknown"
-        and results["SUB:2:B:C"].delaySeconds is None
-    )
+    assert results["SUB:2:B:C"].status == "unknown" and results["SUB:2:B:C"].delaySeconds is None
     assert select_history(current, current)[1].count() == 2  # 10분 경계 전체 기록
     next_frame, _ = evaluate(
         facts,
@@ -176,18 +180,13 @@ def test_delay_unknown_stale_and_history_cadence(spark):
     import jsonschema
 
     schema = json.loads(
-        (
-            Path(__file__).resolve().parents[2]
-            / "docs/contracts/events/segment-status.schema.json"
-        ).read_text(encoding="utf-8")
+        (Path(__file__).resolve().parents[2] / "docs/contracts/events/segment-status.schema.json").read_text(
+            encoding="utf-8"
+        )
     )
     latest, _ = select_history(stale, current)
-    for row in latest.select(
-        F.to_json(F.struct(*STATUS_FIELDS)).alias("payload")
-    ).collect():
-        jsonschema.validate(
-            json.loads(row.payload), schema, format_checker=jsonschema.FormatChecker()
-        )
+    for row in latest.select(F.to_json(F.struct(*STATUS_FIELDS)).alias("payload")).collect():
+        jsonschema.validate(json.loads(row.payload), schema, format_checker=jsonschema.FormatChecker())
 
 
 def test_large_delay_is_not_blocked_without_confirmed_live_evidence(spark):
@@ -215,9 +214,7 @@ def test_large_delay_is_not_blocked_without_confirmed_live_evidence(spark):
     )
     rows = {r.segmentId: r for r in current.collect()}
     assert rows["SUB:2:A:B"].status == "delayed"
-    assert (
-        rows["SUB:2:B:C"].status == "blocked" and rows["SUB:2:B:C"].delaySeconds is None
-    )
+    assert rows["SUB:2:B:C"].status == "blocked" and rows["SUB:2:B:C"].delaySeconds is None
     assert rows["SUB:2:B:C"].validUntil == block["validUntil"]
     assert rows["SUB:2:B:C"].causes[0].eventId == block["eventId"]
     unconfirmed = frame(spark, [dict(block, confirmed=False)], BLOCKAGE_SCHEMA)
@@ -269,24 +266,17 @@ def test_policy_and_baseline_conflicts_fail_closed(spark):
         dict(segmentId="SUB:2:A:A", masterVersion="master1"),
     ):
         with pytest.raises(ValueError, match="invalid canonical"):
-            validate(
-                facts, frame(spark, [bad], REGISTRY_SCHEMA), "2026-09-10T10:10:00+09:00"
-            )
+            validate(facts, frame(spark, [bad], REGISTRY_SCHEMA), "2026-09-10T10:10:00+09:00")
 
 
 def test_backend_master_crosswalk_keeps_static_ids_and_rejects_wrong_sha():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "backend/transit-master/subway/metropolitan-subway-master.json.gz"
-    )
+    path = Path(__file__).resolve().parents[2] / "backend/transit-master/subway/metropolitan-subway-master.json.gz"
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     cw = SubwayCrosswalk(path, sha)
     assert "SUB:KRIC.S2802:KRIC.S2802.3209:KRIC.S2802.3210" in cw.edges
     assert cw.resolve("KRIC.S2802", "3209", "3210")["state"] == "UNRESOLVED"
     result = cw.resolve("1002", "1002000222", "1002000223")
-    assert result["state"] == "CONFIRMED" and result["segmentIds"] == [
-        "SUB:2:0222:0223"
-    ]
+    assert result["state"] == "CONFIRMED" and result["segmentIds"] == ["SUB:2:0222:0223"]
     with pytest.raises(ValueError, match="SHA"):
         SubwayCrosswalk(path, "0" * 64)
 
@@ -295,26 +285,28 @@ def test_hour_boundary_uses_observation_hour_and_insufficient_baseline_is_unknow
     spark,
 ):
     # 10:59의 실측은 11시가 되어도 10시 기준선 50초와 비교한다. 11시 기준선은 200초다.
+    exited = datetime.fromisoformat("2026-09-10T10:59:00+09:00")
     facts = frame(
         spark,
         [
-            dict(
-                fact(i, 100),
-                occurredAt="2026-09-10T10:59:00+09:00",
-                collectedAt="2026-09-10T10:59:10+09:00",
+            fact(
+                i,
+                100,
+                occurredAt=exited.isoformat(),
+                exitedAt=exited.isoformat(),
+                enteredAt=(exited - timedelta(seconds=100)).isoformat(),
+                observedAt=(exited + timedelta(seconds=5)).isoformat(),
+                collectedAt=(exited + timedelta(seconds=10)).isoformat(),
+                validUntil=(exited + timedelta(minutes=5)).isoformat(),
             )
             for i in range(3)
         ],
         FACT_SCHEMA,
     )
     base = baseline(spark).unionByName(
-        baseline(spark)
-        .withColumn("hourSlot", F.lit(11))
-        .withColumn("p50", F.lit(200.0))
+        baseline(spark).withColumn("hourSlot", F.lit(11)).withColumn("p50", F.lit(200.0))
     )
-    result, _ = evaluate(
-        facts, registry(spark), base, "2026-09-10T11:00:00+09:00", 30, 60, 2, 300, "p"
-    )
+    result, _ = evaluate(facts, registry(spark), base, "2026-09-10T11:00:00+09:00", 30, 60, 2, 300, "p")
     assert result.filter("segmentId='SUB:2:A:B'").first().delaySeconds == 50
     insufficient, _ = evaluate(
         facts,
@@ -344,11 +336,7 @@ def test_extreme_delay_and_negative_baseline_do_not_publish_invalid_numbers(spar
         "p",
     )
     row = current.filter("segmentId='SUB:2:A:B'").first()
-    assert (
-        row.status == "unknown"
-        and row.delaySeconds is None
-        and row.qualityReason == "DELAY_OUT_OF_RANGE"
-    )
+    assert row.status == "unknown" and row.delaySeconds is None and row.qualityReason == "DELAY_OUT_OF_RANGE"
     damaged, _ = evaluate(
         facts,
         registry(spark),
@@ -381,12 +369,8 @@ def test_status_replay_preserves_event_id_and_expired_redis_rows_are_omitted(spa
     previous = current.select("segmentId", "status", "computedAt").limit(0)
     a, _ = select_history(current, previous)
     b, _ = select_history(current, previous)
-    assert sorted(r.eventId for r in a.collect()) == sorted(
-        r.eventId for r in b.collect()
-    )
-    assert sorted(
-        r[TTL_COL] for r in redis_rows(a, "2026-09-10T10:13:00+09:00").collect()
-    ) == [
+    assert sorted(r.eventId for r in a.collect()) == sorted(r.eventId for r in b.collect())
+    assert sorted(r[TTL_COL] for r in redis_rows(a, "2026-09-10T10:13:00+09:00").collect()) == [
         60,
         120,
     ]
@@ -398,9 +382,7 @@ def test_status_replay_preserves_event_id_and_expired_redis_rows_are_omitted(spa
         )
 
 
-def test_incomplete_output_rejected_and_kafka_failure_follows_redis_ack(
-    spark, monkeypatch
-):
+def test_incomplete_output_rejected_and_kafka_failure_follows_redis_ack(spark, monkeypatch):
     # 불완전 준비는 무발행이다. Kafka ACK 실패 시 Redis는 이미 갱신되지만 previous는 전진하지 않는다.
     from types import SimpleNamespace
     from unittest.mock import MagicMock
@@ -421,11 +403,7 @@ def test_incomplete_output_rejected_and_kafka_failure_follows_redis_ack(
     sink.assert_not_called()
     marker.getFileSystem.return_value.exists.return_value = True
     fake.read.text.return_value.limit.return_value.collect.return_value = [
-        SimpleNamespace(
-            value=json.dumps(
-                {"output": "fixture", "as_of": "2026-09-10T10:10:00+09:00"}
-            )
-        )
+        SimpleNamespace(value=json.dumps({"output": "fixture", "as_of": "2026-09-10T10:10:00+09:00"}))
     ]
     writer = fake.read.parquet.return_value.select.return_value.write
     writer.format.return_value = writer
@@ -436,11 +414,10 @@ def test_incomplete_output_rejected_and_kafka_failure_follows_redis_ack(
     sink.assert_called_once()
 
 
-def test_live_clock_replays_completed_batch_and_expires_without_new_observations(
-    spark, tmp_path
-):
+def test_live_clock_replays_completed_batch_and_expires_without_new_observations(spark, tmp_path):
     import os
     from types import SimpleNamespace
+
     from streaming.segment_status_live import tick
 
     if os.name == "nt" and not os.environ.get("HADOOP_HOME"):
@@ -484,10 +461,7 @@ def test_live_clock_replays_completed_batch_and_expires_without_new_observations
         registry(spark),
         baseline(spark),
     )
-    assert (
-        sorted(r.eventId for r in spark.read.parquet(root + "/0/latest").collect())
-        == event_ids
-    )
+    assert sorted(r.eventId for r in spark.read.parquet(root + "/0/latest").collect()) == event_ids
     tick(
         spark,
         clock("2026-09-10T10:15:00+09:00"),
@@ -497,6 +471,4 @@ def test_live_clock_replays_completed_batch_and_expires_without_new_observations
         registry(spark),
         baseline(spark),
     )
-    assert {r.status for r in spark.read.parquet(root + "/1/latest").collect()} == {
-        "unknown"
-    }
+    assert {r.status for r in spark.read.parquet(root + "/1/latest").collect()} == {"unknown"}

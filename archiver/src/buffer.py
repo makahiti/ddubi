@@ -67,7 +67,7 @@ class Row:
     collected_at: datetime | None = None
 
     @classmethod
-    def from_message(cls, key: bytes | None, value: bytes, partition: int, offset: int, timestamp_ms: int) -> "Row":
+    def from_message(cls, key: bytes | None, value: bytes, partition: int, offset: int, timestamp_ms: int) -> Row:
         text = value.decode("utf-8", errors="replace")
         row = cls(
             kafka_key=key.decode("utf-8", errors="replace") if key is not None else None,
@@ -136,4 +136,6 @@ class Batch:
             "kafka_offset": [r.kafka_offset for r in self.rows],
             "kafka_timestamp": [r.kafka_timestamp for r in self.rows],
         }
-        return pa.table({name: pa.array(values, type=SCHEMA.field(name).type) for name, values in columns.items()}, schema=SCHEMA)
+        return pa.table(
+            {name: pa.array(values, type=SCHEMA.field(name).type) for name, values in columns.items()}, schema=SCHEMA
+        )

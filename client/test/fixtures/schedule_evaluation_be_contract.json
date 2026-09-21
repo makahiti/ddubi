@@ -33,8 +33,14 @@
         "policyVersion": "endpoint-policy-v2",
         "distanceMeters": 18,
         "judgment": "MATCHED",
-        "providerCoordinate": {"latitude": 35.1, "longitude": 129.1},
-        "masterCoordinate": {"latitude": 35.1001, "longitude": 129.1001}
+        "providerCoordinate": {
+          "latitude": 35.1,
+          "longitude": 129.1
+        },
+        "masterCoordinate": {
+          "latitude": 35.1001,
+          "longitude": 129.1001
+        }
       }
     }
   ],
@@ -44,12 +50,21 @@
       "revision": 3,
       "source": "OFFICIAL_NOTICE",
       "officialNoticeAt": "2026-09-17T14:20:00Z",
-      "affectedSegmentIds": ["segment-1", "segment-2"],
+      "affectedSegmentIds": [
+        "segment-1",
+        "segment-2"
+      ],
       "evidenceLevel": "FULL",
       "reasonCode": "ROAD_CONTROL",
       "observedAt": "2026-09-17T14:21:00Z"
     }
   ],
   "computedAt": "2026-09-17T14:45:00Z",
-  "validUntil": "2099-09-17T15:00:00Z"
+  "validUntil": "2099-09-17T15:00:00Z",
+  "guidance": {
+    "canDisplayEstimate": true,
+    "canAccept": true,
+    "source": "MIXED_ESTIMATE",
+    "reasons": []
+  }
 }

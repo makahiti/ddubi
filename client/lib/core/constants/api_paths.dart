@@ -13,6 +13,8 @@ class ApiPaths {
   static const String signUp = '/auth/local/signup';
   static const String refresh = '/auth/refresh';
   static const String logout = '/auth/logout';
+  static const String passwordChange = '/auth/password';
+  static const String emailChange = '/auth/email';
   static const String schedules = '/schedules';
   static const String scheduleRepeats = '/schedule-repeats';
   static const String deviceToken = '/devices/token';

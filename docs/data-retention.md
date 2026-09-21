@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | 수집 원본(raw 이벤트) | **Kafka** 토픽 `city.raw`, `transport.raw` | **21일** 또는 파티션당 용량 상한(city.raw 1GiB, transport.raw **4GiB**, 2026-09-09 상향) 중 먼저 오는 것 | Kafka 가 자동 | `docs/contracts/topics.yaml` → `infra/scripts/create-topics.sh` |
 | 수집 원본 아카이브 | **HDFS** `/ddubi/archive/<토픽>/date=/hour=/*.parquet` | **영구** (지우지 않음) | 없음 | `ARCHIVE_URI`, `ARCHIVE_TOPICS`, `ARCHIVE_FLUSH_MINUTES=60`, `ARCHIVE_MAX_BYTES=128MB` |
-| 구간 판정 이력 | Kafka `segment.status` | 24시간 (계약 현재값) | Kafka 자동 | topics.yaml — **아카이브 여부는 5절 참고** |
+| 구간 판정 이력 | Kafka `segment.status` + HDFS 아카이브 | Kafka 24시간, HDFS 영구 | Kafka 자동 + 아카이버 | topics.yaml, 5절 |
 | Spark 체크포인트 | HDFS `/ddubi/checkpoints/<잡>` | 잡이 사는 동안. 잡을 새로 시작하려면 폴더를 지운다 | 인프라 | `SPARK_CHECKPOINT_DIR` |
 | 기준선 파일(weather) | HDFS `/ddubi/baseline/weather` | 마지막 배치 결과 1개(덮어씀) | 배치가 덮어씀 | `BASELINE_OUTPUT_URI` |
 | 최신값 | **Redis** (`weather:latest:*`, `transit:*`) | 키마다 TTL(수 분~수 시간). 메모리 384MB, 넘치면 TTL 있는 키부터 퇴출 | Redis 자동 | `docs/contracts/redis-keys.yaml` |
@@ -60,6 +60,15 @@ docker exec hdfs-namenode hdfs dfs -du -s -h /ddubi/archive/transport.raw/date=$
 
 **디스크 수명(대략)**: 하루 100MB 가 HDFS 에 쌓여도(복제 2 → 두 서버에 각 100MB) 서버 디스크 293GB 여유는 8년치입니다. 프로젝트 기간 안에는 용량보다 **Kafka 1GiB 상한**과 **Redis 384MB** 가 먼저 문제가 됩니다.
 
+**HDFS 파생 데이터(Silver)와 수집 상태 토픽.** 원본 아카이브(`/ddubi/archive`) 외에 전처리 결과(Silver)와 수집 상태 토픽도 HDFS 를 씁니다. 모두 원본(Kafka·아카이브)에서 다시 만들 수 있는 파생 데이터라, 유실돼도 재생성할 수 있습니다.
+
+| 경로 | 무엇 | 쓰는 주체 | 비고 |
+|---|---|---|---|
+| `/ddubi/silver/weather/...` | 날씨 Silver | weather 스트림 | earliest 되감기로 8/31~ 채움 |
+| `/ddubi/silver/bus/realtime-v1` | 버스 Silver(실시간, 앞으로) | realtime 스트림 | 배포 이후분, 계속 쌓임 |
+| `/ddubi/silver/bus/backfill-v1` | 버스 Silver(과거 백필) | bus_silver 배치(일회용) | 9-10~9-16, 약 182M. 읽을 때 realtime-v1 과 합쳐 씀 |
+| `/ddubi/archive/source.poll-status` | 수집 사이클 상태(정상 빈 응답·실패·제한·생략) | 아카이버 | 토픽 504h·1GiB, archive:true (2026-09-17 추가) |
+
 ## 4. 용량 감시 — 무엇을 보고 언제 움직이나
 
 Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니다.
@@ -90,7 +99,9 @@ Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니�
 4. 확인: 첫 시간 정각 뒤 `hdfs dfs -ls /ddubi/archive/<토픽>/date=오늘` 에 파일이 생기고, Grafana "토픽별 유입"·"누적 메시지" 패널의 정규식에 토픽 이름이 들어 있는지 봅니다(`infra/monitoring/grafana/dashboards/json/ddubi-pipeline.json`).
 5. 재처리(replay)도 그 토픽 폴더를 읽을 수 있는지 `--dry-run` 으로 한 번 확인합니다.
 
-**segment.status 에 대한 주의.** 결정사항(2026-09-01)은 "판정 이력은 Kafka `segment.status` → 아카이버 → HDFS 에 남긴다"였는데, 현재 계약 파일은 `archive: false`, 보존 24시간입니다. dt 팀이 판정 잡을 올릴 때 계약을 `archive: true` 로 바꾸고 3번을 함께 해야 이력이 보존됩니다. 그대로 두면 판정은 24시간 뒤 사라집니다.
+`segment.status`는 `archive: true`이며 기본 `ARCHIVE_TOPICS`에도 포함된다. 운영 반영 시 아카이버를
+재생성하고 첫 시간 정각 뒤 HDFS 행 수와 Kafka offset을 대조한다. Kafka 자체 보존은 24시간이므로
+아카이버가 빠진 채 판정 잡만 켜지 않도록 한다.
 
 ## 6. 원본이 온전한지 확인하는 법
 

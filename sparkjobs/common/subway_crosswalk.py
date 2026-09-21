@@ -18,39 +18,25 @@ class SubwayCrosswalk:
     def __init__(self, path, expected_sha):
         with open(path, "rb") as source:
             raw = source.read(20_000_001)
-        if (
-            len(raw) > 20_000_000
-            or not expected_sha
-            or hashlib.sha256(raw).hexdigest() != expected_sha
-        ):
+        if len(raw) > 20_000_000 or not expected_sha or hashlib.sha256(raw).hexdigest() != expected_sha:
             raise ValueError("subway master SHA/size mismatch")
         with gzip.GzipFile(fileobj=io.BytesIO(raw)) as source:
             content = source.read(100_000_001)
         if len(content) > 100_000_000:
             raise ValueError("subway master expanded size exceeded")
         data = json.loads(content)
-        if (
-            data.get("schemaVersion") != 1
-            or not data.get("dataVersion")
-            or not data.get("lines")
-        ):
+        if data.get("schemaVersion") != 1 or not data.get("dataVersion") or not data.get("lines"):
             raise ValueError("subway master schema/version missing")
         self.version, self.sha = data["dataVersion"], expected_sha
         self.edges, self._pairs = set(), {}
         for line in data["lines"]:
             stations = line["stations"]
-            if len(stations) < 2 or [s["sequence"] for s in stations] != list(
-                range(1, len(stations) + 1)
-            ):
+            if len(stations) < 2 or [s["sequence"] for s in stations] != list(range(1, len(stations) + 1)):
                 raise ValueError("subway master sequence invalid")
             for a, b in zip(stations, stations[1:]):
                 parts = [line["subwayId"], a["stationId"], b["stationId"]]
                 if (
-                    any(
-                        not isinstance(v, str)
-                        or not re.fullmatch(r"[A-Za-z0-9._-]{1,50}", v)
-                        for v in parts
-                    )
+                    any(not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,50}", v) for v in parts)
                     or parts[1] == parts[2]
                 ):
                     raise ValueError("subway canonical edge invalid")
@@ -71,11 +57,7 @@ class SubwayCrosswalk:
         candidates = self._pairs.get((realtime_line, realtime_from, realtime_to), set())
         return dict(
             segmentIds=sorted(candidates) if len(candidates) == 1 else [],
-            state=(
-                "CONFIRMED"
-                if len(candidates) == 1
-                else "AMBIGUOUS" if candidates else "UNRESOLVED"
-            ),
+            state=("CONFIRMED" if len(candidates) == 1 else "AMBIGUOUS" if candidates else "UNRESOLVED"),
             masterVersion=self.version,
             crosswalkSha256=self.sha,
         )

@@ -38,6 +38,9 @@
 | `hdfs2` | hdfs-datanode2, hdfs-secondarynamenode | 서버2 전용. 세컨더리 네임노드는 매시간 네임노드 메타데이터 사본을 서버2 볼륨에 만든다(2026-09-14). 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
 | `hdfs-standby` | hdfs-namenode-standby | 서버2 전용, **평소 켜지 않는다**. 서버1 네임노드 메타데이터를 잃었을 때 `scripts/failover-namenode.sh` 가 켠다. [절차서](../docs/runbooks/hdfs-namenode-metadata-loss.md) |
 | `spark` | spark-master, spark-worker-1/2, spark-streaming-weather, spark-streaming-realtime | |
+| `recommendation-data` | spark-streaming-segment-observations, spark-streaming-segment-status | 검증된 실제 구간 통과 생산자와 registry/baseline이 준비된 뒤에만 켠다. 상태 잡은 두 경로가 비어 있으면 기동을 거부한다. |
+| `topis-ai` | spark-streaming-topis | GMS·Kakao 키를 설정한 뒤 명시적으로 켜는 TOPIS 공지 전처리 잡 |
+| `road-silver` | spark-streaming-traffic-incident | 승인된 OA-13310 동일 ID 링크 마스터가 있을 때 DIRECT/NEARBY를 활성화하는 교통 돌발 Silver |
 | `batch` | spark-batch | 일회성 실행기. `run --rm`으로만 쓴다 |
 | `archive` | archiver | |
 | `monitoring` | prometheus, grafana, node-exporter, redis-exporter·mysqld-exporter, blackbox-exporter | 서버2 몫. 스크랩 대상: 양 서버 node + 서버1 kafka-exporter. blackbox-exporter 는 ml-serving 의 /health/ready 를 대신 찔러 probe_success 지표로 바꾼다(2026-09-15) |

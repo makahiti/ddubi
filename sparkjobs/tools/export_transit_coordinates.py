@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 SCHEMA_VERSION = "transit-coordinate-v1"
 
 
@@ -45,19 +44,28 @@ def build_records(bus: dict[str, Any], subway: dict[str, Any], coordinates: dict
             stop_id = str(stop.get("stopId") or "")
             longitude, latitude = stop.get("longitude"), stop.get("latitude")
             coordinate_type = "STOP_POINT" if longitude is not None and latitude is not None else "UNKNOWN"
-            records.append({
-                "mode": "BUS", "providerNamespace": namespace,
-                "providerRouteId": str(route.get("routeId") or ""), "providerLineId": None,
-                "providerStopId": stop_id,
-                "canonicalNodeId": f"BUS_STOP:{namespace}:{stop_id}",
-                "occurrence": occurrence, "direction": stop.get("direction"),
-                "longitude": longitude, "latitude": latitude, "coordinateType": coordinate_type,
-                "source": str(stop.get("coordinateStatus") or "TRANSIT_MASTER"),
-                "sourceRef": f"route={route.get('routeId')};sequence={stop.get('sequence')}",
-                "masterVersion": bus_version, "validFrom": None, "validUntil": None,
-                "mappingStatus": "EXACT" if coordinate_type == "STOP_POINT" else "UNMAPPED",
-                "evidence": "route, stop, direction and sequence preserved from versioned bus master",
-            })
+            records.append(
+                {
+                    "mode": "BUS",
+                    "providerNamespace": namespace,
+                    "providerRouteId": str(route.get("routeId") or ""),
+                    "providerLineId": None,
+                    "providerStopId": stop_id,
+                    "canonicalNodeId": f"BUS_STOP:{namespace}:{stop_id}",
+                    "occurrence": occurrence,
+                    "direction": stop.get("direction"),
+                    "longitude": longitude,
+                    "latitude": latitude,
+                    "coordinateType": coordinate_type,
+                    "source": str(stop.get("coordinateStatus") or "TRANSIT_MASTER"),
+                    "sourceRef": f"route={route.get('routeId')};sequence={stop.get('sequence')}",
+                    "masterVersion": bus_version,
+                    "validFrom": None,
+                    "validUntil": None,
+                    "mappingStatus": "EXACT" if coordinate_type == "STOP_POINT" else "UNMAPPED",
+                    "evidence": "route, stop, direction and sequence preserved from versioned bus master",
+                }
+            )
     subway_version = str(subway["dataVersion"])
     for line in subway.get("lines", []):
         stations = line.get("stations", [])
@@ -67,24 +75,39 @@ def build_records(bus: dict[str, Any], subway: dict[str, Any], coordinates: dict
             coordinate = coordinates.get(station_id) or {}
             longitude, latitude = coordinate.get("longitude"), coordinate.get("latitude")
             coordinate_type = "STATION_CENTER" if longitude is not None and latitude is not None else "UNKNOWN"
-            records.append({
-                "mode": "SUBWAY", "providerNamespace": "METROPOLITAN_SUBWAY",
-                "providerRouteId": None,
-                "providerLineId": str(line.get("realtimeSubwayId") or line.get("subwayId") or ""),
-                "providerStopId": str(station.get("realtimeStationId") or station_id),
-                "canonicalNodeId": f"SUBWAY_STATION:{station_id}",
-                "occurrence": occurrence, "direction": line.get("direction"),
-                "longitude": longitude, "latitude": latitude, "coordinateType": coordinate_type,
-                "source": str(coordinate.get("source") or "UNAVAILABLE"),
-                "sourceRef": f"station={station_id};sequence={station.get('sequence')}",
-                "masterVersion": subway_version, "validFrom": None, "validUntil": None,
-                "mappingStatus": "EXACT" if coordinate_type == "STATION_CENTER" else "UNMAPPED",
-                "evidence": "line, station, direction and sequence preserved; coordinate is station center, never an entrance",
-            })
-    return sorted(records, key=lambda row: (
-        row["mode"], row["providerNamespace"], row.get("providerRouteId") or row.get("providerLineId") or "",
-        row["providerStopId"], row["direction"] or "", row["occurrence"],
-    ))
+            records.append(
+                {
+                    "mode": "SUBWAY",
+                    "providerNamespace": "METROPOLITAN_SUBWAY",
+                    "providerRouteId": None,
+                    "providerLineId": str(line.get("realtimeSubwayId") or line.get("subwayId") or ""),
+                    "providerStopId": str(station.get("realtimeStationId") or station_id),
+                    "canonicalNodeId": f"SUBWAY_STATION:{station_id}",
+                    "occurrence": occurrence,
+                    "direction": line.get("direction"),
+                    "longitude": longitude,
+                    "latitude": latitude,
+                    "coordinateType": coordinate_type,
+                    "source": str(coordinate.get("source") or "UNAVAILABLE"),
+                    "sourceRef": f"station={station_id};sequence={station.get('sequence')}",
+                    "masterVersion": subway_version,
+                    "validFrom": None,
+                    "validUntil": None,
+                    "mappingStatus": "EXACT" if coordinate_type == "STATION_CENTER" else "UNMAPPED",
+                    "evidence": "line, station, direction and sequence preserved; coordinate is station center, never an entrance",
+                }
+            )
+    return sorted(
+        records,
+        key=lambda row: (
+            row["mode"],
+            row["providerNamespace"],
+            row.get("providerRouteId") or row.get("providerLineId") or "",
+            row["providerStopId"],
+            row["direction"] or "",
+            row["occurrence"],
+        ),
+    )
 
 
 def build_artifact(bus_path: Path, subway_path: Path, coordinate_path: Path, generated_at: datetime) -> dict[str, Any]:

@@ -19,7 +19,6 @@ from urllib.parse import quote
 
 import httpx
 
-
 API_HOST = "http://openapi.seoul.go.kr:8088"
 SERVICE_NAME = "AccInfo"
 API_KEY_ENV_NAME = "TRAFFIC_INCIDENT_API_KEY"
@@ -42,25 +41,19 @@ def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
     if not path.exists():
         return
 
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8-sig").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
             line = line[7:].lstrip()
         if "=" not in line:
-            raise TrafficIncidentError(
-                f"{path}:{line_number}: KEY=VALUE 형식이 아닙니다"
-            )
+            raise TrafficIncidentError(f"{path}:{line_number}: KEY=VALUE 형식이 아닙니다")
 
         name, value = line.split("=", 1)
         name, value = name.strip(), value.strip()
         if not _ENV_NAME.fullmatch(name):
-            raise TrafficIncidentError(
-                f"{path}:{line_number}: 환경변수 이름이 올바르지 않습니다"
-            )
+            raise TrafficIncidentError(f"{path}:{line_number}: 환경변수 이름이 올바르지 않습니다")
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
         os.environ.setdefault(name, value)
@@ -71,8 +64,7 @@ def require_api_key(env_path: Path = DEFAULT_ENV_PATH) -> str:
     api_key = os.getenv(API_KEY_ENV_NAME, "").strip()
     if not api_key:
         raise TrafficIncidentError(
-            f"{env_path}에 서울 열린데이터광장 일반 인증키를 "
-            f"{API_KEY_ENV_NAME}로 설정해야 합니다"
+            f"{env_path}에 서울 열린데이터광장 일반 인증키를 {API_KEY_ENV_NAME}로 설정해야 합니다"
         )
     return api_key
 
@@ -92,10 +84,7 @@ def _element_text(element: ET.Element, tag: str) -> str:
 
 
 def _normalise_row(row: ET.Element) -> dict:
-    fields = {
-        child.tag.lower(): (child.text or "").strip()
-        for child in row
-    }
+    fields = {child.tag.lower(): (child.text or "").strip() for child in row}
     return {
         "incidentId": fields.get("acc_id", ""),
         "occurredDate": fields.get("occr_date", ""),
@@ -124,9 +113,7 @@ def parse_incident_xml(xml_text: str) -> tuple[int, list[dict]]:
     code = _element_text(result, "CODE") if result is not None else ""
     message = _element_text(result, "MESSAGE") if result is not None else ""
     if code not in {"INFO-000", "INFO-200"}:
-        raise TrafficIncidentError(
-            f"실시간 돌발 정보 API 오류({code or 'UNKNOWN'}): {message}"
-        )
+        raise TrafficIncidentError(f"실시간 돌발 정보 API 오류({code or 'UNKNOWN'}): {message}")
 
     total_text = _element_text(root, "list_total_count")
     try:
@@ -150,10 +137,7 @@ def fetch_incident_page(
     if not key:
         raise TrafficIncidentError(f"{API_KEY_ENV_NAME}가 비어 있습니다")
 
-    url = (
-        f"{API_HOST}/{quote(key, safe='')}/xml/{SERVICE_NAME}/"
-        f"{start_index}/{end_index}/"
-    )
+    url = f"{API_HOST}/{quote(key, safe='')}/xml/{SERVICE_NAME}/{start_index}/{end_index}/"
     owns_client = client is None
     http_client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0))
     try:
@@ -163,14 +147,10 @@ def fetch_incident_page(
             follow_redirects=True,
         )
         if response.status_code != 200:
-            raise TrafficIncidentError(
-                f"실시간 돌발 정보 API가 HTTP {response.status_code}을 반환했습니다"
-            )
+            raise TrafficIncidentError(f"실시간 돌발 정보 API가 HTTP {response.status_code}을 반환했습니다")
         return parse_incident_xml(response.text)
     except httpx.HTTPError as exc:
-        raise TrafficIncidentError(
-            f"실시간 돌발 정보 API 연결에 실패했습니다: {type(exc).__name__}"
-        ) from exc
+        raise TrafficIncidentError(f"실시간 돌발 정보 API 연결에 실패했습니다: {type(exc).__name__}") from exc
     finally:
         if owns_client:
             http_client.close()
@@ -215,14 +195,10 @@ def fetch_incidents(
 
             page_ids = tuple(item["incidentId"] for item in page_items)
             if page_ids == previous_page_ids:
-                raise TrafficIncidentError(
-                    "API가 같은 페이지를 반복해 전체 조회를 중단했습니다"
-                )
+                raise TrafficIncidentError("API가 같은 페이지를 반복해 전체 조회를 중단했습니다")
             previous_page_ids = page_ids
             if request_count >= MAX_FETCH_ALL_PAGES:
-                raise TrafficIncidentError(
-                    f"안전을 위해 전체 조회를 {MAX_FETCH_ALL_PAGES}페이지에서 중단했습니다"
-                )
+                raise TrafficIncidentError(f"안전을 위해 전체 조회를 {MAX_FETCH_ALL_PAGES}페이지에서 중단했습니다")
             current_start = current_end + 1
             current_end = current_start + page_size - 1
     finally:
@@ -260,12 +236,8 @@ def save_json(data: dict[str, Any], output_path: Path) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="서울시 실시간 돌발 정보를 JSON으로 저장"
-    )
-    parser.add_argument(
-        "--start-index", type=int, default=1, help="조회 시작 행(기본값: 1)"
-    )
+    parser = argparse.ArgumentParser(description="서울시 실시간 돌발 정보를 JSON으로 저장")
+    parser.add_argument("--start-index", type=int, default=1, help="조회 시작 행(기본값: 1)")
     parser.add_argument(
         "--page-size",
         type=int,
@@ -277,12 +249,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="전체 페이지를 넘기지 않고 첫 페이지만 조회",
     )
-    parser.add_argument(
-        "--env-file", type=Path, default=DEFAULT_ENV_PATH, help="API 키 환경 파일"
-    )
-    parser.add_argument(
-        "--output", type=Path, default=DEFAULT_OUTPUT_PATH, help="JSON 출력 경로"
-    )
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_PATH, help="API 키 환경 파일")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH, help="JSON 출력 경로")
     return parser.parse_args(argv)
 
 
@@ -300,16 +268,14 @@ def main() -> int:
         print(f"[실패] {exc}")
         return 1
 
-    print(
-        f"[완료] 현재 돌발 {data['receivedCount']}건 저장 "
-        f"(API {data['requestCount']}회): {args.output}"
-    )
+    print(f"[완료] 현재 돌발 {data['receivedCount']}건 저장 (API {data['requestCount']}회): {args.output}")
     return 0
 
 
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("traffic_incident")
 
 

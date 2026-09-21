@@ -111,19 +111,19 @@ Spark observation에 `sourceGeneratedAt`(두 이벤트)과 `arrivalTrainType`(�
 
 ## 전체 경로 반영과 응답
 
-카카오 총시간에는 위치가 확인되지 않은 대기·접근시간이 있을 수 있다. 새 대기를 단순 가산하지 않는다.
-`ddubi.subway-timing.decomposition-verified` 기본값은 false다. 실제 응답에서 **step은 대기를 제외하고,
-승강장 접근/환승 도보는 누락 없이 별도 포함됨**을 검증한 제공자 설정에만 true로 둔다.
-true여도 `카카오 총시간 - step 합 != 0`이면 합계를 교체하지 않는다. 이 검증을 설정만으로 대신할 수 없다.
+2026-09-18 변경: [구간 합산 계약](segment-time-aggregation.md)을 따른다.
+계산에 성공한 시간표 대기·탑승을 합산하고 원본 총시간 잔여는 사용하지 않는다.
+`decomposition-verified`는 더 이상 전체 반영의 승인 조건이 아니다.
+계산 불가 시 해당 카카오 SUBWAY step 시간을 사용하고 대기는 합산에서 제외한다.
 
 - `preview.subwayPredictions[]`: candidateKey, stepKey, platformAt, estimate, applied, reason.
 - estimate: waitSeconds, rideSeconds, boardingAt, arrivalAt, tripKey, source, timetableVersion,
   arrivalEventId, observedAt, positionEventId, reasons. 시간은 초/ISO 8601.
-- `applied=false`, `SUBWAY_TIME_COMPONENTS_UNRESOLVED`: 별도 계산은 있으나 전체 ETA는 API 유지.
+- `applied=false`, `SUBWAY_TIMING_UNAVAILABLE`: 해당 탑승 step은 API 시간 사용, 대기는 제외.
 - `preview.candidates[].subwaySteps`: 실제 시간표/실시간 적용 step 수. mlSteps에 합치지 않는다.
 - 버스와 함께 보는 공통 대기 결과는 `preview.waitPredictions`다. [대기시간 계약](transit-waiting.md)을 따른다.
 - quality: SUBWAY_PREVIEW 또는 MIXED_PREVIEW. 기존 ML_PREVIEW/API_ONLY도 유지.
-- PREVIEW·productionReady=false, 자동 출발 변경/알림/수락 차단은 유지한다. 새 migration은 없다.
+- PREVIEW·productionReady=false는 모델 승인과 구분한다. 안내·수락 여부는 EvaluationGuidance 및 저장소 유효성 검사로 판단한다. 새 migration은 없다.
 
 09:00 승강장 도착 → 09:01 탑승 → 09:05 하차라면 waitSeconds=60, rideSeconds=240,
 arrivalAt=09:05다. 환승 도보가 45초라면 다음 승강장 진입은 09:05:45이며 그 이전 열차는 선택하지 않는다.

@@ -19,7 +19,6 @@ from sources.city_realtime import (  # noqa: E402
     select_city_areas,
 )
 
-
 AREA = {
     "category": "고궁·문화유산",
     "areaCode": "POI009",
@@ -89,9 +88,7 @@ class CityRealtimeTest(unittest.TestCase):
             return httpx.Response(200, json=responses[code])
 
         with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-            result = fetch_city_areas(
-                "key", [AREA, second_area], client=client, requests_per_second=5
-            )
+            result = fetch_city_areas("key", [AREA, second_area], client=client, requests_per_second=5)
 
         self.assertEqual(len(requests), 2)
         self.assertEqual(result["receivedAreaCount"], 2)

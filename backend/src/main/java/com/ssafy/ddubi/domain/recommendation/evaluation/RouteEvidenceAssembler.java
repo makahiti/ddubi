@@ -1,5 +1,7 @@
 package com.ssafy.ddubi.domain.recommendation.evaluation;
 
+import static com.ssafy.ddubi.domain.recommendation.evaluation.JourneyEvidence.*;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.ddubi.domain.route.mapping.*;
@@ -8,12 +10,10 @@ import java.time.Instant;
 import java.util.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
-import static com.ssafy.ddubi.domain.recommendation.evaluation.JourneyEvidence.*;
 
 /**
- * 카카오 후보와 Spark 구간 상태를 한 번의 평가 증거로 고정한다. Redis는 읽기만 하며,
- * 미매핑·만료·형식 오류·연결 실패를 원본 fallback과 진단으로 남긴다. ML 호출은 MlRoutePreview가 담당한다.
- * 대기 포함 여부가 확정되지 않은 카카오 step에는 도착 API의 대기를 임의 추가하지 않는다.
+ * 카카오 후보와 Spark 구간 상태를 한 번의 평가 증거로 고정한다. Redis는 읽기만 하며, 미매핑·만료·형식 오류·연결 실패를 원본 fallback과 진단으로 남긴다.
+ * ML 호출은 MlRoutePreview가 담당한다. 대기 포함 여부가 확정되지 않은 카카오 step에는 도착 API의 대기를 임의 추가하지 않는다.
  */
 @Component
 public class RouteEvidenceAssembler {
@@ -22,122 +22,197 @@ public class RouteEvidenceAssembler {
     private final ObjectMapper json;
     private final RoadImpactEvidence road;
 
-    public RouteEvidenceAssembler(StringRedisTemplate redis, ObjectMapper json) { this(redis,json,null); }
+    public RouteEvidenceAssembler(StringRedisTemplate redis, ObjectMapper json) {
+        this(redis, json, null);
+    }
+
     @org.springframework.beans.factory.annotation.Autowired
-    public RouteEvidenceAssembler(StringRedisTemplate redis, ObjectMapper json, RoadImpactEvidence road) {
-        this.redis=redis; this.json=json; this.road=road;
+    public RouteEvidenceAssembler(
+            StringRedisTemplate redis, ObjectMapper json, RoadImpactEvidence road) {
+        this.redis = redis;
+        this.json = json;
+        this.road = road;
     }
 
     /** 외부 원본을 노출하지 않는 고정 스냅샷. 검증된 상태 JSON과 오류 이유로 Replay할 수 있다. */
-    public record Snapshot(Map<String, JsonNode> states, List<String> reasons, Map<String, JsonNode> roads) {
-        public Snapshot(Map<String, JsonNode> states, List<String> reasons) { this(states,reasons,Map.of()); }
-        public Snapshot { states = Map.copyOf(states); reasons = List.copyOf(reasons); roads = roads==null?Map.of():Map.copyOf(roads); }
+    public record Snapshot(
+            Map<String, JsonNode> states, List<String> reasons, Map<String, JsonNode> roads) {
+        public Snapshot(Map<String, JsonNode> states, List<String> reasons) {
+            this(states, reasons, Map.of());
+        }
+
+        public Snapshot {
+            states = Map.copyOf(states);
+            reasons = List.copyOf(reasons);
+            roads = roads == null ? Map.of() : Map.copyOf(roads);
+        }
     }
 
     /** 서버 매핑 결과에서 하나로 확정된 canonical 경로만 반환한다. 여러 버스 대안을 임의로 고르지 않는다. */
     public static List<MappedTransitSegment> edges(RouteSegment segment) {
         var mapping = segment.mapping();
         if (mapping == null) return List.of();
-        if (mapping.status() == TransitMappingStatus.EXACT && !mapping.segments().isEmpty()) return mapping.segments();
-        if (segment.mode() == TransportMode.BUS && mapping.busAlternatives().size() == 1
+        if (mapping.status() == TransitMappingStatus.EXACT && !mapping.segments().isEmpty())
+            return mapping.segments();
+        if (segment.mode() == TransportMode.BUS
+                && mapping.busAlternatives().size() == 1
                 && mapping.busAlternatives().get(0).candidates().size() == 1) {
-            try { return BusCanonicalPath.select(mapping, 0, 0).edges(); }
-            catch (IllegalArgumentException ignored) { return List.of(); }
+            try {
+                return BusCanonicalPath.select(mapping, 0, 0).edges();
+            } catch (IllegalArgumentException ignored) {
+                return List.of();
+            }
         }
         return List.of();
     }
 
     /** Redis MGET 한 번으로 중복 ID를 합친다. 원본 예외에 URL/비밀정보가 있어도 응답·로그에 복제하지 않는다. */
     public Snapshot read(List<RouteCandidate> candidates, Instant asOf) {
-        var ids = candidates.stream().flatMap(c -> c.segments().stream()).flatMap(s -> edges(s).stream())
-                .map(MappedTransitSegment::segmentId).distinct().sorted().toList();
+        var ids =
+                candidates.stream()
+                        .flatMap(c -> c.segments().stream())
+                        .flatMap(s -> edges(s).stream())
+                        .map(MappedTransitSegment::segmentId)
+                        .distinct()
+                        .sorted()
+                        .toList();
         var states = new LinkedHashMap<String, JsonNode>();
         var reasons = new ArrayList<String>();
         if (ids.isEmpty()) return new Snapshot(states, List.of("NO_VERIFIED_SEGMENT_MAPPING"));
         List<String> values;
-        try { values = redis.opsForValue().multiGet(ids.stream().map(id -> PREFIX + id).toList()); }
-        catch (RuntimeException failure) { return new Snapshot(states, List.of("REDIS_UNAVAILABLE")); }
+        try {
+            values = redis.opsForValue().multiGet(ids.stream().map(id -> PREFIX + id).toList());
+        } catch (RuntimeException failure) {
+            return new Snapshot(states, List.of("REDIS_UNAVAILABLE"));
+        }
         for (int i = 0; i < ids.size(); i++) {
             String id = ids.get(i);
             try {
                 String raw = values == null || values.size() <= i ? null : values.get(i);
-                if (raw == null) { reasons.add(id + ":MISSING"); continue; }
+                if (raw == null) {
+                    reasons.add(id + ":MISSING");
+                    continue;
+                }
                 JsonNode node = json.readTree(raw);
                 Instant computed = Instant.parse(node.path("computedAt").asText());
                 Instant until = Instant.parse(node.path("validUntil").asText());
                 String state = node.path("status").asText();
-                if (!id.equals(node.path("segmentId").asText()) || computed.isAfter(asOf)
-                        || !until.isAfter(asOf) || !until.isAfter(computed)
-                        || !Set.of("normal", "slow", "delayed", "blocked", "unknown").contains(state)) {
-                    reasons.add(id + ":STALE_OR_INVALID"); continue;
+                if (!id.equals(node.path("segmentId").asText())
+                        || computed.isAfter(asOf)
+                        || !until.isAfter(asOf)
+                        || !until.isAfter(computed)
+                        || !Set.of("normal", "slow", "delayed", "blocked", "unknown")
+                                .contains(state)) {
+                    reasons.add(id + ":STALE_OR_INVALID");
+                    continue;
                 }
                 states.put(id, node);
-            } catch (Exception invalid) { reasons.add(id + ":INVALID_PAYLOAD"); }
+            } catch (Exception invalid) {
+                reasons.add(id + ":INVALID_PAYLOAD");
+            }
         }
-        return new Snapshot(states, reasons, road==null?Map.of():road.read(candidates,asOf));
+        return new Snapshot(states, reasons, road == null ? Map.of() : road.read(candidates, asOf));
     }
 
     /**
-     * 카카오 총시간과 step 합의 차이는 위치 미확정 시간으로 한 번만 보존한다. 각 step 진입은
-     * 이 잔여시간만큼의 불확실성을 가진다. Redis의 이동 관측값은 시간 교체에 사용하지 않는다.
-     * step 합이 총시간을 초과하면 분해를 신뢰하지 않고 전체 API 예상시간으로 fallback한다.
+     * 보강된 접근·이탈 도보와 원본 환승·탑승 step을 초 단위 fallback으로 제공한다. 총시간과 step 합의 차이는 사용하지 않는다. 대기는 서비스에서 계산 성공
+     * 시에만 삽입한다. Redis는 통제 근거이며 이 단계에서 이동시간을 교체하지 않는다.
      */
     public Journey assemble(RouteCandidate candidate, Snapshot snapshot, Instant asOf) {
-        long sum = candidate.segments().stream().mapToLong(RouteSegment::durationSeconds).sum();
-        long unassigned = candidate.totalDurationSeconds() - sum;
-        if (unassigned < 0 || candidate.segments().isEmpty()) {
-            return new Journey(key(candidate), List.of(new Leg("provider-total", Kind.PROVIDER_TOTAL, List.of(),
-                    candidate.totalDurationSeconds(), null, null, List.of())));
-        }
+        // 구간별 합산 정책: provider 총시간과의 차이를 대기/도보로 배분하지 않는다.
+        // 대기는 JourneyEvaluationService에서 실제 계산 성공 시에만 추가한다.
+        long unassigned = 0;
         var legs = new ArrayList<Leg>();
         for (RouteSegment segment : candidate.segments()) {
             var ids = edges(segment).stream().map(MappedTransitSegment::segmentId).toList();
             // Redis는 통제/위험 근거만 제공한다. 이동시간은 ML 비교기가 별도로 계산하며
             // 관측 중앙값을 모델 예측인 것처럼 교체하지 않는다.
-            legs.add(new Leg("step-" + segment.sequence(), segment.mode() == TransportMode.WALK ? Kind.WALK : Kind.RIDE,
-                    ids, segment.durationSeconds(), null, null, List.of(), unassigned));
+            legs.add(
+                    new Leg(
+                            "step-" + segment.sequence(),
+                            segment.mode() == TransportMode.WALK ? Kind.WALK : Kind.RIDE,
+                            ids,
+                            segment.durationSeconds(),
+                            null,
+                            null,
+                            List.of(),
+                            unassigned));
         }
-        if (unassigned > 0) legs.add(new Leg("unassigned", Kind.UNASSIGNED, List.of(), unassigned, null, null, List.of()));
+
         return new Journey(key(candidate), legs);
     }
 
     /** 만료되지 않은 공식 blocked 판정만 통제로 변환한다. 미래에는 validUntil 바깥까지 연장하지 않는다. */
     public List<Closure> closures(Snapshot snapshot) {
         var closures = new ArrayList<Closure>();
-        snapshot.states().forEach((id, state) -> {
-            if ("blocked".equals(state.path("status").asText())) {
-                Instant at = Instant.parse(state.path("computedAt").asText());
-                closures.add(new Closure(state.path("eventId").asText(id + ":" + at), List.of(id),
-                        new Window(state.path("source").asText("segment.status"), at, at,
-                                Instant.parse(state.path("validUntil").asText()))));
-            }
-        });
+        snapshot.states()
+                .forEach(
+                        (id, state) -> {
+                            if ("blocked".equals(state.path("status").asText())) {
+                                Instant at = Instant.parse(state.path("computedAt").asText());
+                                closures.add(
+                                        new Closure(
+                                                state.path("eventId").asText(id + ":" + at),
+                                                List.of(id),
+                                                new Window(
+                                                        state.path("source")
+                                                                .asText("segment.status"),
+                                                        at,
+                                                        at,
+                                                        Instant.parse(
+                                                                state.path("validUntil")
+                                                                        .asText()))));
+                            }
+                        });
         return List.copyOf(closures);
     }
 
     /** 영향 구간의 현재 악화는 시간 가산 대신 근거로 공개한다. 위치 미확정/미래 이용도 확정 지연으로 바꾸지 않는다. */
     public List<String> riskReasons(RouteCandidate candidate, Snapshot snapshot) {
-        return candidate.segments().stream().flatMap(s -> edges(s).stream()).map(MappedTransitSegment::segmentId)
-                .distinct().filter(snapshot.states()::containsKey).map(id -> id + ":" + snapshot.states().get(id).path("status").asText())
-                .filter(s -> !s.endsWith(":normal")).toList();
+        return candidate.segments().stream()
+                .flatMap(s -> edges(s).stream())
+                .map(MappedTransitSegment::segmentId)
+                .distinct()
+                .filter(snapshot.states()::containsKey)
+                .map(id -> id + ":" + snapshot.states().get(id).path("status").asText())
+                .filter(s -> !s.endsWith(":normal"))
+                .toList();
     }
 
     /**
-     * canonical ID는 순환 노선의 같은 정류장 쌍에서 반복될 수 있으므로 공식 정류장 순번과
-     * 방향까지 포함한 occurrence 식별자를 사용한다. 실시간 ID나 관측값은 경로 정체성이 아니다.
-     * 캐시 재선택과 도보 증거 연결이 동일한 기준을 사용하도록 이 함수에서만 조합한다.
+     * canonical ID는 순환 노선의 같은 정류장 쌍에서 반복될 수 있으므로 공식 정류장 순번과 방향까지 포함한 occurrence 식별자를 사용한다. 실시간 ID나
+     * 관측값은 경로 정체성이 아니다. 캐시 재선택과 도보 증거 연결이 동일한 기준을 사용하도록 이 함수에서만 조합한다.
      */
     public static List<List<Object>> pathIdentity(RouteSegment segment) {
-        return edges(segment).stream().map(e -> Arrays.<Object>asList(e.segmentId(), e.routeId(),
-                e.fromOrder(), e.toOrder(), e.direction())).toList();
+        return edges(segment).stream()
+                .map(
+                        e ->
+                                Arrays.<Object>asList(
+                                        e.segmentId(),
+                                        e.routeId(),
+                                        e.fromOrder(),
+                                        e.toOrder(),
+                                        e.direction()))
+                .toList();
     }
 
     /** 원본 후보 순번을 유지하고 선택된 버스 occurrence 열로 대안 key를 분리한다. 같은 입력은 같은 key다. */
     public static String key(RouteCandidate candidate) {
-        String base="candidate-"+candidate.providerCandidateIndex();
-        if(candidate.segments().stream().noneMatch(s -> s.mapping()!=null
-                && BusAlternativeExpansion.SELECTED.equals(s.mapping().failureReason()))) return base;
-        var ids=candidate.segments().stream().map(s -> s.sequence()+":"+pathIdentity(s)).toList().toString();
-        return base+"-bus-"+UUID.nameUUIDFromBytes(ids.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String base = "candidate-" + candidate.providerCandidateIndex();
+        if (candidate.segments().stream()
+                .noneMatch(
+                        s ->
+                                s.mapping() != null
+                                        && BusAlternativeExpansion.SELECTED.equals(
+                                                s.mapping().failureReason()))) return base;
+        var ids =
+                candidate.segments().stream()
+                        .filter(s -> !"EVALUATION_ENDPOINT_WALK".equals(s.providerRouteKey()))
+                        .map(s -> s.sequence() + ":" + pathIdentity(s))
+                        .toList()
+                        .toString();
+        return base
+                + "-bus-"
+                + UUID.nameUUIDFromBytes(ids.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 }

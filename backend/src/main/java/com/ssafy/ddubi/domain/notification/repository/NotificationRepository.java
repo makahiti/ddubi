@@ -10,21 +10,27 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
-    Page<Notification> findAllByUserId(Long userId, Pageable pageable);
+    // 알림함에 보이는 것만 센다. 사용자가 지운 알림(deleted_at)은 이력으로만 남고
+    // 목록·상세·뱃지에서는 없는 것으로 다룬다. 억제 판단만 지운 것까지 본다.
 
-    Page<Notification> findAllByUserIdAndType(Long userId, NotificationType type, Pageable pageable);
+    Page<Notification> findAllByUserIdAndDeletedAtIsNull(Long userId, Pageable pageable);
 
-    Page<Notification> findAllByUserIdAndReadAtIsNull(Long userId, Pageable pageable);
+    Page<Notification> findAllByUserIdAndTypeAndDeletedAtIsNull(
+            Long userId, NotificationType type, Pageable pageable);
 
-    Page<Notification> findAllByUserIdAndTypeAndReadAtIsNull(
+    Page<Notification> findAllByUserIdAndReadAtIsNullAndDeletedAtIsNull(
+            Long userId, Pageable pageable);
+
+    Page<Notification> findAllByUserIdAndTypeAndReadAtIsNullAndDeletedAtIsNull(
             Long userId, NotificationType type, Pageable pageable);
 
     /** 안읽음 뱃지 — 목록 응답과 홈 요약(HOME-001)이 같이 쓴다. */
-    long countByUserIdAndReadAtIsNull(Long userId);
+    long countByUserIdAndReadAtIsNullAndDeletedAtIsNull(Long userId);
 
     /**
      * 그 억제 키로 이미 알림을 받은 사용자들.
@@ -62,6 +68,30 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
                set n.readAt = :readAt, n.updatedAt = :readAt
              where n.user.id = :userId
                and n.readAt is null
+               and n.deletedAt is null
             """)
     int markAllRead(@Param("userId") Long userId, @Param("readAt") LocalDateTime readAt);
+
+    /**
+     * NTF-005 알림함에서 숨기기 — 여러 건도 UPDATE 한 번.
+     *
+     * 소유권과 존재 여부는 호출 전에 확인한다(서비스가 404·403 을 구분해야 한다).
+     * 여기서 user.id 를 다시 거는 것은 마지막 방어선이다 — 검사와 갱신 사이에
+     * 다른 요청이 끼어들어도 남의 알림을 건드리지 않는다.
+     *
+     * 이미 숨긴 것은 건너뛴다. 같은 요청이 두 번 와도 처음 지운 시각이 유지된다(멱등).
+     *
+     * updated_at 을 명시로 갱신하는 이유는 markAllRead 와 같다 — 벌크 연산은 Auditing 을 타지 않는다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Notification n
+               set n.deletedAt = :deletedAt, n.updatedAt = :deletedAt
+             where n.user.id = :userId
+               and n.id in :ids
+               and n.deletedAt is null
+            """)
+    int hide(@Param("userId") Long userId,
+             @Param("ids") Collection<Long> ids,
+             @Param("deletedAt") LocalDateTime deletedAt);
 }
