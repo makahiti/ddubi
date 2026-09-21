@@ -897,12 +897,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('accountPasswordDialog')), findsNothing);
 
+    // 아침 브리핑 카드가 생기면서 설정 화면이 길어졌다. 한 번에 끌어서는 문의 버튼까지
+    // 닿지 않아 두 번 나눠 내린다.
+    await tester.drag(
+      find.byKey(const Key('mobileSettingsLayout')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const Key('mobileSettingsLayout')),
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('helpInquiryButton')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('helpInquiryButton')));
     await tester.pumpAndSettle();
     expect(find.text('무엇을 도와드릴까요?'), findsOneWidget);

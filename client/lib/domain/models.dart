@@ -487,6 +487,7 @@ class UserProfile {
     required this.nickname,
     required this.notifyLeadMin,
     required this.alarmEnabled,
+    this.briefingTime,
     this.provider,
   });
 
@@ -495,6 +496,11 @@ class UserProfile {
   final String nickname;
   final int notifyLeadMin;
   final bool alarmEnabled;
+
+  /// 아침 브리핑을 받을 시각 "HH:mm". null 이면 브리핑을 받지 않는다는 뜻이다 —
+  /// 서버가 briefing_time 이 비어 있는 사용자를 대상에서 제외한다.
+  final String? briefingTime;
+
   final String? provider;
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -503,8 +509,15 @@ class UserProfile {
     nickname: json['nickname'] as String? ?? '',
     notifyLeadMin: (json['notifyLeadMin'] as num?)?.toInt() ?? 20,
     alarmEnabled: json['alarmEnabled'] as bool? ?? true,
+    briefingTime: _hourMinuteOrNull(json['briefingTime']?.toString()),
     provider: json['provider']?.toString(),
   );
+}
+
+/// "07:00:00" 처럼 초가 붙어 와도 화면·요청에 쓰는 "HH:mm" 으로 맞춘다.
+String? _hourMinuteOrNull(String? value) {
+  if (value == null || value.length < 5) return null;
+  return value.substring(0, 5);
 }
 
 class ArrivalRecord {

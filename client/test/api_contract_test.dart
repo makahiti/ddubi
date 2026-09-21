@@ -474,9 +474,22 @@ void main() {
                     'result': {
                       'recommendationId': 31,
                       'plannedDepartAt': '2026-09-15T08:10:00',
+                      // 지금 선택된 경로. 화면의 "현재 선택 경로" 칸은 이 값을 쓴다.
+                      'selected': {
+                        'departureAt': '2026-09-15T08:10:00',
+                        'estimatedArrivalAt': '2026-09-15T08:42:00',
+                      },
+                      // 더 빠른 다른 경로를 제안 중인 상황. 이 값이 선택 경로 자리에
+                      // 새어 나오면 같은 화면에서 숫자가 어긋난다.
+                      'suggestion': {
+                        'proposed': {
+                          'departureAt': '2026-09-15T08:30:00',
+                          'estimatedArrivalAt': '2026-09-15T08:42:00',
+                        },
+                      },
                       'preview': {
                         'fastest': {
-                          'departureAt': '2026-09-15T08:10:00',
+                          'departureAt': '2026-09-15T08:30:00',
                           'estimatedArrivalAt': '2026-09-15T08:42:00',
                         },
                       },
@@ -505,7 +518,9 @@ void main() {
     final explanation = await api.getExplanation('31');
 
     expect(latest?.recommendationId, '31');
+    // 제안(12분)이 아니라 선택 경로(32분) 값이어야 한다.
     expect(latest?.durationMin, 32);
+    expect(latest?.departureAt, DateTime(2026, 9, 15, 8, 10));
     expect(latest?.source, 'API_ONLY');
     expect(latest?.preview, isTrue);
     expect(explanation.reasonCodes, ['VALIDATION_ONLY']);

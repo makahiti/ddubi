@@ -9,6 +9,7 @@ import '../../services/app_api.dart';
 import '../../services/recommendation_api.dart';
 import '../widgets.dart';
 import '../departure_headline.dart';
+import '../recommendation_guide_card.dart';
 import '../schedule_evaluation_card.dart';
 import '../../domain/schedule_evaluation.dart';
 import '../../domain/route_evaluated_numbers.dart';
@@ -355,10 +356,13 @@ class ScheduleDetailScreen extends StatelessWidget {
             else ...[
               _FinalRouteSummary(route: route),
               const SizedBox(height: 10),
+              // 계산 근거(내부 사유 코드) 대신 사용자가 행동할 수 있는 안내를 보여준다.
+              // 시간과 순서는 서버 계산값이고 앱은 받은 값을 그대로 쓴다.
               if (recommendationApi != null)
-                _RecommendationEvidenceCard(
+                RecommendationGuideCard(
                   api: recommendationApi!,
-                  overview: overview,
+                  scheduleId: schedule.id,
+                  headline: headline,
                 ),
             ],
             const SizedBox(height: 16),
@@ -699,7 +703,9 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
   /// 이번 평가에서 서버가 바꾸라고 제안한 경로. 없으면 null 이다.
   String? get _proposedRouteId {
     for (final estimate in _estimates) {
-      if (estimate.proposed && estimate.routeId != null) return estimate.routeId;
+      if (estimate.proposed && estimate.routeId != null) {
+        return estimate.routeId;
+      }
     }
     return null;
   }
@@ -861,9 +867,7 @@ class _SavedRouteTile extends StatelessWidget {
     child: InkWell(
       key: Key('savedRoute-${route.routeId}'),
       borderRadius: BorderRadius.circular(16),
-      onTap: onTap == null
-          ? null
-          : () => onTap!(route, displayRank, evaluated),
+      onTap: onTap == null ? null : () => onTap!(route, displayRank, evaluated),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -955,144 +959,6 @@ class _SavedRouteTile extends StatelessWidget {
     if (modes.contains('SUBWAY')) return Icons.directions_subway_rounded;
     if (modes.contains('BUS')) return Icons.directions_bus_rounded;
     return Icons.directions_walk_rounded;
-  }
-}
-
-class _RecommendationEvidenceCard extends StatelessWidget {
-  const _RecommendationEvidenceCard({
-    required this.api,
-    required this.overview,
-  });
-
-  final RecommendationApi api;
-  final RecommendationOverview? overview;
-
-  @override
-  Widget build(BuildContext context) {
-    final recommendationId = overview?.recommendationId;
-    if (recommendationId == null) {
-      return _evidence(
-        context,
-        source: overview?.source,
-        reasonCodes: overview?.reasonCodes ?? const [],
-        preview: overview?.preview,
-      );
-    }
-    return FutureBuilder<RecommendationExplanation>(
-      future: api.getExplanation(recommendationId),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return _evidence(
-            context,
-            source: overview?.source,
-            reasonCodes: overview?.reasonCodes ?? const [],
-            preview: overview?.preview,
-            note: '상세 추천 근거를 불러오지 못했어요.',
-          );
-        }
-        final explanation = snapshot.data;
-        return _evidence(
-          context,
-          source: explanation?.source ?? overview?.source,
-          reasonCodes:
-              explanation?.reasonCodes ?? overview?.reasonCodes ?? const [],
-          preview: explanation?.preview ?? overview?.preview,
-          checkedAt: explanation?.dataCheckedAt,
-          loading: !snapshot.hasData,
-        );
-      },
-    );
-  }
-
-  Widget _evidence(
-    BuildContext context, {
-    String? source,
-    required List<String> reasonCodes,
-    bool? preview,
-    DateTime? checkedAt,
-    bool loading = false,
-    String? note,
-  }) => InfoCard(
-    color: const Color(0xFFF4F8FF),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const StatusBadge(
-          '추천 근거',
-          tone: DdubiColors.blue,
-          icon: Icons.lightbulb_outline,
-        ),
-        const SizedBox(height: 10),
-        if (loading)
-          const LinearProgressIndicator()
-        else ...[
-          Text(_sourceDescription(source)),
-          if (preview == true) ...[
-            const SizedBox(height: 6),
-            const Text(
-              '현재 결과는 검증용이며 일정에 자동 적용되지 않아요.',
-              style: TextStyle(color: Color(0xFF64708B)),
-            ),
-          ],
-          if (reasonCodes.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            for (final reason in reasonCodes.take(3))
-              Text('• ${_reasonDescription(reason)}'),
-          ],
-          if (checkedAt != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              '${checkedAt.hour.toString().padLeft(2, '0')}:${checkedAt.minute.toString().padLeft(2, '0')} 기준',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-          if (note != null) ...[
-            const SizedBox(height: 8),
-            Text(note, style: Theme.of(context).textTheme.bodySmall),
-          ],
-        ],
-      ],
-    ),
-  );
-
-  static String _sourceDescription(String? source) => switch (source) {
-    'API_ONLY' => '현재 경로 API의 예상 소요시간을 기준으로 계산했어요.',
-    'ML_PREVIEW' => '버스 구간 예측을 포함해 계산했어요.',
-    'SUBWAY_PREVIEW' => '지하철 시간표를 포함해 계산했어요.',
-    'MIXED_PREVIEW' => '경로 API와 교통 예측 정보를 함께 사용했어요.',
-    'HISTORICAL_REFERENCE' || 'MIXED_HISTORICAL_REFERENCE' =>
-      '일부 버스 구간에 과거 평균 소요시간을 사용한 참고 추정이에요. 실시간 또는 ML 예측값이 아니에요.',
-    'BUS_REFERENCE' =>
-      '버스 구간에 미리 계산한 기준 소요시간을 사용한 참고 추정이에요. 실시간 또는 ML 예측값이 아니에요.',
-    _ => '계산에 사용된 정보가 확인되지 않았어요. 최신 평가의 제한 사항을 확인해 주세요.',
-  };
-
-  static String _reasonDescription(String code) {
-    final historical = historicalReferenceReasonLabel(code);
-    if (historical != null) return historical;
-    if (code.contains('HISTORICAL_REFERENCE_APPLIED')) {
-      return '버스 구간에 과거 평균 소요시간을 적용했어요.';
-    }
-    if (code.contains('HISTORICAL_REFERENCE_WEATHER_UNKNOWN')) {
-      return '과거 평균에는 현재 날씨가 반영되지 않았어요.';
-    }
-    if (code.contains('HISTORICAL_REFERENCE_DATA_VERSION') ||
-        code.contains('HISTORICAL_REFERENCE_SAMPLE_KIND')) {
-      return '사용한 과거 자료의 출처가 기록돼 있어요.';
-    }
-    if (code.contains('HISTORICAL_REFERENCE_')) {
-      return '과거 자료 적용 조건이 맞지 않아 기본 경로시간을 유지했어요.';
-    }
-    if (code == 'VALIDATION_ONLY') return '검증 단계의 결과예요.';
-    if (code.contains('ML_NOT_CONFIGURED')) return '일부 구간은 경로 API 시간을 사용했어요.';
-    if (code.contains('BUS_WAIT_MISSING')) return '버스 대기시간 정보가 부족해요.';
-    if (code.contains('SUBWAY_TIMETABLE_NOT_CONFIGURED')) {
-      return '지하철 시간표 정보가 부족해요.';
-    }
-    if (code.startsWith('ROAD_POTENTIAL_IMPACT:')) {
-      return '예상 이동 구간에 도로 영향 가능성이 있어요.';
-    }
-    return '일부 교통정보를 확인하지 못했어요.';
   }
 }
 

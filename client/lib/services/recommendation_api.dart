@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../core/constants/api_paths.dart';
 import '../domain/models.dart';
+import '../domain/recommendation_guide.dart';
 import '../domain/schedule_evaluation.dart';
 
 class RecommendationOverview {
@@ -437,28 +438,30 @@ class RecommendationApi {
         b['totalDurationSeconds'] as num,
       ),
     );
-    return items.map((item) {
-      final durationMinutes =
-          ((item['totalDurationSeconds'] as num).toDouble() / 60).ceil();
-      final fare = item['fare'] is Map ? item['fare'] as Map : const {};
-      final minimumFare = (fare['minimumWon'] as num?)?.toInt();
-      final maximumFare = (fare['maximumWon'] as num?)?.toInt();
-      return RouteOption(
-        kind: RouteKind.candidate,
-        label: '원본 경로 기준 · 가장 빠른 후보',
-        transport: switch (item['type']) {
-          'BUS' => '버스',
-          'SUBWAY' => '지하철',
-          _ => '버스 + 지하철',
-        },
-        departure: '평가 필요',
-        arrival: '평가 필요',
-        margin: '환승 ${(item['transfers'] as num?)?.toInt() ?? 0}회',
-        detail:
-            '약 $durationMinutes분 · ${(item['totalDistanceMeters'] as num).toInt()}m',
-        fare: _fare(minimumFare, maximumFare),
-      );
-    }).toList(growable: false);
+    return items
+        .map((item) {
+          final durationMinutes =
+              ((item['totalDurationSeconds'] as num).toDouble() / 60).ceil();
+          final fare = item['fare'] is Map ? item['fare'] as Map : const {};
+          final minimumFare = (fare['minimumWon'] as num?)?.toInt();
+          final maximumFare = (fare['maximumWon'] as num?)?.toInt();
+          return RouteOption(
+            kind: RouteKind.candidate,
+            label: '원본 경로 기준 · 가장 빠른 후보',
+            transport: switch (item['type']) {
+              'BUS' => '버스',
+              'SUBWAY' => '지하철',
+              _ => '버스 + 지하철',
+            },
+            departure: '평가 필요',
+            arrival: '평가 필요',
+            margin: '환승 ${(item['transfers'] as num?)?.toInt() ?? 0}회',
+            detail:
+                '약 $durationMinutes분 · ${(item['totalDistanceMeters'] as num).toInt()}m',
+            fare: _fare(minimumFare, maximumFare),
+          );
+        })
+        .toList(growable: false);
   }
 
   /// 같은 이유로 여기서도 지역 시각으로 맞춘다. 지금 인자는 일정 API 값(시간대 표기 없음)
@@ -499,6 +502,27 @@ class RecommendationApi {
   ) =>
       _dio.get<Map<String, dynamic>>(ApiPaths.latestRecommendation(scheduleId));
 
+  /// 추천 카드 안내를 가져온다.
+  ///
+  /// 최신 추천이 READY 일 때만 부르고, `evaluationId` 가 바뀐 경우에만 다시 부른다.
+  /// 계산이 아직 안 끝났으면 서버가 409 로 답하는데, 그때는 오류가 아니라 "계산 중" 이므로
+  /// null 을 돌려주고 화면은 기존 계산 중 안내를 그대로 둔다.
+  Future<RecommendationGuide?> getLatestGuide(String scheduleId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        ApiPaths.latestRecommendationGuide(scheduleId),
+      );
+      final data = response.data?['data'];
+      if (response.data?['success'] != true || data is! Map) return null;
+      return RecommendationGuide.fromJson(_stringKeyed(data));
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      // 409 = 아직 계산 중, 404 = 안내가 아직 없음. 둘 다 오류로 다루지 않는다.
+      if (status == 409 || status == 404) return null;
+      rethrow;
+    }
+  }
+
   Future<Response<Map<String, dynamic>>> getRecommendationExplanation(
     String recommendationId,
   ) => _dio.get<Map<String, dynamic>>(
@@ -516,24 +540,26 @@ class RecommendationApi {
       final state = data['state']?.toString() ?? 'UNKNOWN';
       final result = _asMap(data['result']);
       if (result.isEmpty) return RecommendationOverview(state: state);
-      final preview = _asMap(result['preview']);
-      final previewFastest = _asMap(preview['fastest']);
-      final selected = previewFastest.isNotEmpty
-          ? previewFastest
-          : _asMap(result['selected']);
-      final proposed = _asMap(_asMap(result['suggestion'])['proposed']);
+      // "현재 선택 경로" 칸에 쓰는 값이다. 그래서 <b>지금 선택된 경로</b>만 본다.
+      //
+      // 예전에는 제안 경로와 "가장 빠른 후보"를 먼저 집었다. 그러면 제목은 현재 선택인데
+      // 숫자는 다른 경로 것이 되어, 아래 추천 경로 카드와 20분 넘게 벌어졌다
+      // (2026-09-21 운영 자료: 일정 23 은 22분 / 69분).
+      // 제안 경로는 아래 "새로 제안된 경로" 카드에서 따로 보여준다.
+      final selected = _asMap(result['selected']);
+      // 옛 형식 응답에는 selected 가 없고 preview.fastest 만 있다. 그때만 쓴다.
+      final fallback = _asMap(_asMap(result['preview'])['fastest']);
+      final chosen = selected.isNotEmpty ? selected : fallback;
       final persistence = _asMap(result['persistence']);
       final departureAt = _dateTime(
-        proposed['departureAt'] ??
-            selected['departureAt'] ??
-            result['plannedDepartAt'],
+        chosen['departureAt'] ?? result['plannedDepartAt'],
       );
-      final eta = _dateTime(
-        proposed['estimatedArrivalAt'] ?? selected['estimatedArrivalAt'],
-      );
+      final eta = _dateTime(chosen['estimatedArrivalAt']);
+      // 올림한다 — 추천 경로 카드·서버 저장값과 같은 규칙이다. 29분 53초를 29분으로
+      // 깎으면 같은 경로인데 카드마다 1분씩 어긋난다.
       final durationMin = departureAt == null || eta == null
           ? null
-          : eta.difference(departureAt).inMinutes;
+          : (eta.difference(departureAt).inSeconds / 60).ceil();
       return RecommendationOverview(
         state: state,
         recommendationId: result['recommendationId']?.toString(),
@@ -546,8 +572,8 @@ class RecommendationApi {
             const {
               'HISTORICAL_REFERENCE',
               'MIXED_HISTORICAL_REFERENCE',
-            }.contains(selected['quality'])
-            ? selected['quality'] as String
+            }.contains(chosen['quality'])
+            ? chosen['quality'] as String
             : persistence['source']?.toString(),
         fallbackUsed: persistence['fallbackUsed'] == true,
         reasonCodes: _strings(persistence['reasons']),
