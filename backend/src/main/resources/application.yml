@@ -181,6 +181,12 @@ ddubi:
     #
     # 추천 수락(사용자 출발 시각 실제 변경)은 이 설정과 무관하게 계속 막혀 있다.
     auto-notify-enabled: ${DDUBI_AUTO_NOTIFY_ENABLED:false}
+    # 미승인(PREVIEW) 모델 결과로도 알림을 내보낸다. 본문에 검증용임을 표시한다.
+    #
+    # ⚠️ 기본값 false 다. productionReady=true 로 만드는 것과는 다르다 — 승인 게이트는
+    #    그대로 두고, 검증 환경에서만 알림 경로를 열어 확인하기 위한 우회로다.
+    #    발표 전에 되돌린다.
+    shadow-preview-notify-enabled: ${DDUBI_SHADOW_PREVIEW_NOTIFY_ENABLED:false}
     # 다른 후보가 이만큼 빨라야 "경로 변경" 을 알린다. 1~2분 차이로 알리면 갈아타는 품이
     # 이득보다 크고, 후보 순위가 평가마다 흔들리면 알림이 쏟아진다.
     notify-route-gain: 5m

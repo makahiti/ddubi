@@ -419,6 +419,8 @@ services:
       # (production_ready=false) 켜면 검증 안 된 값으로 사용자 폰이 울린다.
       # 연동 확인 때만 켜고 발표 전에 되돌린다.
       DDUBI_AUTO_NOTIFY_ENABLED: ${DDUBI_AUTO_NOTIFY_ENABLED:-false}
+      # 미승인 모델 결과로도 알림을 보낸다(본문에 검증용 표시). 승인 게이트는 그대로 둔다.
+      DDUBI_SHADOW_PREVIEW_NOTIFY_ENABLED: ${DDUBI_SHADOW_PREVIEW_NOTIFY_ENABLED:-false}
       # 아침 브리핑 스케줄러. 끄면 스케줄러 빈 자체가 만들어지지 않는다.
       DDUBI_BRIEFING_ENABLED: ${DDUBI_BRIEFING_ENABLED:-true}
       DDUBI_TRANSIT_MASTER_IMPORT_ENABLED: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:-false}
