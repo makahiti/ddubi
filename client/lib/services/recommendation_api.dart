@@ -124,6 +124,8 @@ class SavedRouteSummary {
     required this.toName,
     required this.segmentCount,
     required this.modes,
+    this.minimumFareWon,
+    this.maximumFareWon,
   });
 
   final String routeId;
@@ -143,18 +145,31 @@ class SavedRouteSummary {
   final int segmentCount;
   final List<String> modes;
 
-  factory SavedRouteSummary.fromJson(Map<String, dynamic> json) =>
-      SavedRouteSummary(
-        routeId: json['routeId'].toString(),
-        rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
-        displayRank: (json['displayRank'] as num?)?.toInt(),
-        selected: json['selected'] == true,
-        baseDurationMin: (json['baseDurationMin'] as num?)?.toInt() ?? 0,
-        fromName: json['fromName']?.toString(),
-        toName: json['toName']?.toString(),
-        segmentCount: (json['segmentCount'] as num?)?.toInt() ?? 0,
-        modes: RecommendationApi._strings(json['modes']),
-      );
+  /// 이 경로의 예상 요금(원). 서버가 아직 안 주면 null 이다.
+  ///
+  /// 지금은 요금이 경로에 저장되지 않아 목록 API 가 보내지 않는다. 안내 카드만 카카오
+  /// 응답에서 그때그때 받아 보여준다. 다른 경로의 요금을 이 카드에 얹으면 오늘 고친
+  /// "숫자가 섞이는" 문제를 되풀이하게 되므로, 서버가 이 경로의 요금을 줄 때까지는
+  /// 비워 둔다. 값이 오면 바로 화면에 나온다(2026-09-22 BE 요청).
+  final int? minimumFareWon;
+  final int? maximumFareWon;
+
+  factory SavedRouteSummary.fromJson(Map<String, dynamic> json) {
+    final fare = json['fare'] is Map ? json['fare'] as Map : const {};
+    return SavedRouteSummary(
+      minimumFareWon: (fare['minimumWon'] as num?)?.toInt(),
+      maximumFareWon: (fare['maximumWon'] as num?)?.toInt(),
+      routeId: json['routeId'].toString(),
+      rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
+      displayRank: (json['displayRank'] as num?)?.toInt(),
+      selected: json['selected'] == true,
+      baseDurationMin: (json['baseDurationMin'] as num?)?.toInt() ?? 0,
+      fromName: json['fromName']?.toString(),
+      toName: json['toName']?.toString(),
+      segmentCount: (json['segmentCount'] as num?)?.toInt() ?? 0,
+      modes: RecommendationApi._strings(json['modes']),
+    );
+  }
 
   /// 요약 카드에 쓸 값.
   ///
@@ -178,7 +193,8 @@ class SavedRouteSummary {
       arrival: '평가 필요',
       margin: '$segmentCount개 이동 구간',
       detail: '약 ${evaluatedMinutes ?? baseDurationMin}분',
-      fare: fareLabel ?? '요금 정보 없음',
+      fare:
+          fareLabel ?? RecommendationApi._fare(minimumFareWon, maximumFareWon),
     );
   }
 }
