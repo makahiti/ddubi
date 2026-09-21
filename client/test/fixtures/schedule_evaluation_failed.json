@@ -4,6 +4,25 @@
   "scheduleId": "schedule-1",
   "state": "FAILED",
   "decision": "DATA_INSUFFICIENT",
-  "quality": {"preview": false, "productionEligible": false, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "UNKNOWN", "missingInputs": ["ROUTE_PROVIDER"], "fallbackReasons": []},
-  "computedAt": "2026-09-18T00:00:00Z"
+  "quality": {
+    "preview": false,
+    "productionEligible": false,
+    "realtimeApplied": false,
+    "walkingApiApplied": false,
+    "walkingApiCoverage": "NONE",
+    "costCoverage": "UNKNOWN",
+    "missingInputs": [
+      "ROUTE_PROVIDER"
+    ],
+    "fallbackReasons": []
+  },
+  "computedAt": "2026-09-18T00:00:00Z",
+  "guidance": {
+    "canDisplayEstimate": false,
+    "canAccept": false,
+    "source": "UNAVAILABLE",
+    "reasons": [
+      "NO_USABLE_ROUTE_ESTIMATE"
+    ]
+  }
 }

@@ -121,14 +121,48 @@ class ApiAuthRepository implements AuthRepository {
     required String provider,
     String? accessToken,
     String? idToken,
+    String? authorizationCode,
+    String? redirectUri,
+    String? state,
   }) async {
     try {
       final response = await _api.linkSocialAccount(
         provider: provider,
         accessToken: accessToken,
         idToken: idToken,
+        authorizationCode: authorizationCode,
+        redirectUri: redirectUri,
+        state: state,
       );
       return _socialProviders(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await _api.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        deviceId: _sessionStore.session?.deviceId,
+      );
+      // 서버가 다른 기기 세션을 전부 끊었다. 이 기기 토큰을 새것으로 갈아 끼우지 않으면
+      // 다음 요청부터 401 이 난다.
+      await _saveSession(response.data);
+    } on DioException catch (error) {
+      throw _mapDioException(error);
+    }
+  }
+
+  @override
+  Future<void> changeEmail({required String newEmail, String? password}) async {
+    try {
+      await _api.changeEmail(newEmail: newEmail, password: password);
     } on DioException catch (error) {
       throw _mapDioException(error);
     }

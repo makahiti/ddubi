@@ -15,7 +15,11 @@ import com.ssafy.ddubi.global.common.PageResponse;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.global.util.BusinessTime;
-import com.ssafy.ddubi.global.util.SeoulArea;
+import com.ssafy.ddubi.global.util.SupportedServiceArea;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,20 +27,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 /**
- * 반복 일정 (REPEAT-001~005). 도메인 규칙 5의 2단 구조 —
- * 이 마스터가 규칙을 들고, {@link Schedule} 인스턴스를 찍어낸다.
+ * 반복 일정 (REPEAT-001~005). 도메인 규칙 5의 2단 구조 — 이 마스터가 규칙을 들고, {@link Schedule} 인스턴스를 찍어낸다.
  *
  * <h3>인스턴스 선생성(materialization)</h3>
- * 생성 시점에 오늘부터 {@code horizonDays} 일치 인스턴스를 만든다. 무기한 반복을
- * 전부 만들 수는 없고, 조회 시점 계산은 추천·알림이 붙을 실체 행이 없어져서 안 된다.
- * 지평선 너머 연장은 Phase 4 의 일일 잡이 맡는다(그때 이 클래스의 생성 로직을 재사용).
+ *
+ * 생성 시점에 오늘부터 {@code horizonDays} 일치 인스턴스를 만든다. 무기한 반복을 전부 만들 수는 없고, 조회 시점 계산은 추천·알림이 붙을 실체 행이 없어져서
+ * 안 된다. 지평선 너머 연장은 Phase 4 의 일일 잡이 맡는다(그때 이 클래스의 생성 로직을 재사용).
  */
 @Service
 public class ScheduleRepeatService {
@@ -48,10 +45,11 @@ public class ScheduleRepeatService {
     private final UserRepository userRepository;
     private final int horizonDays;
 
-    public ScheduleRepeatService(ScheduleRepeatRepository repeatRepository,
-                                 ScheduleRepository scheduleRepository,
-                                 UserRepository userRepository,
-                                 @Value("${ddubi.schedule.repeat-horizon-days}") int horizonDays) {
+    public ScheduleRepeatService(
+            ScheduleRepeatRepository repeatRepository,
+            ScheduleRepository scheduleRepository,
+            UserRepository userRepository,
+            @Value("${ddubi.schedule.repeat-horizon-days}") int horizonDays) {
         this.repeatRepository = repeatRepository;
         this.scheduleRepository = scheduleRepository;
         this.userRepository = userRepository;
@@ -64,25 +62,27 @@ public class ScheduleRepeatService {
 
     @Transactional
     public RepeatCreateResponse create(Long userId, RepeatCreateRequest request) {
-        requireInSeoul(request.origin());
-        requireInSeoul(request.destination());
+        requireInServiceArea(request.origin());
+        requireInServiceArea(request.destination());
         WeeklyRepeatRule rule = WeeklyRepeatRule.fromRrule(request.rrule());
         if (request.endDate() != null && request.endDate().isBefore(request.startDate())) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, "endDate 는 startDate 이후여야 합니다.");
         }
 
-        ScheduleRepeat repeat = repeatRepository.save(ScheduleRepeat.builder()
-                .user(userRepository.getReferenceById(userId))
-                .title(request.title())
-                .daysOfWeek(rule.toCsv())
-                .arriveTime(BusinessTime.normalize(request.localTime()))
-                .startDate(request.startDate())
-                .untilDate(request.endDate())
-                .origin(request.origin().toSnapshot())
-                .destination(request.destination().toSnapshot())
-                .importance(request.importance())
-                .considerLastTrip(Boolean.TRUE.equals(request.considerLastTrip()))
-                .build());
+        ScheduleRepeat repeat =
+                repeatRepository.save(
+                        ScheduleRepeat.builder()
+                                .user(userRepository.getReferenceById(userId))
+                                .title(request.title())
+                                .daysOfWeek(rule.toCsv())
+                                .arriveTime(BusinessTime.normalize(request.localTime()))
+                                .startDate(request.startDate())
+                                .untilDate(request.endDate())
+                                .origin(request.origin().toSnapshot())
+                                .destination(request.destination().toSnapshot())
+                                .importance(request.importance())
+                                .considerLastTrip(Boolean.TRUE.equals(request.considerLastTrip()))
+                                .build());
 
         int generated = materialize(repeat, LocalDateTime.now());
         log.info("반복 일정 생성 — repeatId={}, 인스턴스 {}건", repeat.getId(), generated);
@@ -95,9 +95,10 @@ public class ScheduleRepeatService {
 
     @Transactional(readOnly = true)
     public PageResponse<RepeatResponse> list(Long userId, boolean activeOnly, Pageable pageable) {
-        var page = activeOnly
-                ? repeatRepository.findAllByUserIdAndActiveTrue(userId, pageable)
-                : repeatRepository.findAllByUserId(userId, pageable);
+        var page =
+                activeOnly
+                        ? repeatRepository.findAllByUserIdAndActiveTrue(userId, pageable)
+                        : repeatRepository.findAllByUserId(userId, pageable);
         return PageResponse.of(page, r -> RepeatResponse.of(r, nextOccurrenceAt(r)));
     }
 
@@ -127,12 +128,12 @@ public class ScheduleRepeatService {
         }
         if (request.isOriginPresent()) {
             requireNotNull(request.getOrigin(), "origin");
-            requireInSeoul(request.getOrigin());
+            requireInServiceArea(request.getOrigin());
             repeat.changeOrigin(request.getOrigin().toSnapshot());
         }
         if (request.isDestinationPresent()) {
             requireNotNull(request.getDestination(), "destination");
-            requireInSeoul(request.getDestination());
+            requireInServiceArea(request.getDestination());
             repeat.changeDestination(request.getDestination().toSnapshot());
         }
         if (request.isImportancePresent()) {
@@ -145,12 +146,16 @@ public class ScheduleRepeatService {
         }
 
         // 규칙 관련 필드는 묶어서 반영한다 — 일부만 오면 기존 값과 조합.
-        WeeklyRepeatRule rule = request.isRrulePresent()
-                ? WeeklyRepeatRule.fromRrule(request.getRrule())
-                : WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek());
-        var arriveTime = request.isLocalTimePresent()
-                ? BusinessTime.normalize(request.getLocalTime()) : repeat.getArriveTime();
-        var startDate = request.isStartDatePresent() ? request.getStartDate() : repeat.getStartDate();
+        WeeklyRepeatRule rule =
+                request.isRrulePresent()
+                        ? WeeklyRepeatRule.fromRrule(request.getRrule())
+                        : WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek());
+        var arriveTime =
+                request.isLocalTimePresent()
+                        ? BusinessTime.normalize(request.getLocalTime())
+                        : repeat.getArriveTime();
+        var startDate =
+                request.isStartDatePresent() ? request.getStartDate() : repeat.getStartDate();
         // endDate 는 명시적 null = "무기한으로 변경" 이라 present 면 null 도 그대로 반영한다.
         var untilDate = request.isEndDatePresent() ? request.getEndDate() : repeat.getUntilDate();
         requireNotNull(arriveTime, "localTime");
@@ -168,7 +173,8 @@ public class ScheduleRepeatService {
             regenerated = materialize(repeat, now);
             log.info("반복 일정 수정 — repeatId={}, 삭제 {}건 → 재생성 {}건", repeatId, deleted, regenerated);
         }
-        return new RepeatUpdateResponse(RepeatResponse.of(repeat, nextOccurrenceAt(repeat)), regenerated);
+        return new RepeatUpdateResponse(
+                RepeatResponse.of(repeat, nextOccurrenceAt(repeat)), regenerated);
     }
 
     // ------------------------------------------------------------------
@@ -186,12 +192,16 @@ public class ScheduleRepeatService {
     // 인스턴스 선생성 — Phase 4 연장 잡도 이 메서드를 쓴다
     // ------------------------------------------------------------------
 
-    /** @return 새로 만든 인스턴스 수 */
+    /**
+     * @return 새로 만든 인스턴스 수
+     */
     @Transactional
     public int materialize(ScheduleRepeat repeat, LocalDateTime now) {
         WeeklyRepeatRule rule = WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek());
-        LocalDate first = repeat.getStartDate().isAfter(now.toLocalDate())
-                ? repeat.getStartDate() : now.toLocalDate();
+        LocalDate first =
+                repeat.getStartDate().isAfter(now.toLocalDate())
+                        ? repeat.getStartDate()
+                        : now.toLocalDate();
         LocalDate last = now.toLocalDate().plusDays(horizonDays);
         if (repeat.getUntilDate() != null && repeat.getUntilDate().isBefore(last)) {
             last = repeat.getUntilDate();
@@ -199,8 +209,8 @@ public class ScheduleRepeatService {
 
         // UNIQUE(repeat_id, arrive_by) 가 최후 방어선이지만, 위반 전에 걸러야
         // 배치 삽입이 통째로 구르지 않는다.
-        Set<LocalDateTime> existing = new HashSet<>(
-                scheduleRepository.findArriveBysByRepeatId(repeat.getId()));
+        Set<LocalDateTime> existing =
+                new HashSet<>(scheduleRepository.findArriveBysByRepeatId(repeat.getId()));
 
         int created = 0;
         for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
@@ -212,16 +222,17 @@ public class ScheduleRepeatService {
             if (!arriveBy.isAfter(now) || existing.contains(arriveBy)) {
                 continue;
             }
-            scheduleRepository.save(Schedule.builder()
-                    .user(repeat.getUser())
-                    .repeat(repeat)
-                    .title(repeat.getTitle())
-                    .origin(repeat.getOrigin())
-                    .destination(repeat.getDestination())
-                    .arriveBy(arriveBy)
-                    .importance(repeat.getImportance())
-                    .considerLastTrip(repeat.isConsiderLastTrip())
-                    .build());
+            scheduleRepository.save(
+                    Schedule.builder()
+                            .user(repeat.getUser())
+                            .repeat(repeat)
+                            .title(repeat.getTitle())
+                            .origin(repeat.getOrigin())
+                            .destination(repeat.getDestination())
+                            .arriveBy(arriveBy)
+                            .importance(repeat.getImportance())
+                            .considerLastTrip(repeat.isConsiderLastTrip())
+                            .build());
             created++;
         }
         return created;
@@ -234,8 +245,10 @@ public class ScheduleRepeatService {
         }
         LocalDateTime now = LocalDateTime.now();
         WeeklyRepeatRule rule = WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek());
-        LocalDate from = repeat.getStartDate().isAfter(now.toLocalDate())
-                ? repeat.getStartDate() : now.toLocalDate();
+        LocalDate from =
+                repeat.getStartDate().isAfter(now.toLocalDate())
+                        ? repeat.getStartDate()
+                        : now.toLocalDate();
         // 오늘인데 도착 시각이 지났으면 다음 날부터 찾는다.
         if (from.equals(now.toLocalDate()) && !now.toLocalTime().isBefore(repeat.getArriveTime())) {
             from = from.plusDays(1);
@@ -245,17 +258,20 @@ public class ScheduleRepeatService {
     }
 
     private ScheduleRepeat findOwned(Long userId, Long repeatId) {
-        ScheduleRepeat repeat = repeatRepository.findById(repeatId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.SCHEDULE_REPEAT_NOT_FOUND));
+        ScheduleRepeat repeat =
+                repeatRepository
+                        .findById(repeatId)
+                        .orElseThrow(
+                                () -> new BusinessException(ErrorCode.SCHEDULE_REPEAT_NOT_FOUND));
         if (!repeat.isOwnedBy(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_RESOURCE);
         }
         return repeat;
     }
 
-    private void requireInSeoul(LocationRequest location) {
-        if (!SeoulArea.contains(location.lat(), location.lng())) {
-            throw new BusinessException(ErrorCode.OUT_OF_SERVICE_AREA, "서울 지역만 서비스합니다.");
+    private void requireInServiceArea(LocationRequest location) {
+        if (!SupportedServiceArea.contains(location.lat(), location.lng())) {
+            throw new BusinessException(ErrorCode.OUT_OF_SERVICE_AREA, "수도권과 부산 지역만 서비스합니다.");
         }
     }
 

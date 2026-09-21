@@ -201,15 +201,20 @@ public class ScheduleEvaluationWorkflow {
                 selectedKey = selectedKey(job, search); selected = selected(suggestion, selectedKey); candidatesChanged = true;
             }
             var info = new ArrayList<CandidateInfo>();
+            // 최초 선택은 provider 배열 첫 항목이 아니라 P에서 평가한 최선이다.
+            // 이미 사용자가 선택한 경로는 제안 수락 전까지 자동 변경하지 않는다.
+            if(job.cache()==null && calculation.original()!=null) {
+                selectedKey=calculation.original().journeyKey(); selected=calculation.original();
+            }
             for (RouteCandidate c : search.candidates()) info.add(new CandidateInfo(RouteEvidenceAssembler.key(c), evidence.riskReasons(c, snapshot), c.segments().stream().map(s -> new RouteStep(s.mode().name(), s.fromName(), s.toName(), BusAlternativeExpansion.displayedVehicles(s))).toList()));
             var result = new Outcome(job.token(), scheduleId, null, job.departure(), job.arriveBy(), now,
                     selectedKey, selected, suggestion, info, snapshot, trigger, "cdep-v1", job.eventRevision(), comparison, null, calculation);
-            // 출발 변경(accept)은 계속 막는다 — 미승인 모델 값으로 사용자의 일정을 바꾸지 않는다.
+            // 기본 예상과 시험 ML의 수락 가능 여부는 EvaluationGuidance에서 구분한다.
             // 알림은 설정으로 연다(기본 꺼짐). 보낼 것이 없으면 두 값이 null 이고,
             // 그때 dispatcher 는 아무것도 하지 않는다. EvaluationNotificationPlanner 참고.
             var planned = notifications.plan(job, result);
             Instant proposed = suggestion.proposed() == null ? null : suggestion.proposed().departureAt();
-            return store.complete(job, search, candidatesChanged, result, monitoring.nextEvaluation(now, job.arriveBy(), proposed),
+            return store.complete(job, search, candidatesChanged, result, monitoring.nextEvaluation(now, job.departure(), proposed),
                     planned.map(p -> store.write(p.command())).orElse(null),
                     planned.map(EvaluationNotificationPlanner.Planned::key).orElse(null),
                     Instant.now());

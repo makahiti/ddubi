@@ -107,6 +107,37 @@ class _ControlledAcceptRepository implements ScheduleEvaluationRepository {
   Future<void> refreshEvaluation(String id) async {}
 }
 
+class _FailOnceRefreshRepository implements ScheduleEvaluationRepository {
+  _FailOnceRefreshRepository(this.evaluation);
+
+  final ScheduleEvaluationV2 evaluation;
+  var latestCalls = 0;
+  var refreshCalls = 0;
+
+  @override
+  Future<ScheduleEvaluationV2> latestEvaluation(String scheduleId) async {
+    latestCalls++;
+    return evaluation;
+  }
+
+  @override
+  Future<void> acceptEvaluation(String id, String evaluationId) async {}
+
+  @override
+  Future<void> confirmDeparture(String id) async {}
+
+  @override
+  Future<void> refreshEvaluation(String id) async {
+    refreshCalls++;
+    if (refreshCalls == 1) {
+      throw const ScheduleEvaluationFailure(
+        kind: EvaluationFailureKind.network,
+        message: '첫 요청 실패',
+      );
+    }
+  }
+}
+
 void main() {
   late Map<String, ScheduleEvaluationV2> fixtures;
 
@@ -137,8 +168,8 @@ void main() {
       'keep': '현재 출발 계획을 유지해도 일정 전에 도착할 것으로 예상됩니다.',
       'advance': '제안 시각에 출발하면 일정 10분 전 도착이 예상됩니다.',
       'margin': '10분 여유 확보는 어렵지만 일정 전 도착 가능한 경로입니다.',
-      // 시각이 있는 결과는 확정이 아니어도 참고값으로 보여준다(2026-09-18).
-      'late': '참고로 계산한 결과예요. 아직 확정 전이라 일정에 자동 적용은 안 해요.',
+      // 탐색이 끝났고 시험 예측도 안 섞였으면 서버가 수락을 허용한다. 지각 예상도 그대로 안내한다.
+      'late': '현재 확인 가능한 경로로는 일정 시작 이후 도착이 예상됩니다.',
       'data': '정확한 출발 추천을 아직 확정하지 못했어요.',
       'search': '아직 최신 출발시각을 확정하지 못했어요. 확인된 후보는 참고용입니다.',
     };
@@ -171,7 +202,19 @@ void main() {
   });
 
   testWidgets('부분 도보 API 적용과 원본 경로 fallback을 함께 표시한다', (tester) async {
-    await tester.pumpWidget(_summary(fixtures['walking_fallback']!));
+    // 대체 계산 사유는 개발자 진단에서만 보인다.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ScheduleEvaluationSummary(
+              evaluation: fixtures['walking_fallback']!,
+              developerDiagnostics: true,
+            ),
+          ),
+        ),
+      ),
+    );
 
     expect(find.textContaining('접근 도보 경로만 반영'), findsOneWidget);
     expect(find.textContaining('이탈 도보 · 도착역 → 회사'), findsOneWidget);
@@ -302,6 +345,33 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('사용자 동작을 재시도하면 이전 오류를 지우고 성공 상태를 표시한다', (tester) async {
+    final repository = _FailOnceRefreshRepository(fixtures['keep']!);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScheduleEvaluationCard(
+            repository: repository,
+            scheduleId: 'schedule-1',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('다시 계산'));
+    await tester.pumpAndSettle();
+    expect(find.text('첫 요청 실패'), findsOneWidget);
+
+    await tester.tap(find.text('다시 계산'));
+    await tester.pumpAndSettle();
+    expect(repository.refreshCalls, 2);
+    expect(find.byKey(const Key('evaluationActionError')), findsNothing);
+    expect(find.text('서버 처리 결과를 다시 확인했습니다.'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('확인된 BLOCKED 통제는 가능성이 아니라 확정 원인으로 표시한다', (tester) async {
     final evaluation = ScheduleEvaluationV2.fromJson({
       'schemaVersion': 'schedule-evaluation-v2',
@@ -325,6 +395,12 @@ void main() {
           'state': 'READY',
           'decision': 'DEPART_NOW',
           'departureMissed': departureMissed,
+          'guidance': {
+            'canDisplayEstimate': true,
+            'canAccept': true,
+            'source': 'MIXED_ESTIMATE',
+            'reasons': <String>[],
+          },
           'estimatedArrivalAt': DateTime.now()
               .add(const Duration(hours: 1))
               .toIso8601String(),
@@ -443,5 +519,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.acceptCalls, 1);
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('사용자 동작 처리 중 화면을 벗어나도 상태 갱신이나 후속 조회를 하지 않는다', (tester) async {
+    final repository = _ControlledAcceptRepository(fixtures['keep']!);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScheduleEvaluationCard(
+            repository: repository,
+            scheduleId: 'schedule-1',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('acceptEvaluationButton')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    repository.acceptCompleter.complete();
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(repository.latestCalls, 1);
   });
 }

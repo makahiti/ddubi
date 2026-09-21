@@ -3,7 +3,6 @@
 import pyarrow as pa
 import pytest
 import requests
-
 import storage as storage_mod
 from storage import Storage, with_retry
 
@@ -32,7 +31,7 @@ def test_retries_connection_error_then_succeeds(no_sleep):
 
     assert with_retry(flaky, "test") == "ok"
     assert calls["n"] == 3
-    assert no_sleep == [2.0, 4.0]          # 2초, 4초 뒤 재시도 (지수 백오프)
+    assert no_sleep == [2.0, 4.0]  # 2초, 4초 뒤 재시도 (지수 백오프)
 
 
 def test_retries_timeout_without_response_then_succeeds(no_sleep):
@@ -85,11 +84,11 @@ def test_broken_custom_response_property_does_not_mask_original_error(no_sleep):
 
 def test_gives_up_after_attempts(no_sleep):
     def always_fail():
-        raise _http_error(403)               # 세이프 모드: 재시도 대상이지만 끝까지 안 풀리면 예외
+        raise _http_error(403)  # 세이프 모드: 재시도 대상이지만 끝까지 안 풀리면 예외
 
     with pytest.raises(requests.exceptions.HTTPError):
         with_retry(always_fail, "test")
-    assert no_sleep == [2.0, 4.0]          # 3회 시도, 대기 2회
+    assert no_sleep == [2.0, 4.0]  # 3회 시도, 대기 2회
 
 
 def test_safe_mode_runtime_error_is_retried(no_sleep):
@@ -120,7 +119,7 @@ def test_backoff_is_capped(no_sleep):
 
     with pytest.raises(requests.exceptions.ConnectionError):
         with_retry(always, "test", attempts=8)
-    assert no_sleep == [2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]   # 상한 30초, 합계 120초
+    assert no_sleep == [2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]  # 상한 30초, 합계 120초
 
 
 def test_from_uri_waits_for_namenode(monkeypatch, tmp_path, no_sleep):

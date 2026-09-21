@@ -1,4 +1,5 @@
 """기존 단독 수집 API를 weather와 동일한 SourceSpec/Record 계약에 연결한다."""
+
 from __future__ import annotations
 
 import hashlib
@@ -6,14 +7,16 @@ import importlib
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from functools import lru_cache
-from bus_crosswalk import BusCrosswalk, POLICY as BUS_ID_POLICY
+from pathlib import Path
 
+from bus_crosswalk import POLICY as BUS_ID_POLICY
+from bus_crosswalk import BusCrosswalk
 from config import Settings
 from request_budget import RequestBudget, RetryScheduled
+
 from sources.base import KST, PollBatch, Record, SourceSpec, now_kst
-from sources.subway_schedule import pause_until, SkippedNonService
+from sources.subway_schedule import SkippedNonService, pause_until
 
 log = logging.getLogger(__name__)
 DEFAULT_BUS_ROUTE_LIMIT = 100
@@ -103,28 +106,45 @@ def to_record(name, raw, context="", crosswalk=None):
         source_time = raw.get("noftOcrnDt")
     received = now_kst()
     occurred = _time(source_time, received)
-    payload = {**ids, "raw": raw, "observedAt": received.isoformat(),
-               "timestampBasis": "received" if occurred == received else "provider",
-               "contentHash": hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}
-    key = ":".join(v for k,v in ids.items() if v and k not in {"providerNamespace", "providerLinkNamespace"}) or payload["contentHash"]
-    segment_ids=None
+    payload = {
+        **ids,
+        "raw": raw,
+        "observedAt": received.isoformat(),
+        "timestampBasis": "received" if occurred == received else "provider",
+        "contentHash": hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+    }
+    key = (
+        ":".join(v for k, v in ids.items() if v and k not in {"providerNamespace", "providerLinkNamespace"})
+        or payload["contentHash"]
+    )
+    segment_ids = None
     if name.startswith("bus_"):
         position_reason = None
         if name == "bus_location" and crosswalk:
             # Kafka partition key는 차량 단위로 유지한다. pair는 key 계산 뒤 payload에만
             # 넣어 구간 변경 때 차량 관측의 순서가 다른 partition으로 흩어지지 않게 한다.
-            pair, position_reason = crosswalk.seoul_position_pair(ids['providerRouteId'], raw)
-            if context and ids['providerRouteId'] != str(context):
-                pair, position_reason = {}, 'POSITION_ROUTE_CONTEXT_MISMATCH'
+            pair, position_reason = crosswalk.seoul_position_pair(ids["providerRouteId"], raw)
+            if context and ids["providerRouteId"] != str(context):
+                pair, position_reason = {}, "POSITION_ROUTE_CONTEXT_MISMATCH"
             payload.update(pair)
-        mapping=crosswalk.resolve(POLICIES[name][1],payload) if crosswalk else dict(
-            segmentIds=[],state="UNRESOLVED",scope="NONE",reason="CROSSWALK_NOT_CONFIGURED",
-            masterVersion=None,idPolicy=BUS_ID_POLICY,crosswalkSha256=None)
-        if position_reason and position_reason != 'NONE':
-            mapping['reason'] = position_reason
-        segment_ids=mapping["segmentIds"] or None
-        payload["canonicalMapping"]={k:v for k,v in mapping.items() if k!="segmentIds"}
-    return Record(key=key, event_type=POLICIES[name][1], occurred_at=occurred, payload=payload,segment_ids=segment_ids)
+        mapping = (
+            crosswalk.resolve(POLICIES[name][1], payload)
+            if crosswalk
+            else dict(
+                segmentIds=[],
+                state="UNRESOLVED",
+                scope="NONE",
+                reason="CROSSWALK_NOT_CONFIGURED",
+                masterVersion=None,
+                idPolicy=BUS_ID_POLICY,
+                crosswalkSha256=None,
+            )
+        )
+        if position_reason and position_reason != "NONE":
+            mapping["reason"] = position_reason
+        segment_ids = mapping["segmentIds"] or None
+        payload["canonicalMapping"] = {k: v for k, v in mapping.items() if k != "segmentIds"}
+    return Record(key=key, event_type=POLICIES[name][1], occurred_at=occurred, payload=payload, segment_ids=segment_ids)
 
 
 def collect(name, settings: Settings, client):
@@ -133,26 +153,41 @@ def collect(name, settings: Settings, client):
     if resume_at is not None:
         # Before key lookup, budget reservation or HTTP calls.
         raise SkippedNonService(resume_at, now)
-    crosswalk=_crosswalk(settings.extra.get("BUS_CROSSWALK_PATH"),settings.extra.get("BUS_CROSSWALK_SHA256")) if name.startswith("bus_") else None
+    crosswalk = (
+        _crosswalk(settings.extra.get("BUS_CROSSWALK_PATH"), settings.extra.get("BUS_CROSSWALK_SHA256"))
+        if name.startswith("bus_")
+        else None
+    )
     module = importlib.import_module(f"sources.{name}")
     key_name, _, default_interval, _ = POLICIES[name]
     key = settings.api_key(key_name)
     targets = []
     if name.startswith("bus_"):
-        targets = ([item.strip() for item in settings.extra["BUS_ROUTE_IDS"].split(",") if item.strip()]
-                   if settings.extra.get("BUS_ROUTE_IDS") else module.load_bus_route_ids())
+        targets = (
+            [item.strip() for item in settings.extra["BUS_ROUTE_IDS"].split(",") if item.strip()]
+            if settings.extra.get("BUS_ROUTE_IDS")
+            else module.load_bus_route_ids()
+        )
         targets = _limit_bus_targets(targets, settings.extra.get("BUS_ROUTE_LIMIT"))
     elif name == "subway_location":
-        targets = ([item.strip() for item in settings.extra["SUBWAY_LINES"].split(",") if item.strip()]
-                   if settings.extra.get("SUBWAY_LINES") else module.load_subway_lines())
+        targets = (
+            [item.strip() for item in settings.extra["SUBWAY_LINES"].split(",") if item.strip()]
+            if settings.extra.get("SUBWAY_LINES")
+            else module.load_subway_lines()
+        )
     elif name == "city_realtime":
         registry = settings.extra.get("CITY_AREA_REGISTRY_PATH")
         areas = module.load_city_areas(Path(registry)) if registry else module.load_city_areas()
         requested = settings.extra.get("CITY_AREA_IDENTIFIERS")
         targets = module.select_city_areas(areas, requested.split(",") if requested else None)
     expected = len(targets) if targets else (2 if name == "subway_arrival" else 1)
-    budget = RequestBudget(settings.extra.get("API_BUDGET_PATH", str(Path(__file__).resolve().parents[2]/"data"/"request_budget.sqlite3")),
-                           key, int(settings.extra.get("API_DAILY_LIMIT", "900")))
+    budget = RequestBudget(
+        settings.extra.get(
+            "API_BUDGET_PATH", str(Path(__file__).resolve().parents[2] / "data" / "request_budget.sqlite3")
+        ),
+        key,
+        int(settings.extra.get("API_DAILY_LIMIT", "900")),
+    )
     interval = max(default_interval, settings.interval_seconds or 0)
     if not budget.claim_cycle(name, interval, expected, allow_retry=name == "bus_location"):
         log.info("source=%s cooldown active; no API request", name)
@@ -163,17 +198,25 @@ def collect(name, settings: Settings, client):
         if name == "bus_arrival":
             result = module.fetch_all_bus_arrivals(key, targets, client=client, requests_per_second=1)
             return PollBatch(
-                [to_record(name, row, route, crosswalk) for route, response in result["routeResults"].items()
-                 for row in _rows(response.get("msgBody", {}).get("itemList"))],
-                complete_snapshot=result["routeCount"] == len(targets), page_count=result["routeCount"],
+                [
+                    to_record(name, row, route, crosswalk)
+                    for route, response in result["routeResults"].items()
+                    for row in _rows(response.get("msgBody", {}).get("itemList"))
+                ],
+                complete_snapshot=result["routeCount"] == len(targets),
+                page_count=result["routeCount"],
                 scope_key="configured-routes",
             )
         if name == "bus_location":
             result = module.fetch_all_bus_locations(key, targets, client=client, requests_per_second=1)
             return PollBatch(
-                [to_record(name, row, route, crosswalk) for route, response in result["routeResults"].items()
-                 for row in _rows(response.get("msgBody", {}).get("itemList"))],
-                complete_snapshot=result["routeCount"] == len(targets), page_count=result["routeCount"],
+                [
+                    to_record(name, row, route, crosswalk)
+                    for route, response in result["routeResults"].items()
+                    for row in _rows(response.get("msgBody", {}).get("itemList"))
+                ],
+                complete_snapshot=result["routeCount"] == len(targets),
+                page_count=result["routeCount"],
                 scope_key="configured-routes",
             )
         if name == "subway_arrival":
@@ -182,24 +225,34 @@ def collect(name, settings: Settings, client):
                 log.info("source=subway_arrival status=EMPTY reason=NO_DATA")
             return PollBatch(
                 [to_record(name, row) for row in result["response"]["realtimeArrivalList"]],
-                complete_snapshot=bool(result.get("isComplete")), page_count=1,
+                complete_snapshot=bool(result.get("isComplete")),
+                page_count=1,
                 scope_key="metropolitan-all-stations",
             )
         if name == "subway_location":
             result = module.fetch_all_subway_locations(key, targets, client=client, requests_per_second=1)
             if result["emptyLines"]:
-                log.info("source=subway_location emptyLines=%s status=%s", result["emptyLines"], "EMPTY" if result["positionCount"] == 0 else "PARTIAL_EMPTY")
+                log.info(
+                    "source=subway_location emptyLines=%s status=%s",
+                    result["emptyLines"],
+                    "EMPTY" if result["positionCount"] == 0 else "PARTIAL_EMPTY",
+                )
             return PollBatch(
-                [to_record(name, row, line) for line, response in result["lineResults"].items()
-                 for row in response["response"].get("realtimePositionList", [])],
-                complete_snapshot=result["lineCount"] == len(targets), page_count=result["lineCount"],
+                [
+                    to_record(name, row, line)
+                    for line, response in result["lineResults"].items()
+                    for row in response["response"].get("realtimePositionList", [])
+                ],
+                complete_snapshot=result["lineCount"] == len(targets),
+                page_count=result["lineCount"],
                 scope_key="configured-lines",
             )
         if name == "city_realtime":
             result = module.fetch_city_areas(key, targets, client=client, requests_per_second=1)
             return PollBatch(
                 [to_record(name, area["response"]["CITYDATA"]) for area in result["areaResults"].values()],
-                complete_snapshot=bool(result["isComplete"]), page_count=result["receivedAreaCount"],
+                complete_snapshot=bool(result["isComplete"]),
+                page_count=result["receivedAreaCount"],
                 scope_key="configured-areas",
             )
         if name == "subway_alert":
@@ -211,28 +264,34 @@ def collect(name, settings: Settings, client):
         if result.get("hasMore"):
             log.warning("source=%s response may have more rows; first 1000 only", name)
         reported_complete = result.get("isComplete")
-        complete = not bool(result.get("hasMore")) and (
-            reported_complete is not False or name == "topis_notice"
-        )
+        complete = not bool(result.get("hasMore")) and (reported_complete is not False or name == "topis_notice")
         status = "SUCCESS" if complete else "PARTIAL"
         return PollBatch(
             [to_record(name, row) for row in result["items"]],
-            status=status, complete_snapshot=complete,
-            page_count=int(result.get("requestCount") or 1), scope_key="all-current",
+            status=status,
+            complete_snapshot=complete,
+            page_count=int(result.get("requestCount") or 1),
+            scope_key="all-current",
             error_code=None if complete else "PAGE_SCOPE_PARTIAL",
         )
     except Exception as exc:
         if name == "bus_location":
             from sources.bus_location import BusLocationError
+
             if isinstance(exc, BusLocationError):
                 if exc.retryable and not settings.run_once:
                     retry_at = budget.schedule_retry(name, 300, expected)
                     if retry_at is not None:
-                        raise RetryScheduled(retry_at, budget.clock(), f"source={name} collection failed: {exc}") from None
-                raise RuntimeError(f"source={name} collection failed: {exc}; delayed retry unavailable or not eligible") from None
+                        raise RetryScheduled(
+                            retry_at, budget.clock(), f"source={name} collection failed: {exc}"
+                        ) from None
+                raise RuntimeError(
+                    f"source={name} collection failed: {exc}; delayed retry unavailable or not eligible"
+                ) from None
         if name in ("subway_location", "subway_arrival"):
-            from sources.subway_location import SubwayLocationError
             from sources.subway_arrival import SubwayArrivalError
+            from sources.subway_location import SubwayLocationError
+
             if isinstance(exc, (SubwayLocationError, SubwayArrivalError)):
                 raise RuntimeError(f"source={name} collection failed: {exc}") from None
         # chained HTTP exceptions contain secret URL paths. Never propagate their traceback.
@@ -243,6 +302,10 @@ def collect(name, settings: Settings, client):
 
 def make_source(name):
     _, _, interval, schema = POLICIES[name]
-    return SourceSpec(name=f"seoul.{name}", topic=f"{schema}.raw", schema=schema,
-                      default_interval_seconds=interval,
-                      fetch=lambda settings, client: collect(name, settings, client))
+    return SourceSpec(
+        name=f"seoul.{name}",
+        topic=f"{schema}.raw",
+        schema=schema,
+        default_interval_seconds=interval,
+        fetch=lambda settings, client: collect(name, settings, client),
+    )

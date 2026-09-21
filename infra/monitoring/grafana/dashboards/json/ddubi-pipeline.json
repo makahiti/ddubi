@@ -970,7 +970,7 @@
       "id": 120,
       "type": "timeseries",
       "title": "토픽별 유입 (건/초)",
-      "description": "weather 수집기는 10분마다 14건. 실시간 수집기가 켜지면 transport.raw 가 30초마다 수백 건. 0 으로 오래 머물면 수집기 확인",
+      "description": "원본 city/transport와 추천용 segment observation/status의 토픽별 유입. 활성화된 토픽이 0으로 오래 머물면 수집기 또는 Spark 잡 확인",
       "gridPos": {
         "x": 0,
         "y": 24,
@@ -983,7 +983,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status\"}[$__rate_interval]))",
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.observation|segment.status\"}[$__rate_interval]))",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }
@@ -1113,7 +1113,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.status|notification.request\"})",
+          "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.observation|segment.status|notification.request\"})",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }

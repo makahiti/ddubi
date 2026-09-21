@@ -3,11 +3,12 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
 import httpx
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from sources.regional_bus import parse_page, to_record, collect, make_source
+from sources.regional_bus import collect, make_source, parse_page, to_record
 
 
 def xml(rows, total=1, code="00"):
@@ -51,9 +52,7 @@ def test_paging_and_shared_key_budget(tmp_path):
         assert request.url.params["ServiceKey"] == "test+key"
         return httpx.Response(
             200,
-            content=xml(
-                "<item><ROUTEID>" + page + "</ROUTEID><BSTOPID>100</BSTOPID></item>", 2
-            ),
+            content=xml("<item><ROUTEID>" + page + "</ROUTEID><BSTOPID>100</BSTOPID></item>", 2),
         )
 
     settings = SimpleNamespace(
@@ -79,9 +78,7 @@ def test_incomplete_page_fails_without_secret(tmp_path):
         calls.append(request)
         return httpx.Response(
             200,
-            content=xml(
-                "<item><ROUTEID>1</ROUTEID></item>" if len(calls) == 1 else "", 2
-            ),
+            content=xml("<item><ROUTEID>1</ROUTEID></item>" if len(calls) == 1 else "", 2),
         )
 
     settings = SimpleNamespace(

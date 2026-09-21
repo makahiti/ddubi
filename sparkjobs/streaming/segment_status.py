@@ -10,8 +10,11 @@ import argparse
 import json
 import logging
 from datetime import datetime, timedelta
-from pyspark.sql import SparkSession, functions as F, Window, types as T
+
 from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA, validate
+from pyspark.sql import SparkSession, Window
+from pyspark.sql import functions as F
+from pyspark.sql import types as T
 
 # 소유 계약: docs/contracts/redis-keys.yaml 및 topics.yaml. 만료는 300초 이하로 제한한다.
 STATUS_REDIS_PREFIX = "segment:status:"
@@ -19,10 +22,7 @@ STATUS_TOPIC = "segment.status"
 STATUS_TTL_SECONDS = 300
 
 BASELINE_SCHEMA = T.StructType(
-    [
-        T.StructField(n, T.StringType(), True)
-        for n in ("segmentId", "masterVersion", "weatherBucket", "dataVersion")
-    ]
+    [T.StructField(n, T.StringType(), True) for n in ("segmentId", "masterVersion", "weatherBucket", "dataVersion")]
     + [
         T.StructField("dow", T.IntegerType(), True),
         T.StructField("hourSlot", T.IntegerType(), True),
@@ -102,52 +102,29 @@ def evaluate(
     # 1. ID·중복·event time을 검증한 뒤 최근 관측을 동일한 요일/시간대/날씨로 묶는다.
     valid, rejected = validate(facts, registry, as_of)
     window = valid.filter(
-        (
-            F.col("occurredAt")
-            > F.lit((now - timedelta(seconds=600)).isoformat()).cast("timestamp")
-        )
+        (F.col("occurredAt") > F.lit((now - timedelta(seconds=600)).isoformat()).cast("timestamp"))
         & (F.col("occurredAt") <= F.lit(as_of).cast("timestamp"))
     )
     # 정각 직전 관측을 다음 시간대의 기준선과 비교하지 않는다. 관측 날짜/시각 그룹도 함께 고정한다.
-    window = window.withColumn("dow", F.dayofweek("occurredAt")).withColumn(
-        "hourSlot", F.hour("occurredAt")
-    )
-    groups = window.groupBy(
-        "segmentId", "masterVersion", "weatherBucket", "dow", "hourSlot"
-    ).agg(
-        F.expr("percentile_approx(durationSeconds, 0.5, 10000)").alias(
-            "observedSeconds"
-        ),
+    window = window.withColumn("dow", F.dayofweek("occurredAt")).withColumn("hourSlot", F.hour("occurredAt"))
+    groups = window.groupBy("segmentId", "masterVersion", "weatherBucket", "dow", "hourSlot").agg(
+        F.expr("percentile_approx(durationSeconds, 0.5, 10000)").alias("observedSeconds"),
         F.count("eventId").alias("observationCount"),
         F.max("occurredAt").alias("observedAt"),
     )
     # 날씨가 바뀐 경우 가장 최근 날씨 그룹만 사용한다. 같은 최신시각의 충돌은 임의 선택하지 않는다.
-    order = Window.partitionBy("segmentId", "masterVersion").orderBy(
-        F.col("observedAt").desc()
-    )
-    latest = (
-        groups.withColumn("rank", F.dense_rank().over(order))
-        .filter("rank=1")
-        .drop("rank")
-    )
-    ambiguity = (
-        latest.groupBy("segmentId", "masterVersion")
-        .count()
-        .withColumnRenamed("count", "weatherCandidates")
-    )
+    order = Window.partitionBy("segmentId", "masterVersion").orderBy(F.col("observedAt").desc())
+    latest = groups.withColumn("rank", F.dense_rank().over(order)).filter("rank=1").drop("rank")
+    ambiguity = latest.groupBy("segmentId", "masterVersion").count().withColumnRenamed("count", "weatherCandidates")
     unique = (
-        latest.join(ambiguity, ["segmentId", "masterVersion"])
-        .filter("weatherCandidates=1")
-        .drop("weatherCandidates")
+        latest.join(ambiguity, ["segmentId", "masterVersion"]).filter("weatherCandidates=1").drop("weatherCandidates")
     )
     # 2. 하나의 기준선 버전과 유일한 키만 허용하고 검수된 운행 중단 근거를 결합한다.
     selected = baseline
     if selected.select("dataVersion").distinct().limit(2).count() > 1:
         raise ValueError("baseline dataVersion is not unique")
     if (
-        selected.groupBy(
-            "segmentId", "masterVersion", "weatherBucket", "dow", "hourSlot"
-        )
+        selected.groupBy("segmentId", "masterVersion", "weatherBucket", "dow", "hourSlot")
         .count()
         .filter("count>1")
         .limit(1)
@@ -169,9 +146,7 @@ def evaluate(
     selected = selected.withColumn(
         "baselineSeconds",
         F.when(
-            (F.col("baselineSeconds") > 0)
-            & (F.col("baselineSeconds") < float("inf"))
-            & ~F.isnan("baselineSeconds"),
+            (F.col("baselineSeconds") > 0) & (F.col("baselineSeconds") < float("inf")) & ~F.isnan("baselineSeconds"),
             F.col("baselineSeconds"),
         ),
     ).withColumn(
@@ -189,15 +164,11 @@ def evaluate(
     )
     if blockages is not None:
         # 공지 제목/지연 크기로 통행불가를 추정하지 않는다. 별도 검수한 구간·시각·근거만 허용한다.
-        verified = blockages.join(
-            registry.distinct(), ["segmentId", "masterVersion"], "inner"
-        ).filter(
-            (F.col("confirmed") == True)
+        verified = blockages.join(registry.distinct(), ["segmentId", "masterVersion"], "inner").filter(
+            (F.col("confirmed") == F.lit(True))
             & F.col("source").isNotNull()
             & (F.length("source") > 0)
-            & F.col("eventId").rlike(
-                r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$"
-            )
+            & F.col("eventId").rlike(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
             & (F.col("occurredAt").cast("timestamp") <= F.lit(as_of).cast("timestamp"))
             & (F.col("validUntil").cast("timestamp") > F.lit(as_of).cast("timestamp"))
         )
@@ -222,13 +193,9 @@ def evaluate(
         )
         joined = joined.join(blocks, ["segmentId", "masterVersion"], "left")
     else:
-        joined = joined.withColumn(
-            "blockedUntil", F.lit(None).cast("timestamp")
-        ).withColumn(
+        joined = joined.withColumn("blockedUntil", F.lit(None).cast("timestamp")).withColumn(
             "blockCauses",
-            F.array().cast(
-                "array<struct<eventId:string,eventType:string,source:string>>"
-            ),
+            F.array().cast("array<struct<eventId:string,eventType:string,source:string>>"),
         )
     # 3. 최신성·표본 게이트 이후 지연을 계산한다. 증거 부족을 정상 상태로 바꾸지 않는다.
     blocked = F.col("blockedUntil").isNotNull()
@@ -243,12 +210,10 @@ def evaluate(
         & (F.col("baselineSeconds") < float("inf"))
         & (F.col("baselineSampleCount") >= min_samples)
         & F.col("baselineVersion").isNotNull()
-        & (F.col("baselineEligible") == True)
+        & (F.col("baselineEligible") == F.lit(True))
     )
     # 정수 변환 전에 범위를 확인한다. 극단적인 입력이 overflow되어 정상/음수 지연으로 바뀌면 안 된다.
-    raw_delay = F.greatest(
-        F.lit(0.0), F.col("observedSeconds") - F.col("baselineSeconds")
-    )
+    raw_delay = F.greatest(F.lit(0.0), F.col("observedSeconds") - F.col("baselineSeconds"))
     available = available & (raw_delay <= 2147483647)
     delay = F.ceil(F.when(raw_delay <= 2147483647, raw_delay)).cast("int")
     result = (
@@ -271,9 +236,7 @@ def evaluate(
             "causes",
             F.coalesce(
                 F.col("blockCauses"),
-                F.array().cast(
-                    "array<struct<eventId:string,eventType:string,source:string>>"
-                ),
+                F.array().cast("array<struct<eventId:string,eventType:string,source:string>>"),
             ),
         )
         .withColumn("computedAt", F.lit(as_of))
@@ -284,27 +247,17 @@ def evaluate(
                     blocked,
                     F.least(
                         F.col("blockedUntil"),
-                        F.lit(
-                            (now + timedelta(seconds=STATUS_TTL_SECONDS)).isoformat()
-                        ).cast("timestamp"),
+                        F.lit((now + timedelta(seconds=STATUS_TTL_SECONDS)).isoformat()).cast("timestamp"),
                     ),
                 )
                 .when(
                     available,
                     F.least(
-                        F.lit(
-                            (now + timedelta(seconds=STATUS_TTL_SECONDS)).isoformat()
-                        ).cast("timestamp"),
-                        (F.col("observedAt").cast("long") + max_age_seconds).cast(
-                            "timestamp"
-                        ),
+                        F.lit((now + timedelta(seconds=STATUS_TTL_SECONDS)).isoformat()).cast("timestamp"),
+                        (F.col("observedAt").cast("long") + max_age_seconds).cast("timestamp"),
                     ),
                 )
-                .otherwise(
-                    F.lit(
-                        (now + timedelta(seconds=STATUS_TTL_SECONDS)).isoformat()
-                    ).cast("timestamp")
-                ),
+                .otherwise(F.lit((now + timedelta(seconds=STATUS_TTL_SECONDS)).isoformat()).cast("timestamp")),
                 "yyyy-MM-dd'T'HH:mm:ssXXX",
             ),
         )
@@ -316,9 +269,7 @@ def evaluate(
             .when(F.col("observedAt").isNull(), "NO_UNIQUE_RECENT_OBSERVATION")
             .when(age >= max_age_seconds, "STALE_OBSERVATION")
             .when(raw_delay > 2147483647, "DELAY_OUT_OF_RANGE")
-            .when(
-                ~F.coalesce(available, F.lit(False)), "BASELINE_OR_SAMPLE_INSUFFICIENT"
-            )
+            .when(~F.coalesce(available, F.lit(False)), "BASELINE_OR_SAMPLE_INSUFFICIENT")
             .otherwise("NONE"),
         )
     )
@@ -345,40 +296,27 @@ def select_history(current, previous):
             F.col("previousStatus").isNotNull()
             & (
                 F.col("previousComputedAt").cast("timestamp").isNull()
-                | (
-                    F.col("previousComputedAt").cast("timestamp")
-                    > F.col("computedAt").cast("timestamp")
-                )
+                | (F.col("previousComputedAt").cast("timestamp") > F.col("computedAt").cast("timestamp"))
             )
         )
         .limit(1)
         .count()
     ):
-        raise ValueError(
-            "previous state must have a valid timestamp no later than current"
-        )
+        raise ValueError("previous state must have a valid timestamp no later than current")
     joined = joined.withColumn(
         "eventId",
         F.sha2(
-            F.to_json(
-                F.struct(*[F.col(c) for c in sorted(joined.columns) if c != "eventId"])
-            ),
+            F.to_json(F.struct(*[F.col(c) for c in sorted(joined.columns) if c != "eventId"])),
             256,
         ),
     )
     # ISO 문자열을 기본 unix_timestamp 형식으로 읽으면 null이 되므로 먼저 timestamp로 변환한다.
     # 경계분을 놓쳤더라도 직전 성공 결과와 10분 구획이 달라지면 전체를 한 번 보낸다.
     current_bucket = F.floor(F.col("computedAt").cast("timestamp").cast("long") / 600)
-    previous_bucket = F.floor(
-        F.col("previousComputedAt").cast("timestamp").cast("long") / 600
-    )
-    boundary = (F.col("computedAt").cast("timestamp").cast("long") % 600 == 0) | (
-        current_bucket != previous_bucket
-    )
+    previous_bucket = F.floor(F.col("previousComputedAt").cast("timestamp").cast("long") / 600)
+    boundary = (F.col("computedAt").cast("timestamp").cast("long") % 600 == 0) | (current_bucket != previous_bucket)
     return joined, joined.filter(
-        F.col("previousStatus").isNull()
-        | (F.col("status") != F.col("previousStatus"))
-        | boundary
+        F.col("previousStatus").isNull() | (F.col("status") != F.col("previousStatus")) | boundary
     )
 
 
@@ -400,11 +338,7 @@ def publish_prepared(spark, output, settings):
     if len(manifests) != 1:
         raise ValueError("exactly one completed preparation manifest required")
     manifest = json.loads(manifests[0].value)
-    if (
-        manifest.get("output") != output
-        or manifest.get("publish_output")
-        or not manifest.get("as_of")
-    ):
+    if manifest.get("output") != output or manifest.get("publish_output") or not manifest.get("as_of"):
         raise ValueError("preparation manifest does not match output")
     full = spark.read.parquet(output + "/latest")
     history = spark.read.parquet(output + "/history")
@@ -413,16 +347,10 @@ def publish_prepared(spark, output, settings):
     # Backend는 Kafka 알림 직후 Redis를 읽으므로 최신값 ACK를 먼저 보장한다.
     # 유효기간이 지난 검토 결과를 재발행해도 Redis 수명을 새로 연장하지 않는다.
     rows = redis_rows(full)
-    write_latest_with_row_ttl(
-        rows, settings.redis_host, settings.redis_port, settings.redis_password
-    )
-    history.select(
-        F.col("segmentId").alias("key"), F.to_json(F.struct(*fields)).alias("value")
-    ).write.format("kafka").option(
-        "kafka.bootstrap.servers", settings.kafka_bootstrap_servers
-    ).option(
-        "topic", STATUS_TOPIC
-    ).option(
+    write_latest_with_row_ttl(rows, settings.redis_host, settings.redis_port, settings.redis_password)
+    history.select(F.col("segmentId").alias("key"), F.to_json(F.struct(*fields)).alias("value")).write.format(
+        "kafka"
+    ).option("kafka.bootstrap.servers", settings.kafka_bootstrap_servers).option("topic", STATUS_TOPIC).option(
         "kafka.acks", "all"
     ).save()
 
@@ -430,11 +358,11 @@ def publish_prepared(spark, output, settings):
 def redis_rows(full, now=None):
     """완성된 상태를 TTL 행으로 바꾼다. 테스트/Replay 시각을 주입하며 만료 결과는 다시 살리지 않는다."""
     from common.redis_sink import (
-        KEY_COL,
-        VALUE_COL,
-        TTL_COL,
-        EVENT_TIME_COL,
         COLLECTED_TIME_COL,
+        EVENT_TIME_COL,
+        KEY_COL,
+        TTL_COL,
+        VALUE_COL,
     )
 
     clock = F.lit(now).cast("timestamp") if now is not None else F.current_timestamp()
@@ -496,11 +424,7 @@ def main(argv=None):
         facts = spark.read.schema(FACT_SCHEMA).parquet(args.input)
         registry = spark.read.schema(REGISTRY_SCHEMA).json(args.registry)
         baseline = spark.read.schema(BASELINE_SCHEMA).parquet(args.baseline)
-        blockages = (
-            spark.read.schema(BLOCKAGE_SCHEMA).json(args.blockages)
-            if args.blockages
-            else None
-        )
+        blockages = spark.read.schema(BLOCKAGE_SCHEMA).json(args.blockages) if args.blockages else None
         current, rejected = evaluate(
             facts,
             registry,
@@ -523,9 +447,9 @@ def main(argv=None):
         latest.write.mode("errorifexists").parquet(args.output + "/latest")
         history.write.mode("errorifexists").parquet(args.output + "/history")
         # 실행 인자에는 인증키가 없으며 입력 경로/정책/평가시각을 남겨 원본 사실을 다시 선택할 수 있다.
-        spark.range(1).select(
-            F.lit(json.dumps(vars(args), sort_keys=True)).alias("value")
-        ).write.mode("errorifexists").text(args.output + "/manifest")
+        spark.range(1).select(F.lit(json.dumps(vars(args), sort_keys=True)).alias("value")).write.mode(
+            "errorifexists"
+        ).text(args.output + "/manifest")
     finally:
         spark.stop()
     return 0

@@ -3,11 +3,10 @@
 import json
 
 import pytest
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-
 from common.kafka_source import parse_envelope
 from common.redis_sink import COLLECTED_TIME_COL, EVENT_TIME_COL, KEY_COL, TTL_COL, VALUE_COL
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 from streaming.weather_latest import latest_per_grid, to_redis_rows, transform
 
 
@@ -25,7 +24,9 @@ def spark():
     s.stop()
 
 
-def _event(event_id: str, occurred: str, collected: str, nx: int, ny: int, temp: float, event_type="weather.observation"):
+def _event(
+    event_id: str, occurred: str, collected: str, nx: int, ny: int, temp: float, event_type="weather.observation"
+):
     return {
         "eventId": event_id,
         "eventType": event_type,
@@ -33,7 +34,11 @@ def _event(event_id: str, occurred: str, collected: str, nx: int, ny: int, temp:
         "occurredAt": occurred,
         "collectedAt": collected,
         "payload": {
-            "districts": ["종로구", "중구"], "nx": nx, "ny": ny, "baseDate": "20260827", "baseTime": "0900",
+            "districts": ["종로구", "중구"],
+            "nx": nx,
+            "ny": ny,
+            "baseDate": "20260827",
+            "baseTime": "0900",
             "observations": {"T1H": temp, "REH": 60.0, "PTY": 0.0},
         },
     }
@@ -47,15 +52,17 @@ def _kafka_df(spark, events):
         key = f"{event['payload']['nx']}:{event['payload']['ny']}"
         value = json.dumps(event, ensure_ascii=False).replace("'", "''")
         selects.append(
-            "SELECT CAST('{0}' AS BINARY) AS key, CAST('{1}' AS BINARY) AS value, "
-            "0 AS partition, CAST({2} AS BIGINT) AS offset, "
-            "TIMESTAMP '2026-08-27 09:10:00' AS timestamp".format(key, value, index)
+            f"SELECT CAST('{key}' AS BINARY) AS key, CAST('{value}' AS BINARY) AS value, "
+            f"0 AS partition, CAST({index} AS BIGINT) AS offset, "
+            "TIMESTAMP '2026-08-27 09:10:00' AS timestamp"
         )
     return spark.sql(" UNION ALL ".join(selects))
 
 
 def test_parse_envelope_reads_contract_fields(spark):
-    df = parse_envelope(_kafka_df(spark, [_event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3)]))
+    df = parse_envelope(
+        _kafka_df(spark, [_event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3)])
+    )
     # pyspark 는 timestamp 를 파이썬 datetime 으로 바꿀 때 프로세스의 시스템 시간대를 쓰므로,
     # 값 비교는 Spark 쪽(세션 tz Asia/Seoul)에서 문자열로 포맷해 한다.
     row = df.withColumn("occurredAtText", F.date_format("occurredAt", "yyyy-MM-dd'T'HH:mm:ssXXX")).collect()[0]
@@ -74,28 +81,50 @@ def test_parse_envelope_drops_garbage(spark):
 
 
 def test_transform_filters_other_event_types(spark):
-    events = parse_envelope(_kafka_df(spark, [
-        _event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3),
-        _event("e2", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 1.0, event_type="sample.heartbeat"),
-    ]))
+    events = parse_envelope(
+        _kafka_df(
+            spark,
+            [
+                _event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3),
+                _event(
+                    "e2",
+                    "2026-08-27T09:00:00+09:00",
+                    "2026-08-27T09:10:00+09:00",
+                    60,
+                    127,
+                    1.0,
+                    event_type="sample.heartbeat",
+                ),
+            ],
+        )
+    )
     out = transform(events).collect()
     assert [r.eventId for r in out] == ["e1"]
     assert out[0].observations["T1H"] == 27.3
 
 
 def test_latest_per_grid_keeps_newest_observation(spark):
-    events = parse_envelope(_kafka_df(spark, [
-        _event("old", "2026-08-27T08:00:00+09:00", "2026-08-27T08:10:00+09:00", 60, 127, 25.0),
-        _event("new", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3),
-        _event("other-grid", "2026-08-27T08:00:00+09:00", "2026-08-27T08:10:00+09:00", 61, 126, 26.0),
-        _event("same-time-later-collect", "2026-08-27T09:00:00+09:00", "2026-08-27T09:20:00+09:00", 60, 127, 27.5),
-    ]))
+    events = parse_envelope(
+        _kafka_df(
+            spark,
+            [
+                _event("old", "2026-08-27T08:00:00+09:00", "2026-08-27T08:10:00+09:00", 60, 127, 25.0),
+                _event("new", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3),
+                _event("other-grid", "2026-08-27T08:00:00+09:00", "2026-08-27T08:10:00+09:00", 61, 126, 26.0),
+                _event(
+                    "same-time-later-collect", "2026-08-27T09:00:00+09:00", "2026-08-27T09:20:00+09:00", 60, 127, 27.5
+                ),
+            ],
+        )
+    )
     out = {(r.nx, r.ny): r.eventId for r in latest_per_grid(transform(events)).collect()}
     assert out == {(60, 127): "same-time-later-collect", (61, 126): "other-grid"}
 
 
 def test_to_redis_rows_matches_contract_key_and_json_value(spark):
-    events = parse_envelope(_kafka_df(spark, [_event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3)]))
+    events = parse_envelope(
+        _kafka_df(spark, [_event("e1", "2026-08-27T09:00:00+09:00", "2026-08-27T09:10:00+09:00", 60, 127, 27.3)])
+    )
     row = to_redis_rows(transform(events)).collect()[0]
     assert row[KEY_COL] == "weather:latest:60:127"
     assert row[TTL_COL] == 7200
@@ -114,16 +143,25 @@ def test_to_redis_rows_matches_contract_key_and_json_value(spark):
 def test_transform_accepts_legacy_single_district_payload(spark):
     # 2026-08-28 이전에 쌓인 옛 형식: districts 배열 대신 district 단수
     legacy = {
-        "eventId": "old1", "eventType": "weather.observation", "source": "kma.ultra-srt-ncst",
-        "occurredAt": "2026-08-27T09:00:00+09:00", "collectedAt": "2026-08-27T09:10:00+09:00",
-        "payload": {"district": "종로구", "nx": 60, "ny": 127, "baseDate": "20260827", "baseTime": "0900",
-                    "observations": {"T1H": 25.0}},
+        "eventId": "old1",
+        "eventType": "weather.observation",
+        "source": "kma.ultra-srt-ncst",
+        "occurredAt": "2026-08-27T09:00:00+09:00",
+        "collectedAt": "2026-08-27T09:10:00+09:00",
+        "payload": {
+            "district": "종로구",
+            "nx": 60,
+            "ny": 127,
+            "baseDate": "20260827",
+            "baseTime": "0900",
+            "observations": {"T1H": 25.0},
+        },
     }
     value = json.dumps(legacy, ensure_ascii=False).replace("'", "''")
     raw = spark.sql(
-        "SELECT CAST('60:127' AS BINARY) AS key, CAST('{0}' AS BINARY) AS value, "
+        f"SELECT CAST('60:127' AS BINARY) AS key, CAST('{value}' AS BINARY) AS value, "
         "0 AS partition, CAST(0 AS BIGINT) AS offset, "
-        "TIMESTAMP '2026-08-27 09:10:00' AS timestamp".format(value)
+        "TIMESTAMP '2026-08-27 09:10:00' AS timestamp"
     )
     out = transform(parse_envelope(raw)).collect()[0]
     assert out.districts == ["종로구"]  # 단수 형식이 배열로 승격된다

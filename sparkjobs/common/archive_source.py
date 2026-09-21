@@ -16,7 +16,9 @@ from pyspark.sql import functions as F
 from common.kafka_source import parse_envelope
 
 
-def read_archive_events(spark: SparkSession, archive_uri: str, topic: str, start: date | None = None, end: date | None = None) -> DataFrame:
+def read_archive_events(
+    spark: SparkSession, archive_uri: str, topic: str, start: date | None = None, end: date | None = None
+) -> DataFrame:
     """archive_uri/topic 아래 Parquet 을 읽어 봉투 DataFrame 으로 만든다. start~end(포함) 날짜로 파티션을 걸러 읽는다."""
     df = spark.read.parquet(f"{archive_uri.rstrip('/')}/{topic}")
     if start is not None:

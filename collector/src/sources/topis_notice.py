@@ -21,7 +21,6 @@ from urllib.parse import quote
 
 import httpx
 
-
 API_HOST = "http://openapi.seoul.go.kr:8088"
 SERVICE_NAME = "NoticeList"
 API_KEY_ENV_NAME = "TOPIS_NOTICE_API_KEY"
@@ -48,9 +47,7 @@ class _NoticeHtmlTextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag.lower() in self._BLOCK_TAGS:
             self.parts.append("\n")
 
@@ -76,25 +73,19 @@ def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
     if not path.exists():
         return
 
-    for line_number, raw_line in enumerate(
-        path.read_text(encoding="utf-8-sig").splitlines(), start=1
-    ):
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
             line = line[7:].lstrip()
         if "=" not in line:
-            raise TopisNoticeError(
-                f"{path}:{line_number}: KEY=VALUE 형식이 아닙니다"
-            )
+            raise TopisNoticeError(f"{path}:{line_number}: KEY=VALUE 형식이 아닙니다")
 
         name, value = line.split("=", 1)
         name, value = name.strip(), value.strip()
         if not _ENV_NAME.fullmatch(name):
-            raise TopisNoticeError(
-                f"{path}:{line_number}: 환경변수 이름이 올바르지 않습니다"
-            )
+            raise TopisNoticeError(f"{path}:{line_number}: 환경변수 이름이 올바르지 않습니다")
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
         os.environ.setdefault(name, value)
@@ -104,10 +95,7 @@ def require_api_key(env_path: Path = DEFAULT_ENV_PATH) -> str:
     load_env_file(env_path)
     api_key = os.getenv(API_KEY_ENV_NAME, "").strip()
     if not api_key:
-        raise TopisNoticeError(
-            f"{env_path}에 서울 열린데이터광장 일반 인증키를 "
-            f"{API_KEY_ENV_NAME}로 설정해야 합니다"
-        )
+        raise TopisNoticeError(f"{env_path}에 서울 열린데이터광장 일반 인증키를 {API_KEY_ENV_NAME}로 설정해야 합니다")
     return api_key
 
 
@@ -126,10 +114,7 @@ def _element_text(element: ET.Element, tag: str) -> str:
 
 
 def _normalise_row(row: ET.Element) -> dict[str, str]:
-    fields = {
-        child.tag.lower(): (child.text or "").strip()
-        for child in row
-    }
+    fields = {child.tag.lower(): (child.text or "").strip() for child in row}
     content_html = fields.get("bdwr_cts", "")
     return {
         "noticeId": fields.get("bdwr_seq", ""),
@@ -182,10 +167,7 @@ def fetch_notice_page(
     if not key:
         raise TopisNoticeError(f"{API_KEY_ENV_NAME}가 비어 있습니다")
 
-    url = (
-        f"{API_HOST}/{quote(key, safe='')}/xml/{SERVICE_NAME}/"
-        f"{start_index}/{end_index}/"
-    )
+    url = f"{API_HOST}/{quote(key, safe='')}/xml/{SERVICE_NAME}/{start_index}/{end_index}/"
     owns_client = client is None
     http_client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0))
     try:
@@ -195,14 +177,10 @@ def fetch_notice_page(
             follow_redirects=True,
         )
         if response.status_code != 200:
-            raise TopisNoticeError(
-                f"TOPIS 공지사항 API가 HTTP {response.status_code}을 반환했습니다"
-            )
+            raise TopisNoticeError(f"TOPIS 공지사항 API가 HTTP {response.status_code}을 반환했습니다")
         return parse_notice_xml(response.text)
     except httpx.HTTPError as exc:
-        raise TopisNoticeError(
-            f"TOPIS 공지사항 API 연결에 실패했습니다: {type(exc).__name__}"
-        ) from exc
+        raise TopisNoticeError(f"TOPIS 공지사항 API 연결에 실패했습니다: {type(exc).__name__}") from exc
     finally:
         if owns_client:
             http_client.close()
@@ -250,9 +228,7 @@ def fetch_notices(
                 raise TopisNoticeError("API가 같은 페이지를 반복해 전체 조회를 중단했습니다")
             previous_page_ids = page_ids
             if request_count >= MAX_FETCH_ALL_PAGES:
-                raise TopisNoticeError(
-                    f"안전을 위해 전체 조회를 {MAX_FETCH_ALL_PAGES}페이지에서 중단했습니다"
-                )
+                raise TopisNoticeError(f"안전을 위해 전체 조회를 {MAX_FETCH_ALL_PAGES}페이지에서 중단했습니다")
             current_start = current_end + 1
             current_end = current_start + page_size - 1
     finally:
@@ -291,12 +267,8 @@ def save_json(data: dict[str, Any], output_path: Path) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="서울 교통정보시스템(TOPIS) 공지사항을 JSON으로 저장"
-    )
-    parser.add_argument(
-        "--start-index", type=int, default=1, help="조회 시작 행(기본값: 1)"
-    )
+    parser = argparse.ArgumentParser(description="서울 교통정보시스템(TOPIS) 공지사항을 JSON으로 저장")
+    parser.add_argument("--start-index", type=int, default=1, help="조회 시작 행(기본값: 1)")
     parser.add_argument(
         "--page-size",
         type=int,
@@ -309,12 +281,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="fetch_all",
         help="전체 이력을 최대 1,000건 단위로 페이지 조회",
     )
-    parser.add_argument(
-        "--env-file", type=Path, default=DEFAULT_ENV_PATH, help="API 키 환경 파일"
-    )
-    parser.add_argument(
-        "--output", type=Path, default=DEFAULT_OUTPUT_PATH, help="JSON 출력 경로"
-    )
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_PATH, help="API 키 환경 파일")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH, help="JSON 출력 경로")
     return parser.parse_args(argv)
 
 
@@ -332,16 +300,14 @@ def main() -> int:
         print(f"[실패] {exc}")
         return 1
 
-    print(
-        f"[완료] {data['receivedCount']}건 저장 "
-        f"(API {data['requestCount']}회): {args.output}"
-    )
+    print(f"[완료] {data['receivedCount']}건 저장 (API {data['requestCount']}회): {args.output}")
     return 0
 
 
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("topis_notice")
 
 

@@ -10,25 +10,23 @@ rate 스트림은 수집 주기가 아니라 계산 clock이다. checkpoint의 b
 import argparse
 import json
 from datetime import datetime, timedelta, timezone
-from pyspark.sql import SparkSession, functions as F
+
 from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA
 from common.settings import Settings
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 from streaming.segment_status import (
     BASELINE_SCHEMA,
     BLOCKAGE_SCHEMA,
     evaluate,
-    select_history,
     publish_prepared,
+    select_history,
 )
 
 
 def minute(value):
     """Spark timestamp의 UNIX 초를 KST 분 경계로 고정한다. 서버 로컬 시간대에 의존하지 않는다."""
-    return (
-        datetime.fromtimestamp(value, tz=timezone(timedelta(hours=9)))
-        .replace(second=0, microsecond=0)
-        .isoformat()
-    )
+    return datetime.fromtimestamp(value, tz=timezone(timedelta(hours=9))).replace(second=0, microsecond=0).isoformat()
 
 
 def exists(spark, path):
@@ -48,9 +46,7 @@ def tick(spark, batch, batch_id, args, settings, registry, baseline):
         # event time filter는 Parquet pushdown이 가능한 원본 KST 문자열에 적용한다.
         # 현재 10분 창과 늦은/잘못된 시각 자료를 평가한다. 전체 원문은 ingest 출력에 남아 있다.
         lower = (datetime.fromisoformat(as_of) - timedelta(seconds=600)).isoformat()
-        facts = facts.filter(
-            (F.col("occurredAt") > lower) | F.col("occurredAt").isNull()
-        )
+        facts = facts.filter((F.col("occurredAt") > lower) | F.col("occurredAt").isNull())
         # 검증된 canonical 구간 통제 입력만 받는다. 매 tick 새 snapshot을 읽어 종료/만료를
         # 반영하고 evaluate가 masterVersion·confirmed·유효시간을 다시 검사한다.
         # 설정한 파일의 I/O 실패는 batch를 실패시켜 통제를 없는 것으로 덮어쓰지 않는다.
@@ -81,9 +77,9 @@ def tick(spark, batch, batch_id, args, settings, registry, baseline):
         ):
             data.write.mode("overwrite").parquet(output + "/" + name)
         metadata = dict(vars(args), output=output, as_of=as_of, batchId=batch_id)
-        spark.range(1).select(
-            F.lit(json.dumps(metadata, sort_keys=True)).alias("value")
-        ).write.mode("overwrite").text(output + "/manifest")
+        spark.range(1).select(F.lit(json.dumps(metadata, sort_keys=True)).alias("value")).write.mode("overwrite").text(
+            output + "/manifest"
+        )
     if args.publish:
         publish_prepared(spark, output, settings)
 
@@ -108,11 +104,7 @@ def main():
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--blockages", help="검증된 canonical 통제 JSON snapshot; 원시 사건 입력 금지")
     args = parser.parse_args()
-    if (
-        not 0 < args.slow_seconds < args.delayed_seconds
-        or args.min_samples < 1
-        or not 0 < args.max_age_seconds <= 600
-    ):
+    if not 0 < args.slow_seconds < args.delayed_seconds or args.min_samples < 1 or not 0 < args.max_age_seconds <= 600:
         raise ValueError("invalid status policy")
     settings = Settings.from_env()
     spark = (
@@ -131,13 +123,9 @@ def main():
             .option("numPartitions", 1)
             .load()
             .writeStream.foreachBatch(
-                lambda batch, batch_id: tick(
-                    spark, batch, batch_id, args, settings, registry, baseline
-                )
+                lambda batch, batch_id: tick(spark, batch, batch_id, args, settings, registry, baseline)
             )
-            .option(
-                "checkpointLocation", settings.checkpoint_for("segment-status-live")
-            )
+            .option("checkpointLocation", settings.checkpoint_for("segment-status-live"))
             .trigger(processingTime="60 seconds")
             .start()
         )

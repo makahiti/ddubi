@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -85,13 +86,26 @@ class JwtTokenProviderTest {
     }
 
     @Test
-    @DisplayName("변조된 토큰은 거부한다")
+    @DisplayName("서명 바이트가 변조된 토큰은 모든 바이트 위치에서 거부한다")
     void rejectsTamperedToken() {
         JwtTokenProvider provider = provider();
         String token = provider.createAccessToken(42L);
-        String tampered = token.substring(0, token.length() - 2) + "xy";
+        assertThat(provider.parse(token)).isPresent();
 
-        assertThat(provider.parse(tampered)).isEmpty();
+        // JWT의 마지막 Base64URL 글자에는 사용하지 않는 비트가 있을 수 있다. 문자열 끝을
+        // 고정된 "xy"로 바꾸면 실제 서명 바이트가 그대로여서 발급 시각에 따라 테스트가 실패했다.
+        // header/payload와 유효기간은 보존하고, 디코딩한 서명의 각 바이트에서 1비트를 뒤집는다.
+        // 다시 표준 Base64URL로 인코딩하여 형식 오류가 아닌 실제 서명 불일치를 검증한다.
+        int signatureStart = token.lastIndexOf('.') + 1;
+        String signedContent = token.substring(0, signatureStart);
+        byte[] signature = Base64.getUrlDecoder().decode(token.substring(signatureStart));
+        assertThat(signature).isNotEmpty();
+        for (int index = 0; index < signature.length; index++) {
+            byte[] changed = signature.clone();
+            changed[index] ^= 1;
+            String tampered = signedContent + Base64.getUrlEncoder().withoutPadding().encodeToString(changed);
+            assertThat(provider.parse(tampered)).as("서명 바이트 %d 변경은 거부해야 한다", index).isEmpty();
+        }
     }
 
     @Test

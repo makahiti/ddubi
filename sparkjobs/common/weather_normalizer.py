@@ -74,8 +74,9 @@ def normalize_weather(events: DataFrame) -> DataFrame:
         _number(observations, "T1H", -80.0, 60.0).alias("temperatureC"),
         _number(observations, "REH", 0.0, 100.0).alias("humidityPercent"),
         _number(observations, "RN1", 0.0, 500.0).alias("precipitationMm"),
-        F.when(observations["PTY"].isin(0.0, 1.0, 2.0, 3.0, 5.0, 6.0, 7.0), observations["PTY"].cast("int"))
-        .alias("precipitationTypeCode"),
+        F.when(observations["PTY"].isin(0.0, 1.0, 2.0, 3.0, 5.0, 6.0, 7.0), observations["PTY"].cast("int")).alias(
+            "precipitationTypeCode"
+        ),
         _number(observations, "WSD", 0.0, 100.0).alias("windSpeedMps"),
         _number(observations, "VEC", 0.0, 360.0).alias("windDirectionDegree"),
         _number(observations, "UUU", -100.0, 100.0).alias("windEastWestMps"),
@@ -114,6 +115,8 @@ def _silver_rows(normalized: DataFrame) -> DataFrame:
         F.to_date("observedAt").alias("eventDate"),
         F.hour("observedAt").alias("eventHour"),
     )
+
+
 def to_weather_silver_stream(normalized: DataFrame, watermark: str = SILVER_WATERMARK) -> DataFrame:
     """실시간 표준 행을 exact-content 기준으로 중복 제거해 HDFS Parquet sink에 전달한다.
 
@@ -135,6 +138,12 @@ def to_weather_silver_batch(normalized: DataFrame) -> DataFrame:
     Write to a separate versioned backfill root, never into a live file sink directory.
     """
     from pyspark.sql import Window
+
     keys = ["source", "nx", "ny", "observedAt", "weatherContentHash"]
     order = Window.partitionBy(*keys).orderBy("collectedAt", "eventId")
-    return _silver_rows(normalized).withColumn("repeatIndex", F.row_number().over(order)).filter("repeatIndex = 1").drop("repeatIndex")
+    return (
+        _silver_rows(normalized)
+        .withColumn("repeatIndex", F.row_number().over(order))
+        .filter("repeatIndex = 1")
+        .drop("repeatIndex")
+    )

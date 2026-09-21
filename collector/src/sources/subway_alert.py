@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-import httpx
 
+import httpx
 
 API_HOST = "http://openapi.seoul.go.kr:8088"
 SERVICE_NAME = "getNtceList"
@@ -54,9 +54,7 @@ def require_api_key() -> str:
     load_env_file()
     api_key = os.getenv(API_KEY_ENV_NAME, "").strip()
     if not api_key:
-        raise SubwayAlertError(
-            f"{DEFAULT_ENV_PATH}에 {API_KEY_ENV_NAME}를 설정해야 합니다."
-        )
+        raise SubwayAlertError(f"{DEFAULT_ENV_PATH}에 {API_KEY_ENV_NAME}를 설정해야 합니다.")
     return api_key
 
 
@@ -66,19 +64,14 @@ def _validate_range(start_index: int, end_index: int) -> None:
     if end_index < start_index:
         raise ValueError("END_INDEX는 START_INDEX 이상이어야 합니다.")
     if end_index - start_index + 1 > MAX_PAGE_SIZE:
-        raise ValueError(
-            f"한 번에 요청할 수 있는 범위는 최대 {MAX_PAGE_SIZE}건입니다."
-        )
+        raise ValueError(f"한 번에 요청할 수 있는 범위는 최대 {MAX_PAGE_SIZE}건입니다.")
 
 
 def _request_json(
     api_key: str, start_index: int, end_index: int, *, client: httpx.Client | None = None
 ) -> dict[str, Any]:
     _validate_range(start_index, end_index)
-    url = (
-        f"{API_HOST}/{api_key}/json/{SERVICE_NAME}/"
-        f"{start_index}/{end_index}/"
-    )
+    url = f"{API_HOST}/{api_key}/json/{SERVICE_NAME}/{start_index}/{end_index}/"
     request = Request(url, headers={"User-Agent": "seoul-data-collector/1.0"})
 
     if client is not None:
@@ -139,11 +132,7 @@ def _parse_response(payload: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]
             raise SubwayAlertError(f"API 오류 {code}: {message}")
         body = response.get("body") or {}
         items_wrapper = body.get("items") or {}
-        item_value = (
-            items_wrapper.get("item")
-            if isinstance(items_wrapper, dict)
-            else items_wrapper
-        )
+        item_value = items_wrapper.get("item") if isinstance(items_wrapper, dict) else items_wrapper
         items = _items_as_list(item_value)
         total_count = int(body.get("totalCount") or len(items))
         return total_count, items
@@ -154,9 +143,7 @@ def _parse_response(payload: dict[str, Any]) -> tuple[int, list[dict[str, Any]]]
         total_count = int(payload.get("totalCount") or len(items))
         return total_count, items
 
-    raise SubwayAlertError(
-        f"응답에서 {SERVICE_NAME} 또는 response.body.items를 찾지 못했습니다."
-    )
+    raise SubwayAlertError(f"응답에서 {SERVICE_NAME} 또는 response.body.items를 찾지 못했습니다.")
 
 
 def fetch_alerts(
@@ -180,8 +167,11 @@ def fetch_alerts(
 
     while True:
         current_end = current_start + page_size - 1
-        payload = (_request_json(api_key, current_start, current_end, client=client)
-                   if client is not None else _request_json(api_key, current_start, current_end))
+        payload = (
+            _request_json(api_key, current_start, current_end, client=client)
+            if client is not None
+            else _request_json(api_key, current_start, current_end)
+        )
         total_count, page_items = _parse_response(payload)
         collected_items.extend(page_items)
         request_count += 1
@@ -208,16 +198,12 @@ def fetch_alerts(
 
 def save_json(data: dict[str, Any], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="서울시 지하철 알림정보 수집")
-    parser.add_argument(
-        "--start-index", type=int, default=1, help="조회 시작 행 (기본값: 1)"
-    )
+    parser.add_argument("--start-index", type=int, default=1, help="조회 시작 행 (기본값: 1)")
     parser.add_argument(
         "--page-size",
         type=int,
@@ -263,6 +249,7 @@ def main() -> int:
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("subway_alert")
 
 

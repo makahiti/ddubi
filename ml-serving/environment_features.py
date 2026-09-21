@@ -8,8 +8,7 @@
 
 import math
 import re
-from datetime import timezone, timedelta
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 VERSION = "environment-asof-v1"
 NUMERIC_FIELDS = (
@@ -41,9 +40,7 @@ def prepare(request, observations):
     required = ("segmentId", "masterVersion")
     if any(not request.get(k) for k in required):
         raise ValueError("mapped segment and version required")
-    if not re.fullmatch(
-        r"BUS:[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}", request["segmentId"]
-    ):
+    if not re.fullmatch(r"BUS:[A-Za-z0-9._-]{1,50}(:[A-Za-z0-9._-]{1,50}){2}", request["segmentId"]):
         raise ValueError("canonical bus segment required")
     selected = {}
     conflicts = set()
@@ -52,10 +49,7 @@ def prepare(request, observations):
         if any(item.get(k) != request[k] for k in required):
             continue
         try:
-            if any(
-                not isinstance(item.get(k), str) or not item[k].strip()
-                for k in ("source", "eventId")
-            ):
+            if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("source", "eventId")):
                 raise ValueError("observation provenance required")
             kind = item["kind"]
             if kind not in ("weather", "road", "events"):
@@ -69,9 +63,7 @@ def prepare(request, observations):
             if start >= end or collected < published:
                 raise ValueError("invalid interval")
             # 예보 대상은 미래일 수 있다. 실황을 미래 관측으로 제공하는 경우는 거절한다.
-            if item.get("isForecast") is not True and (
-                observed > cutoff or observed > collected
-            ):
+            if item.get("isForecast") is not True and (observed > cutoff or observed > collected):
                 raise ValueError("future observation")
             if not start <= passage < end:
                 continue
@@ -98,11 +90,7 @@ def prepare(request, observations):
             allowed = NUMERIC_FIELDS[:-1] if kind == "weather" else ("roadSpeedKph",)
             for name in allowed:
                 value = payload.get(name)
-                if (
-                    isinstance(value, (float, int))
-                    and not isinstance(value, bool)
-                    and math.isfinite(value)
-                ):
+                if isinstance(value, (float, int)) and not isinstance(value, bool) and math.isfinite(value):
                     if name == "humidityPercent" and not 0 <= value <= 100:
                         continue
                     if name != "temperatureC" and value < 0:

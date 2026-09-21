@@ -8,26 +8,24 @@ FACT_SCHEMA를 만족하는 실측 Parquet와 Backend에서 받은 segmentId/mas
 
 import argparse
 import json
-from datetime import date, timedelta
-from pyspark.sql import SparkSession, functions as F
-from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA, validate
-from common.baseline_upload import BaselineUploadClient
 import os
+from datetime import date, timedelta
+
+from common.baseline_upload import BaselineUploadClient
+from common.segment_facts import FACT_SCHEMA, REGISTRY_SCHEMA, validate
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 
 def aggregate(facts, data_version, min_samples, min_dates):
     """event time(KST)의 1=일요일/0~23시 그룹으로 초 분위수를 계산하고 부족 표본을 표시한다."""
     if min_samples < 1 or min_dates < 1 or not data_version:
         raise ValueError("positive sample/date minimum and version required")
-    keyed = facts.withColumn("dow", F.dayofweek("occurredAt")).withColumn(
-        "hourSlot", F.hour("occurredAt")
-    )
+    keyed = facts.withColumn("dow", F.dayofweek("occurredAt")).withColumn("hourSlot", F.hour("occurredAt"))
     return (
         keyed.groupBy("segmentId", "masterVersion", "dow", "hourSlot", "weatherBucket")
         .agg(
-            F.expr(
-                "percentile_approx(durationSeconds, array(0.5,0.8,0.95), 10000)"
-            ).alias("quantiles"),
+            F.expr("percentile_approx(durationSeconds, array(0.5,0.8,0.95), 10000)").alias("quantiles"),
             F.count("eventId").alias("sampleCount"),
             F.countDistinct(F.to_date("occurredAt")).alias("observedDates"),
             F.min("occurredAt").alias("observationStart"),
@@ -40,8 +38,7 @@ def aggregate(facts, data_version, min_samples, min_dates):
         .withColumn("dataVersion", F.lit(data_version))
         .withColumn(
             "eligible",
-            (F.col("sampleCount") >= min_samples)
-            & (F.col("observedDates") >= min_dates),
+            (F.col("sampleCount") >= min_samples) & (F.col("observedDates") >= min_dates),
         )
     )
 
@@ -57,9 +54,7 @@ def main(argv=None):
     parser.add_argument("--upload", action="store_true")
     args = parser.parse_args(argv)
     if args.days < 7:
-        raise ValueError(
-            "initial baseline window must cover at least seven calendar days"
-        )
+        raise ValueError("initial baseline window must cover at least seven calendar days")
     end = date.fromisoformat(args.as_of)
     start = end - timedelta(days=args.days)
     spark = (
@@ -77,28 +72,22 @@ def main(argv=None):
             (F.col("occurredAt") >= F.lit(start.isoformat()).cast("timestamp"))
             & (F.col("occurredAt") < F.lit(end.isoformat()).cast("timestamp"))
         )
-        baseline = aggregate(
-            selected, args.version, args.min_samples, args.min_dates
-        ).cache()
+        baseline = aggregate(selected, args.version, args.min_samples, args.min_dates).cache()
         baseline.write.mode("errorifexists").parquet(args.output + "/baseline")
-        selected.groupBy(F.to_date("occurredAt").alias("date")).count().write.mode(
-            "errorifexists"
-        ).json(args.output + "/coverage")
+        selected.groupBy(F.to_date("occurredAt").alias("date")).count().write.mode("errorifexists").json(
+            args.output + "/coverage"
+        )
         # 실행 시각과 입력·정책을 결과에 묶는다. 같은 버전의 재현과 표본 부족 원인 추적에 사용한다.
         computed_at = (
             spark.range(1)
-            .select(
-                F.date_format(F.current_timestamp(), "yyyy-MM-dd'T'HH:mm:ssXXX").alias(
-                    "value"
-                )
-            )
+            .select(F.date_format(F.current_timestamp(), "yyyy-MM-dd'T'HH:mm:ssXXX").alias("value"))
             .first()
             .value
         )
         metadata = dict(vars(args), computedAt=computed_at)
-        spark.range(1).select(
-            F.lit(json.dumps(metadata, sort_keys=True)).alias("value")
-        ).write.mode("errorifexists").text(args.output + "/manifest")
+        spark.range(1).select(F.lit(json.dumps(metadata, sort_keys=True)).alias("value")).write.mode(
+            "errorifexists"
+        ).text(args.output + "/manifest")
         eligible = baseline.filter("eligible").select(
             "segmentId",
             "dow",
@@ -111,12 +100,8 @@ def main(argv=None):
         )
         if args.upload:
             # toLocalIterator로 청크만 driver에 보낸다. 전체 collect/toPandas를 사용하지 않는다.
-            client = BaselineUploadClient(
-                os.environ["INTERNAL_API_BASE_URL"], os.environ["INTERNAL_API_KEY"]
-            )
-            client.upload_and_activate(
-                args.version, (r.asDict() for r in eligible.toLocalIterator())
-            )
+            client = BaselineUploadClient(os.environ["INTERNAL_API_BASE_URL"], os.environ["INTERNAL_API_KEY"])
+            client.upload_and_activate(args.version, (r.asDict() for r in eligible.toLocalIterator()))
     finally:
         spark.stop()
     return 0

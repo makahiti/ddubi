@@ -1,5 +1,8 @@
 package com.ssafy.ddubi.domain.place.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.ssafy.ddubi.domain.place.dto.request.PlaceCreateRequest;
 import com.ssafy.ddubi.domain.place.dto.request.PlaceUpdateRequest;
 import com.ssafy.ddubi.domain.place.dto.response.PlaceResponse;
@@ -8,40 +11,40 @@ import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 
-import java.math.BigDecimal;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-/** 장소 CRUD (PLACE-002~006) — 도메인 규칙 1(소유권)과 서울 한정(422)을 고정한다. */
+/** 장소 CRUD (PLACE-002~006) — 도메인 규칙 1(소유권)과 서비스 권역 제한을 고정한다. */
 class PlaceIntegrationTest extends IntegrationTestSupport {
 
     private static final BigDecimal SEOUL_LAT = new BigDecimal("37.5013068");
     private static final BigDecimal SEOUL_LNG = new BigDecimal("127.0396597");
 
-    @Autowired
-    private PlaceService placeService;
-    @Autowired
-    private UserRepository userRepository;
+    @Autowired private PlaceService placeService;
+    @Autowired private UserRepository userRepository;
 
     private Long ownerId;
     private Long strangerId;
 
     @BeforeEach
     void setUpUsers() {
-        ownerId = userRepository.save(User.builder().email("owner@ddubi.com").nickname("주인").build()).getId();
-        strangerId = userRepository.save(User.builder().email("other@ddubi.com").nickname("남").build()).getId();
+        ownerId =
+                userRepository
+                        .save(User.builder().email("owner@ddubi.com").nickname("주인").build())
+                        .getId();
+        strangerId =
+                userRepository
+                        .save(User.builder().email("other@ddubi.com").nickname("남").build())
+                        .getId();
     }
 
     private PlaceResponse createDefault() {
-        return placeService.create(ownerId,
-                new PlaceCreateRequest("회사", "서울 강남구 테헤란로 212", SEOUL_LAT, SEOUL_LNG));
+        return placeService.create(
+                ownerId, new PlaceCreateRequest("회사", "서울 강남구 테헤란로 212", SEOUL_LAT, SEOUL_LNG));
     }
 
     @Test
@@ -54,11 +57,29 @@ class PlaceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("서울 밖 좌표로 등록하면 422 OUT_OF_SERVICE_AREA")
-    void rejectsOutOfSeoul() {
-        assertThatThrownBy(() -> placeService.create(ownerId,
-                new PlaceCreateRequest("부산집", "부산 해운대구",
-                        new BigDecimal("35.1587"), new BigDecimal("129.1604"))))
+    @DisplayName("부산 좌표는 허용하고 미지원 지역은 422 OUT_OF_SERVICE_AREA")
+    void acceptsBusanAndRejectsUnsupportedArea() {
+        assertThat(
+                        placeService
+                                .create(
+                                        ownerId,
+                                        new PlaceCreateRequest(
+                                                "부산집",
+                                                "부산 해운대구",
+                                                new BigDecimal("35.1587"),
+                                                new BigDecimal("129.1604")))
+                                .id())
+                .isNotNull();
+
+        assertThatThrownBy(
+                        () ->
+                                placeService.create(
+                                        ownerId,
+                                        new PlaceCreateRequest(
+                                                "대전집",
+                                                "대전 동구",
+                                                new BigDecimal("36.3321"),
+                                                new BigDecimal("127.4340"))))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
                 .isEqualTo(ErrorCode.OUT_OF_SERVICE_AREA);
@@ -113,12 +134,13 @@ class PlaceIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("좌표 수정도 서울 검증을 거친다")
-    void coordinateUpdateChecksSeoul() {
+    @DisplayName("좌표 수정도 지원 권역 검증을 거친다")
+    void coordinateUpdateChecksSupportedServiceArea() {
         Long placeId = createDefault().id();
         PlaceUpdateRequest update = new PlaceUpdateRequest();
-        update.setLat(new BigDecimal("35.1587"));
-        update.setLng(new BigDecimal("129.1604"));
+        // 부산은 지원 권역에 포함되므로, 지원하지 않는 대전 좌표로 실제 거부 경계를 검증한다.
+        update.setLat(new BigDecimal("36.3504"));
+        update.setLng(new BigDecimal("127.3845"));
 
         assertThatThrownBy(() -> placeService.update(ownerId, placeId, update))
                 .isInstanceOf(BusinessException.class)

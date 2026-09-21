@@ -103,6 +103,8 @@ void main() {
             body: SingleChildScrollView(
               child: ScheduleEvaluationSummary(
                 evaluation: ScheduleEvaluationV2.fromJson(historical()),
+                // 대체 계산 사유는 내부 코드를 옮긴 목록이라 개발자 진단에서만 보인다.
+                developerDiagnostics: true,
               ),
             ),
           ),

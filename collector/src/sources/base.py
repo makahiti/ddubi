@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, List, Literal
 
 import httpx
-
 from config import Settings
 
 # python:slim 이미지에 tzdata 가 없을 수 있어 고정 오프셋으로 둔다 (한국은 DST 없음)

@@ -289,13 +289,12 @@ void main() {
     expect(find.textContaining('ML_BUDGET_EXHAUSTED'), findsNothing);
     expect(find.textContaining('EXACT_KEY_UNAVAILABLE'), findsNothing);
     expect(find.textContaining('유효 시각'), findsNothing);
-    // 일반 화면에서도 ML 실패와 과거 자료 부족은 서로 다른 문구다.
-    expect(find.textContaining('계산 시간이 부족해 ML 예측 미적용'), findsOneWidget);
+    // 대체 계산 사유는 내부 코드를 옮긴 목록이라 일반 화면에서는 빼고 한 문장으로만 알린다.
+    expect(find.textContaining('계산 시간이 부족해 ML 예측 미적용'), findsNothing);
     expect(
-      find.textContaining('과거 자료 적용 조건이 맞지 않아 기본 경로시간 유지'),
+      find.textContaining('일부 실시간 정보가 없어 기본 경로 예상시간을 사용했어요'),
       findsOneWidget,
     );
-    expect(find.textContaining('검증 중인 ML 예측값을 시험 적용'), findsOneWidget);
 
     await tester.pumpWidget(
       MaterialApp(

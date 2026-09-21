@@ -23,10 +23,7 @@ if __package__:
 else:
     from subway_response import validated_rows
 
-API_URL_TEMPLATE = (
-    "http://swopenapi.seoul.go.kr/api/subway/"
-    "{api_key}/json/realtimeStationArrival/ALL/"
-)
+API_URL_TEMPLATE = "http://swopenapi.seoul.go.kr/api/subway/{api_key}/json/realtimeStationArrival/ALL/"
 COLLECTOR_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_PATH = COLLECTOR_DIR / ".env"
 DEFAULT_OUTPUT_PATH = COLLECTOR_DIR / "data" / "subway_arrival.json"
@@ -102,9 +99,7 @@ def fetch_all_subway_arrivals(
             "response": data,
         }
     except httpx.HTTPError as exc:
-        raise SubwayArrivalError(
-            f"서울 지하철 도착 API 연결에 실패했습니다: {type(exc).__name__}"
-        ) from exc
+        raise SubwayArrivalError(f"서울 지하철 도착 API 연결에 실패했습니다: {type(exc).__name__}") from exc
     finally:
         if owns_client:
             http_client.close()
@@ -122,9 +117,7 @@ def save_json(data: dict[str, Any], output_path: Path) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="서울시 전체 지하철 실시간 도착정보를 JSON 파일로 저장"
-    )
+    parser = argparse.ArgumentParser(description="서울시 전체 지하철 실시간 도착정보를 JSON 파일로 저장")
     parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_PATH, help="API 키 환경 파일")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH, help="JSON 출력 경로")
     return parser.parse_args(argv)
@@ -146,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("subway_arrival")
 
 

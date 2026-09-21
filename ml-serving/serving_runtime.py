@@ -4,10 +4,11 @@
 아니며, 호출자가 연결을 끊어도 실행 중인 계산이 끝날 때까지 자리를 점유한다.
 요청 본문·ID를 로그나 장기 상태에 저장하지 않는다. 재시도는 호출자의 책임이다.
 """
+
 import asyncio
+import math
 from collections import deque
 from dataclasses import dataclass
-import math
 
 
 class QueueBusy(RuntimeError):
@@ -25,26 +26,28 @@ class RuntimeSettings:
     def __post_init__(self):
         # 설정 오류를 무제한 대기/메모리 할당으로 해석하지 않고 시작 단계에서 거부한다.
         if type(self.max_waiting) is not int or not 0 <= self.max_waiting <= 32:
-            raise ValueError('ML_MAX_WAITING_REQUESTS must be 0..32')
+            raise ValueError("ML_MAX_WAITING_REQUESTS must be 0..32")
         if not math.isfinite(self.wait_seconds) or not 0 <= self.wait_seconds <= 30:
-            raise ValueError('ML_QUEUE_WAIT_SECONDS must be 0..30')
+            raise ValueError("ML_QUEUE_WAIT_SECONDS must be 0..30")
         if type(self.cache_mib) is not int or not 0 <= self.cache_mib <= 4096:
-            raise ValueError('ML_REFERENCE_CACHE_MIB must be 0..4096')
+            raise ValueError("ML_REFERENCE_CACHE_MIB must be 0..4096")
 
     @classmethod
     def from_env(cls, env):
         """환경변수를 시작 시 한 번 읽는다. 0은 각각 대기 또는 캐시 비활성화다."""
-        return cls(int(env.get('ML_MAX_WAITING_REQUESTS', '4')),
-                   float(env.get('ML_QUEUE_WAIT_SECONDS', '5')),
-                   int(env.get('ML_REFERENCE_CACHE_MIB', '256')))
+        return cls(
+            int(env.get("ML_MAX_WAITING_REQUESTS", "4")),
+            float(env.get("ML_QUEUE_WAIT_SECONDS", "5")),
+            int(env.get("ML_REFERENCE_CACHE_MIB", "256")),
+        )
 
 
 class InferenceQueue:
     """한 이벤트 루프가 소유하는 FIFO. 모델에는 동시에 한 스레드만 진입한다.
 
-HTTP 스레드풀에 들어가기 전에 입장을 제한해 숨은 스레드 대기를 만들지 않는다.
-대기 중 취소는 큐에서 제거하고, 실행 중 취소는 계산 완료 시 슬롯을 반환한다.
-"""
+    HTTP 스레드풀에 들어가기 전에 입장을 제한해 숨은 스레드 대기를 만들지 않는다.
+    대기 중 취소는 큐에서 제거하고, 실행 중 취소는 계산 완료 시 슬롯을 반환한다.
+    """
 
     def __init__(self, settings):
         self.settings = settings

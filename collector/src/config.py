@@ -33,15 +33,15 @@ class Settings:
     API_KEY_NAMES = (
         "GBIS_API_KEY",
         "INCHEON_API_KEY",
-        "KMA_API_KEY",                # weather (우선)
-        "DATA_GO_KR_API_KEY",         # weather (KMA 없을 때)
-        "BUS_ARRIVAL_API_KEY",        # bus_arrival
-        "BUS_LOCATION_API_KEY",       # bus_location
-        "SUBWAY_API_KEY",             # subway_arrival, subway_location
-        "SUBWAY_ALERT_API_KEY",       # subway_alert
-        "CITY_REALTIME_API_KEY",      # city_realtime
-        "TOPIS_NOTICE_API_KEY",       # topis_notice
-        "TRAFFIC_INCIDENT_API_KEY",   # traffic_incident
+        "KMA_API_KEY",  # weather (우선)
+        "DATA_GO_KR_API_KEY",  # weather (KMA 없을 때)
+        "BUS_ARRIVAL_API_KEY",  # bus_arrival
+        "BUS_LOCATION_API_KEY",  # bus_location
+        "SUBWAY_API_KEY",  # subway_arrival, subway_location
+        "SUBWAY_ALERT_API_KEY",  # subway_alert
+        "CITY_REALTIME_API_KEY",  # city_realtime
+        "TOPIS_NOTICE_API_KEY",  # topis_notice
+        "TRAFFIC_INCIDENT_API_KEY",  # traffic_incident
     )
     # 수집 범위는 코드에 박지 않는다. 운영 환경마다 대상 노선·역·도로 링크와 호출 한도가
     # 다르므로 쉼표 구분 환경변수로 주입하고, 비밀값은 위 API_KEY_NAMES에만 둔다.
@@ -67,7 +67,7 @@ class Settings:
     )
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         source = _env("COLLECTOR_SOURCE")
         if not source:
             raise ConfigError(

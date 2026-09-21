@@ -109,17 +109,50 @@ class AuthApi {
     );
   }
 
+  /// 마이페이지 소셜 연결.
+  ///
+  /// 카카오는 액세스 토큰, 구글은 ID 토큰, 네이버는 인가 코드를 보낸다. 네이버가 인가 코드인
+  /// 이유는 앱이 SDK 가 아니라 웹 창으로 로그인해서 토큰이 아니라 코드만 돌아오기 때문이다.
   Future<Response<Map<String, dynamic>>> linkSocialAccount({
     required String provider,
     String? accessToken,
     String? idToken,
+    String? authorizationCode,
+    String? redirectUri,
+    String? state,
   }) => _dio.post<Map<String, dynamic>>(
     ApiPaths.socialLinks,
     data: {
       'provider': provider,
       'accessToken': ?accessToken,
       'idToken': ?idToken,
+      'authorizationCode': ?authorizationCode,
+      'redirectUri': ?redirectUri,
+      'state': ?state,
     },
+  );
+
+  /// 비밀번호 변경. 성공하면 다른 기기는 모두 로그아웃되고 이 기기용 새 토큰이 온다.
+  Future<Response<Map<String, dynamic>>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    String? deviceId,
+  }) => _dio.patch<Map<String, dynamic>>(
+    ApiPaths.passwordChange,
+    data: {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+      'deviceId': ?deviceId,
+    },
+  );
+
+  /// 이메일 변경. 새 주소의 인증(코드 발송·확인)을 먼저 마쳐야 한다.
+  Future<Response<Map<String, dynamic>>> changeEmail({
+    required String newEmail,
+    String? password,
+  }) => _dio.patch<Map<String, dynamic>>(
+    ApiPaths.emailChange,
+    data: {'newEmail': newEmail, 'password': ?password},
   );
 
   Future<Response<Map<String, dynamic>>> unlinkSocialAccount(String provider) =>

@@ -3,10 +3,9 @@
 import json
 
 import pytest
-from pyspark.sql import SparkSession
-
 from common.kafka_source import parse_envelope
-from common.weather_normalizer import normalize_weather, to_weather_silver_stream, to_weather_silver_batch
+from common.weather_normalizer import normalize_weather, to_weather_silver_batch, to_weather_silver_stream
+from pyspark.sql import SparkSession
 
 
 @pytest.fixture(scope="session")
@@ -28,8 +27,8 @@ def _events(spark, rows):
     for offset, row in enumerate(rows):
         value = json.dumps(row, ensure_ascii=False).replace("'", "''")
         selects.append(
-            "SELECT CAST('60:127' AS BINARY) key, CAST('{0}' AS BINARY) value, "
-            "0 partition, CAST({1} AS BIGINT) offset, TIMESTAMP '2026-09-14 08:10:00' timestamp".format(value, offset)
+            f"SELECT CAST('60:127' AS BINARY) key, CAST('{value}' AS BINARY) value, "
+            f"0 partition, CAST({offset} AS BIGINT) offset, TIMESTAMP '2026-09-14 08:10:00' timestamp"
         )
     return parse_envelope(spark.sql(" UNION ALL ".join(selects)))
 

@@ -267,8 +267,9 @@ services:
       TZ: ${TZ:-Asia/Seoul}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # 비밀번호 두 개는 필수 변수다. .env 에 없거나 비어 있으면 compose 가 여기서 멈춰 약한 값으로 DB 가 뜨는 일을 막는다(2026-09-18).
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?.env 에 MYSQL_PASSWORD 를 설정하세요}"
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?.env 에 MYSQL_ROOT_PASSWORD 를 설정하세요}"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -290,7 +291,8 @@ services:
     command:
       - redis-server
       - --requirepass
-      - ${REDIS_PASSWORD}
+      # 필수 변수다. 비어 있으면 redis 가 비밀번호 없이 뜨므로 compose 가 여기서 멈춘다(2026-09-18).
+      - "${REDIS_PASSWORD:?.env 에 REDIS_PASSWORD 를 설정하세요}"
       - --maxmemory
       - 384mb
       # 메모리가 차면 TTL 이 있는 키 중 만료가 가까운 것부터 지운다 (volatile-ttl).
@@ -335,6 +337,13 @@ services:
       # 밀린 요청은 빨리 MODEL_BUSY 로 돌려주고 호출자가 남은 예산을 과거 평균 계산에 쓰게 한다.
       ML_QUEUE_WAIT_SECONDS: ${ML_QUEUE_WAIT_SECONDS:-2}
       ML_REFERENCE_CACHE_MIB: ${ML_REFERENCE_CACHE_MIB:-256}
+      ML_REDIS_LATEST_FEATURES_ENABLED: ${ML_REDIS_LATEST_FEATURES_ENABLED:-false}
+      ML_BUS_CROSSWALK_SHA256: ${ML_BUS_CROSSWALK_SHA256:-8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      ML_REDIS_TIMEOUT_SECONDS: ${ML_REDIS_TIMEOUT_SECONDS:-1.5}
+      ML_ONLINE_FEATURE_TTL_SECONDS: ${ML_ONLINE_FEATURE_TTL_SECONDS:-900}
     volumes:
       - ${ML_BUNDLE_DIR:-../artifacts/ml-serving/20260908-v12}:/models/v12:ro
     healthcheck:
@@ -394,6 +403,15 @@ services:
       # 개발용 테스트 알림 발송(POST /api/v1/dev/notifications/test). 프론트 연동 확인용이다.
       # 기본 false — 켜면 로그인한 본인에게 알림을 임의로 만들 수 있다. 발표 전에 되돌린다.
       DDUBI_DEV_ENDPOINTS_ENABLED: ${DDUBI_DEV_ENDPOINTS_ENABLED:-false}
+      # 평가 결과로 자동 FCM 발송. .env 에 값이 있어도 여기서 넘기지 않으면 컨테이너에
+      # 닿지 않아 backend 가 기본값(false)을 쓴다 — 2026-09-18 알림이 0건이던 원인이다.
+      #
+      # 기본 false 를 유지한다. 지금 나가는 숫자는 미승인 모델이 계산한 값이라
+      # (production_ready=false) 켜면 검증 안 된 값으로 사용자 폰이 울린다.
+      # 연동 확인 때만 켜고 발표 전에 되돌린다.
+      DDUBI_AUTO_NOTIFY_ENABLED: ${DDUBI_AUTO_NOTIFY_ENABLED:-false}
+      # 아침 브리핑 스케줄러. 끄면 스케줄러 빈 자체가 만들어지지 않는다.
+      DDUBI_BRIEFING_ENABLED: ${DDUBI_BRIEFING_ENABLED:-true}
       DDUBI_TRANSIT_MASTER_IMPORT_ENABLED: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:-false}
       DDUBI_TRANSIT_MASTER_DATA_VERSION: ${DDUBI_TRANSIT_MASTER_DATA_VERSION:-}
       DDUBI_TRANSIT_MASTER_BUS_WORKBOOK: ${DDUBI_TRANSIT_MASTER_BUS_WORKBOOK:-}
@@ -403,6 +421,12 @@ services:
       # 데이터 담당의 분해/대응 검증 전에는 true로 바꾸지 않는다.
       DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED: ${DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED:-false}
       DDUBI_BUS_WAITING_DECOMPOSITION_VERIFIED: ${DDUBI_BUS_WAITING_DECOMPOSITION_VERIFIED:-false}
+      # 후보 끝점 도보 보강. 키 권한/좌표/비용 검증 실패 시 원본 시간과 실패 사유를 유지한다.
+      DDUBI_WALKING_ENABLED: ${DDUBI_WALKING_ENABLED:-true}
+      DDUBI_WALKING_PROVIDER_ENDPOINTS: ${DDUBI_WALKING_PROVIDER_ENDPOINTS:-true}
+      DDUBI_WALKING_MAX_CALLS: ${DDUBI_WALKING_MAX_CALLS:-10}
+      DDUBI_WALKING_ENDPOINT_MAX_METERS: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:-0}
+      DDUBI_WALKING_MASTER_COORDINATE_PATH: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:-}
       # 검토 참고자료: 적재 완료와 검증 후에만 버전을 명시한다. 운영 추천 승인 플래그가 아니다.
       DDUBI_BUS_REFERENCE_DATA_VERSION: ${DDUBI_BUS_REFERENCE_DATA_VERSION:-}
       DDUBI_BUS_REFERENCE_FALLBACK_ENABLED: ${DDUBI_BUS_REFERENCE_FALLBACK_ENABLED:-false}
@@ -666,15 +690,233 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      # Spark 쪽 버스 대응표는 9/11 임시 OFF (기본값 빈 문자열 → 코드가 대응표 없이 동작).
-      # 이유: load_crosswalk 가 21만 행을 F.lit 리터럴로 계획에 넣고 캐시하지 않아 배치마다 재파싱 → 배치 40초, 드라이버 힙 소진, 컨테이너 OOM 재시작.
-      # dt 가 index 를 cache/broadcast 로 고정하면 .env 에 SPARK_BUS_CROSSWALK_PATH·SHA256 을 채워 켠다(수집기와 같은 파일·지문).
-      # 수집기 쪽 대응표(x-collector-env)는 켜져 있어 Kafka 이벤트의 segmentIds 는 계속 채워진다.
-      BUS_CROSSWALK_PATH: ${SPARK_BUS_CROSSWALK_PATH:-}
-      BUS_CROSSWALK_SHA256: ${SPARK_BUS_CROSSWALK_SHA256:-}
+      # Collector와 Spark가 검증된 동일 artifact/지문을 사용한다. load_crosswalk는 기동 시 cache/count로 한 번 물질화한다.
+      BUS_CROSSWALK_PATH: ${SPARK_BUS_CROSSWALK_PATH:-/opt/ddubi/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz}
+      BUS_CROSSWALK_SHA256: ${SPARK_BUS_CROSSWALK_SHA256:-8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246}
     volumes:
       - ./spark/conf:/opt/spark/conf:ro
       - ../backend/transit-master:/opt/ddubi/transit-master:ro   # 버스 대응표 (driver 가 기동 시 한 번 읽음)
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # 서울 실시간 도시데이터의 인구·예측·도로 링크를 동일 규칙으로 정규화한다.
+  # Redis는 항상 실행하고, CITY_SILVER_OUTPUT_URI를 설정한 서버에서만 HDFS Parquet도 쓴다.
+  spark-streaming-city-realtime:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-city-realtime
+    profiles: ["spark"]
+    mem_limit: 1g
+    working_dir: /opt/ddubi/sparkjobs
+    command: ["sh", "submit.sh", "streaming/city_realtime_silver.py"]
+    ports:
+      - "${SPARK_CITY_DRIVER_UI_PORT:-4047}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
+      SPARK_EXECUTOR_MEMORY: ${CITY_STREAMING_EXECUTOR_MEMORY:-768m}
+      SPARK_CORES_MAX: ${CITY_STREAMING_CORES_MAX:-1}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CITY_SILVER_OUTPUT_URI: ${CITY_SILVER_OUTPUT_URI:-}
+      CITY_SILVER_FRESHNESS_SECONDS: ${CITY_SILVER_FRESHNESS_SECONDS:-900}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # 검증된 실제 구간 통과 이벤트만 원문/offset과 함께 Parquet으로 보존한다.
+  # 도착예정값이나 8시간 간격 위치값을 실측으로 변환하는 생산자는 아직 없으므로 별도 프로필로만 실행한다.
+  spark-streaming-segment-observations:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-segment-observations
+    profiles: ["recommendation-data"]
+    mem_limit: 1g
+    working_dir: /opt/ddubi/sparkjobs
+    command: ["sh", "submit.sh", "streaming/segment_observations.py"]
+    ports:
+      - "${SPARK_SEGMENT_OBSERVATIONS_DRIVER_UI_PORT:-4045}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
+      SPARK_EXECUTOR_MEMORY: ${SEGMENT_OBSERVATIONS_EXECUTOR_MEMORY:-768m}
+      SPARK_CORES_MAX: ${SEGMENT_OBSERVATIONS_CORES_MAX:-1}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SEGMENT_FACTS_PATH: ${SEGMENT_FACTS_PATH:-hdfs://hdfs-namenode:9000/ddubi/silver/segment-observation/v1}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # 위 실측과 검증된 registry/baseline을 매분 평가해 Redis 최신값과 Kafka 판정 이력을 함께 발행한다.
+  # registry/baseline 경로가 비어 있으면 기동을 거부해 미검증 매핑이나 기준선을 사용하지 않는다.
+  spark-streaming-segment-status:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-segment-status
+    profiles: ["recommendation-data"]
+    mem_limit: 1g
+    working_dir: /opt/ddubi/sparkjobs
+    command:
+      - sh
+      - -c
+      - >-
+        : "$${SEGMENT_REGISTRY_PATH:?SEGMENT_REGISTRY_PATH가 필요합니다}";
+        : "$${SEGMENT_BASELINE_PATH:?SEGMENT_BASELINE_PATH가 필요합니다}";
+        exec sh submit.sh streaming/segment_status_live.py
+        --input "$${SEGMENT_FACTS_PATH}"
+        --registry "$${SEGMENT_REGISTRY_PATH}"
+        --baseline "$${SEGMENT_BASELINE_PATH}"
+        --output "$${SEGMENT_STATUS_OUTPUT_PATH}"
+        --policy-version "$${SEGMENT_STATUS_POLICY_VERSION}"
+        --slow-seconds "$${SEGMENT_STATUS_SLOW_SECONDS}"
+        --delayed-seconds "$${SEGMENT_STATUS_DELAYED_SECONDS}"
+        --min-samples "$${SEGMENT_STATUS_MIN_SAMPLES}"
+        --max-age-seconds "$${SEGMENT_STATUS_MAX_AGE_SECONDS}"
+        --publish
+    ports:
+      - "${SPARK_SEGMENT_STATUS_DRIVER_UI_PORT:-4046}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_EXECUTOR_MEMORY: ${SEGMENT_STATUS_EXECUTOR_MEMORY:-768m}
+      SPARK_CORES_MAX: ${SEGMENT_STATUS_CORES_MAX:-1}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SEGMENT_FACTS_PATH: ${SEGMENT_FACTS_PATH:-hdfs://hdfs-namenode:9000/ddubi/silver/segment-observation/v1}
+      SEGMENT_REGISTRY_PATH: ${SEGMENT_REGISTRY_PATH:-}
+      SEGMENT_BASELINE_PATH: ${SEGMENT_BASELINE_PATH:-}
+      SEGMENT_STATUS_OUTPUT_PATH: ${SEGMENT_STATUS_OUTPUT_PATH:-hdfs://hdfs-namenode:9000/ddubi/derived/segment-status/v1}
+      SEGMENT_STATUS_POLICY_VERSION: ${SEGMENT_STATUS_POLICY_VERSION:-segment-status-v1}
+      SEGMENT_STATUS_SLOW_SECONDS: ${SEGMENT_STATUS_SLOW_SECONDS:-30}
+      SEGMENT_STATUS_DELAYED_SECONDS: ${SEGMENT_STATUS_DELAYED_SECONDS:-60}
+      SEGMENT_STATUS_MIN_SAMPLES: ${SEGMENT_STATUS_MIN_SAMPLES:-3}
+      SEGMENT_STATUS_MAX_AGE_SECONDS: ${SEGMENT_STATUS_MAX_AGE_SECONDS:-300}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # TOPIS 공지를 GMS로 구조화하고 Kakao 좌표를 붙이는 별도 잡.
+  # 새 외부 API 기능은 기본 배포에서 분리하고 `--profile topis-ai`로 명시적으로 켠다.
+  spark-streaming-topis:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-topis
+    profiles: ["topis-ai"]
+    mem_limit: 1g
+    working_dir: /opt/ddubi/sparkjobs
+    command: ["sh", "submit.sh", "streaming/topis_enriched.py"]
+    ports:
+      - "${SPARK_TOPIS_DRIVER_UI_PORT:-4043}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
+      SPARK_EXECUTOR_MEMORY: ${TOPIS_EXECUTOR_MEMORY:-768m}
+      SPARK_CORES_MAX: ${TOPIS_CORES_MAX:-1}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URL: ${GMS_BASE_URL:-https://gms.ssafy.io/gmsapi/}
+      GMS_MODEL: ${GMS_MODEL:-gpt-4o-mini}
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      TOPIS_AI_TIMEOUT_SECONDS: ${TOPIS_AI_TIMEOUT_SECONDS:-30}
+      # 비어 있으면 Redis만 실행한다. HDFS 실패도 Redis 스트림을 중단하지 않는다.
+      TOPIS_SILVER_OUTPUT_URI: ${TOPIS_SILVER_OUTPUT_URI:-}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # TOPIS 교통 돌발을 공식 링크 마스터와 좌표로 검증하는 Silver 잡.
+  # 승인된 링크 artifact가 아직 없으므로 기본 spark 배포와 분리한다.
+  spark-streaming-traffic-incident:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-traffic-incident
+    profiles: ["road-silver"]
+    mem_limit: 1g
+    working_dir: /opt/ddubi/sparkjobs
+    command: ["sh", "submit.sh", "streaming/traffic_incident_silver.py"]
+    ports:
+      - "${SPARK_TRAFFIC_INCIDENT_DRIVER_UI_PORT:-4044}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
+      SPARK_EXECUTOR_MEMORY: ${TRAFFIC_INCIDENT_EXECUTOR_MEMORY:-768m}
+      SPARK_CORES_MAX: ${TRAFFIC_INCIDENT_CORES_MAX:-1}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      TRAFFIC_INCIDENT_SILVER_OUTPUT_URI: ${TRAFFIC_INCIDENT_SILVER_OUTPUT_URI:-}
+      TRAFFIC_LINK_MASTER_PATH: ${TRAFFIC_LINK_MASTER_PATH:-}
+      TRAFFIC_LINK_MASTER_SHA256: ${TRAFFIC_LINK_MASTER_SHA256:-}
+      TRAFFIC_INCIDENT_STALE_SECONDS: ${TRAFFIC_INCIDENT_STALE_SECONDS:-2700}
+      TRAFFIC_LINK_COORD_TOLERANCE_METERS: ${TRAFFIC_LINK_COORD_TOLERANCE_METERS:-200}
+      TRAFFIC_NEARBY_MAX_METERS: ${TRAFFIC_NEARBY_MAX_METERS:-100}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../backend/transit-master:/opt/ddubi/transit-master:ro
       - ../sparkjobs:/opt/ddubi/sparkjobs
       - spark-checkpoints:/opt/ddubi/checkpoints
       - spark-events:/opt/ddubi/spark-events
@@ -747,6 +989,13 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # 버스 구간→날씨 격자 배치가 Collector와 같은 실제 수집 범위를 검사한다.
+      WEATHER_GRID_POINTS: ${WEATHER_GRID_POINTS:-}
+      BUS_WEATHER_MAPPING_TTL_SECONDS: ${BUS_WEATHER_MAPPING_TTL_SECONDS:-2592000}
+      BUS_ROAD_MAPPING_TTL_SECONDS: ${BUS_ROAD_MAPPING_TTL_SECONDS:-2592000}
+      BUS_CITY_MAPPING_TTL_SECONDS: ${BUS_CITY_MAPPING_TTL_SECONDS:-2592000}
+      CITY_MAPPING_MAX_DISTANCE_METERS: ${CITY_MAPPING_MAX_DISTANCE_METERS:-300}
+      CITY_MAPPING_AMBIGUITY_METERS: ${CITY_MAPPING_AMBIGUITY_METERS:-50}
       BASELINE_INPUT_URI: ${BASELINE_INPUT_URI}
       BASELINE_OUTPUT_URI: ${BASELINE_OUTPUT_URI}
       BASELINE_WINDOW_DAYS: ${BASELINE_WINDOW_DAYS:-28}
@@ -763,6 +1012,7 @@ services:
       SPARK_CORES_MAX: ${BATCH_CORES_MAX:-2}
     volumes:
       - ./spark/conf:/opt/spark/conf:ro
+      - ../backend/transit-master:/opt/ddubi/transit-master:ro
       - ../sparkjobs:/opt/ddubi/sparkjobs
       - spark-checkpoints:/opt/ddubi/checkpoints
       - spark-events:/opt/ddubi/spark-events
@@ -786,7 +1036,7 @@ services:
       TZ: ${TZ:-Asia/Seoul}
       APP_ENV: ${APP_ENV:-local}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-      ARCHIVE_TOPICS: ${ARCHIVE_TOPICS:-transport.raw,city.raw,source.poll-status}   # topics.yaml 의 archive: true 토픽
+      ARCHIVE_TOPICS: ${ARCHIVE_TOPICS:-transport.raw,city.raw,source.poll-status,segment.status}   # topics.yaml 의 archive: true 토픽
       ARCHIVE_LOCAL_DIR: ${ARCHIVE_LOCAL_DIR}
       ARCHIVE_URI: ${ARCHIVE_URI}
       ARCHIVE_HDFS_USER: ${ARCHIVE_HDFS_USER:-hadoop}
@@ -978,7 +1228,8 @@ services:
     environment:
       TZ: ${TZ:-Asia/Seoul}
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      # 필수 변수다. 관리자 비밀번호가 비어 있거나 기본값으로 뜨는 일을 막는다(2026-09-18).
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?.env 에 GRAFANA_ADMIN_PASSWORD 를 설정하세요}"
       GF_USERS_ALLOW_SIGN_UP: "false"
       # 알림 수신처(Mattermost 수신 웹훅, Slack 호환). monitoring/grafana/alerting/contact-points.yaml 이 ${GF_ALERT_WEBHOOK_URL} 로 읽는다.
       # 값은 서버 .env 에만. 비어 있으면(로컬) 무해한 자리표시 주소로 두어 Grafana 기동이 막히지 않게 한다

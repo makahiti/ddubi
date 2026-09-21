@@ -1,4 +1,5 @@
 """Optional Silver isolation and required Redis lifecycle, without Spark."""
+
 import sys
 import unittest
 from pathlib import Path
@@ -36,7 +37,10 @@ class WeatherRuntimeTests(unittest.TestCase):
         self.assertIsNone(silver_configuration({"WEATHER_REQUIRE_SILVER": "false"}))
 
     def test_target_and_invalid_uri(self):
-        self.assertEqual(silver_configuration({"SILVER_OUTPUT_URI": "hdfs://hdfs-namenode:9000/ddubi/silver/"}), "hdfs://hdfs-namenode:9000/ddubi/silver/weather")
+        self.assertEqual(
+            silver_configuration({"SILVER_OUTPUT_URI": "hdfs://hdfs-namenode:9000/ddubi/silver/"}),
+            "hdfs://hdfs-namenode:9000/ddubi/silver/weather",
+        )
         for value in ("/ddubi/silver", "hdfs:///ddubi/silver", "https://example.com/a", "hdfs://host/x?bad=true"):
             with self.assertLogs("common.weather_runtime", "ERROR"):
                 self.assertIsNone(silver_configuration({"SILVER_OUTPUT_URI": value}))
@@ -80,7 +84,9 @@ class WeatherRuntimeTests(unittest.TestCase):
         with self.assertLogs("common.weather_runtime", "ERROR") as logs:
             with self.assertRaisesRegex(RuntimeError, "Redis stream stopped"):
                 supervise(lambda: redis, lambda: silver)
-        self.assertTrue(any("Could not inspect Weather Silver stream; Redis remains active" in line for line in logs.output))
+        self.assertTrue(
+            any("Could not inspect Weather Silver stream; Redis remains active" in line for line in logs.output)
+        )
         self.assertEqual(redis.awaitTermination.call_count, 3)
 
     def test_redis_start_failure_does_not_start_silver(self):

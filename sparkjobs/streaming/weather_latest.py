@@ -13,8 +13,6 @@ import logging
 import os
 import sys
 
-from pyspark.sql import DataFrame, SparkSession, Window
-from pyspark.sql import functions as F
 from common.kafka_source import read_events_stream
 from common.redis_sink import (
     COLLECTED_TIME_COL,
@@ -27,11 +25,13 @@ from common.redis_sink import (
 from common.settings import Settings
 from common.weather_normalizer import FEATURE_COLUMNS, FEATURE_VERSION, normalize_weather, to_weather_silver_stream
 from common.weather_runtime import silver_configuration, supervise
+from pyspark.sql import DataFrame, SparkSession, Window
+from pyspark.sql import functions as F
 
 # 실험(부하 시험)용 인스턴스는 환경변수로 토픽·잡 이름·키 접두사를 바꿔 띄운다.
 # 기본값은 운영 잡(city.raw -> weather:latest) 과 같다.
-JOB_NAME = os.environ.get("SPARK_JOB_NAME", "weather_latest")          # 체크포인트 경로·쿼리 이름
-TOPIC = os.environ.get("SPARK_JOB_TOPIC", "city.raw")                    # 읽을 토픽 (실험: city.replay)
+JOB_NAME = os.environ.get("SPARK_JOB_NAME", "weather_latest")  # 체크포인트 경로·쿼리 이름
+TOPIC = os.environ.get("SPARK_JOB_TOPIC", "city.raw")  # 읽을 토픽 (실험: city.replay)
 EVENT_TYPE = "weather.observation"
 REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "weather:latest")  # 실험: weather:replay (운영 키 보호)
 TTL_SECONDS = 7200  # redis-keys.yaml weatherLatest.ttlSeconds
@@ -64,11 +64,20 @@ def to_redis_rows(df: DataFrame) -> DataFrame:
         F.concat_ws(":", F.lit(REDIS_KEY_PREFIX), F.col("nx"), F.col("ny")).alias(KEY_COL),
         F.to_json(
             F.struct(
-                "districts", "nx", "ny", "baseDate", "baseTime", "observations",
-                F.col("observedAt").alias("occurredAt"), "collectedAt", "validUntil",
+                "districts",
+                "nx",
+                "ny",
+                "baseDate",
+                "baseTime",
+                "observations",
+                F.col("observedAt").alias("occurredAt"),
+                "collectedAt",
+                "validUntil",
                 F.lit(FEATURE_VERSION).alias("featureVersion"),
                 F.struct(*(F.col(name) for name in FEATURE_COLUMNS)).alias("features"),
-                "missingFields", "eventId", "source",
+                "missingFields",
+                "eventId",
+                "source",
             )
         ).alias(VALUE_COL),
         F.lit(TTL_SECONDS).cast("int").alias(TTL_COL),
@@ -109,15 +118,19 @@ def main() -> int:
 
     def start_redis():
         query = (
-            normalized
-            .writeStream.foreachBatch(process_batch)
+            normalized.writeStream.foreachBatch(process_batch)
             .option("checkpointLocation", settings.checkpoint_for(JOB_NAME))
             .trigger(processingTime=TRIGGER)
             .queryName(JOB_NAME)
             .start()
         )
-        log.info("started topic=%s checkpoint=%s redis=%s:%s", TOPIC,
-                 settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port)
+        log.info(
+            "started topic=%s checkpoint=%s redis=%s:%s",
+            TOPIC,
+            settings.checkpoint_for(JOB_NAME),
+            settings.redis_host,
+            settings.redis_port,
+        )
         return query
 
     start_silver_query = None
@@ -135,15 +148,28 @@ def main() -> int:
                 .queryName(silver_job_name)
                 .start(silver_target)
             )
-            log.info("silver stream started output=%s trigger=%s checkpoint=%s watermark=%s",
-                     silver_target, SILVER_TRIGGER, settings.checkpoint_for(silver_job_name), SILVER_WATERMARK)
+            log.info(
+                "silver stream started output=%s trigger=%s checkpoint=%s watermark=%s",
+                silver_target,
+                SILVER_TRIGGER,
+                settings.checkpoint_for(silver_job_name),
+                SILVER_WATERMARK,
+            )
             return query
+
         start_silver_query = start_silver
     else:
         log.warning("SILVER_OUTPUT_URI is empty; HDFS Weather Silver streaming is disabled")
 
-    log.info("starting topic=%s checkpoint=%s redis=%s:%s silver=%s startingOffsets=%s (only for new checkpoints; archive is not consumed)",
-             TOPIC, settings.checkpoint_for(JOB_NAME), settings.redis_host, settings.redis_port, silver_target, settings.starting_offsets)
+    log.info(
+        "starting topic=%s checkpoint=%s redis=%s:%s silver=%s startingOffsets=%s (only for new checkpoints; archive is not consumed)",
+        TOPIC,
+        settings.checkpoint_for(JOB_NAME),
+        settings.redis_host,
+        settings.redis_port,
+        silver_target,
+        settings.starting_offsets,
+    )
     try:
         supervise(start_redis, start_silver_query)
     finally:

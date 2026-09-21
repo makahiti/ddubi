@@ -18,7 +18,6 @@ from sources.bus_location import (  # noqa: E402
     save_json,
 )
 
-
 SAMPLE_JSON = {
     "msgHeader": {"headerCd": "0", "headerMsg": "정상적으로 처리되었습니다."},
     "msgBody": {

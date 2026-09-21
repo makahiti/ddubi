@@ -77,6 +77,15 @@ public class User extends BaseTimeEntity {
         return historyConsentedAt != null;
     }
 
+    /**
+     * 이메일 변경 (AUTH-009). 소유 확인과 중복 검사는 {@code AuthService} 가 먼저 한다.
+     *
+     * <p>이메일은 계정 통합 키이자 로컬 로그인 아이디다. 바꾸면 다음 로그인부터 새 주소를 쓴다.
+     */
+    public void changeEmail(String email) {
+        this.email = email;
+    }
+
     public void changeNickname(String nickname) {
         this.nickname = nickname;
     }

@@ -25,21 +25,22 @@ import requests
 
 log = logging.getLogger("baseline_upload")
 
-CHUNK_MAX = 5000          # 계약: 한 요청당 rows 최대 5000개
-SHRINK_REASON_MAX = 100   # 계약: shrinkReason maxLength (backend 의 pipeline_config.config_value 가 VARCHAR(100))
+CHUNK_MAX = 5000  # 계약: 한 요청당 rows 최대 5000개
+SHRINK_REASON_MAX = 100  # 계약: shrinkReason maxLength (backend 의 pipeline_config.config_value 가 VARCHAR(100))
 RETRIABLE_STATUS = {500, 502, 503, 504}
 
 
 class UploadError(RuntimeError):
     """업로드/활성화 실패. 서버가 준 코드·requestId 를 보존해 로그 추적에 쓴다."""
 
-    def __init__(self, message: str, status: Optional[int] = None,
-                 code: Optional[str] = None, request_id: Optional[str] = None):
+    def __init__(
+        self, message: str, status: Optional[int] = None, code: Optional[str] = None, request_id: Optional[str] = None
+    ):
         detail = message
         if status is not None:
-            detail = "HTTP {}: {}".format(status, detail)
+            detail = f"HTTP {status}: {detail}"
         if request_id:
-            detail = "{} (requestId={})".format(detail, request_id)
+            detail = f"{detail} (requestId={request_id})"
         super().__init__(detail)
         self.status = status
         self.code = code
@@ -47,16 +48,23 @@ class UploadError(RuntimeError):
 
 
 class BaselineUploadClient:
-    def __init__(self, base_url: str, api_key: str, baseline_type: str = "segment",
-                 chunk_size: int = CHUNK_MAX, timeout_seconds: float = 30.0,
-                 max_attempts: int = 3, backoff_seconds: float = 2.0,
-                 session: Optional[requests.Session] = None):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        baseline_type: str = "segment",
+        chunk_size: int = CHUNK_MAX,
+        timeout_seconds: float = 30.0,
+        max_attempts: int = 3,
+        backoff_seconds: float = 2.0,
+        session: Optional[requests.Session] = None,
+    ):
         if not base_url:
             raise ValueError("base_url 이 비어 있습니다 (INTERNAL_API_BASE_URL)")
         if not api_key:
             raise ValueError("api_key 가 비어 있습니다 (INTERNAL_API_KEY)")
         if not (1 <= chunk_size <= CHUNK_MAX):
-            raise ValueError("chunk_size 는 1~{} 사이여야 합니다".format(CHUNK_MAX))
+            raise ValueError(f"chunk_size 는 1~{CHUNK_MAX} 사이여야 합니다")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.baseline_type = baseline_type
@@ -68,31 +76,40 @@ class BaselineUploadClient:
 
     # -- 공개 API ------------------------------------------------------------
 
-    def upload_and_activate(self, data_version: str, rows: Iterable[Dict[str, Any]],
-                            allow_shrink: bool = False, shrink_reason: Optional[str] = None) -> Dict[str, Any]:
+    def upload_and_activate(
+        self,
+        data_version: str,
+        rows: Iterable[Dict[str, Any]],
+        allow_shrink: bool = False,
+        shrink_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """rows 전체를 업로드하고 활성화까지 마친다. 성공 시 activate 응답 data 를 돌려준다."""
         total = self.upload_rows(data_version, rows)
         result = self.activate(data_version, total, allow_shrink=allow_shrink, shrink_reason=shrink_reason)
-        log.info("baseline activated version=%s rows=%d previous=%s purged=%s",
-                 data_version, total, (result or {}).get("previousVersion"), (result or {}).get("purgedVersions"))
+        log.info(
+            "baseline activated version=%s rows=%d previous=%s purged=%s",
+            data_version,
+            total,
+            (result or {}).get("previousVersion"),
+            (result or {}).get("purgedVersions"),
+        )
         return result
 
     def upload_rows(self, data_version: str, rows: Iterable[Dict[str, Any]]) -> int:
         """rows 를 청크로 나눠 업로드한다. 성공적으로 보낸 총 행 수를 돌려준다."""
         total = 0
         for i, chunk in enumerate(_chunks(rows, self.chunk_size)):
-            data = self._post("/internal/baselines/{}/versions/{}/rows".format(
-                self.baseline_type, data_version), {"rows": chunk})
+            data = self._post(f"/internal/baselines/{self.baseline_type}/versions/{data_version}/rows", {"rows": chunk})
             accepted = (data or {}).get("accepted", len(chunk))
             total += len(chunk)
-            log.info("chunk %d uploaded rows=%d accepted=%s total=%d",
-                     i + 1, len(chunk), accepted, total)
+            log.info("chunk %d uploaded rows=%d accepted=%s total=%d", i + 1, len(chunk), accepted, total)
         if total == 0:
             raise UploadError("업로드할 행이 없습니다 (rows 가 비어 있음)")
         return total
 
-    def activate(self, data_version: str, total_rows: int,
-                 allow_shrink: bool = False, shrink_reason: Optional[str] = None) -> Dict[str, Any]:
+    def activate(
+        self, data_version: str, total_rows: int, allow_shrink: bool = False, shrink_reason: Optional[str] = None
+    ) -> Dict[str, Any]:
         """업로드 완료를 선언한다. 서버가 행 수 대조·급감 검사 후 활성 버전을 전환한다.
 
         allow_shrink=True 는 "직전 활성 버전 대비 절반 미만" 검사만 건너뛴다(정상 축소를 운영자가 허용).
@@ -104,13 +121,13 @@ class BaselineUploadClient:
             if not reason:
                 raise ValueError("allow_shrink=True 이면 shrink_reason 이 필요합니다 (BASELINE_SHRINK_REASON)")
             if len(reason) > SHRINK_REASON_MAX:
-                raise ValueError("shrink_reason 은 {}자 이내여야 합니다 (지금 {}자). 짧은 사유 + 이슈 번호로 쓰고 긴 근거는 이슈에 둡니다".format(
-                    SHRINK_REASON_MAX, len(reason)))
+                raise ValueError(
+                    f"shrink_reason 은 {SHRINK_REASON_MAX}자 이내여야 합니다 (지금 {len(reason)}자). 짧은 사유 + 이슈 번호로 쓰고 긴 근거는 이슈에 둡니다"
+                )
             payload["allowShrink"] = True
             payload["shrinkReason"] = reason
             log.warning("activate with allowShrink version=%s reason=%s", data_version, payload["shrinkReason"])
-        return self._post("/internal/baselines/{}/versions/{}/activate".format(
-            self.baseline_type, data_version), payload) or {}
+        return self._post(f"/internal/baselines/{self.baseline_type}/versions/{data_version}/activate", payload) or {}
 
     # -- 내부 ------------------------------------------------------------------
 
@@ -125,12 +142,11 @@ class BaselineUploadClient:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 resp = self.session.post(
-                    url, json=payload, timeout=self.timeout_seconds,
-                    headers={"X-DDUBI-API-KEY": self.api_key})
+                    url, json=payload, timeout=self.timeout_seconds, headers={"X-DDUBI-API-KEY": self.api_key}
+                )
             except requests.RequestException as exc:  # 연결 실패·타임아웃
-                last_error = UploadError("요청 실패: {}".format(exc.__class__.__name__))
-                log.warning("attempt %d/%d failed (%s), retrying",
-                            attempt, self.max_attempts, exc.__class__.__name__)
+                last_error = UploadError(f"요청 실패: {exc.__class__.__name__}")
+                log.warning("attempt %d/%d failed (%s), retrying", attempt, self.max_attempts, exc.__class__.__name__)
                 time.sleep(self.backoff_seconds * attempt)
                 continue
 
@@ -140,12 +156,14 @@ class BaselineUploadClient:
 
             error = body.get("error") or {}
             upload_error = UploadError(
-                error.get("message", resp.text[:200]), status=resp.status_code,
-                code=error.get("code"), request_id=body.get("requestId"))
+                error.get("message", resp.text[:200]),
+                status=resp.status_code,
+                code=error.get("code"),
+                request_id=body.get("requestId"),
+            )
             if resp.status_code in RETRIABLE_STATUS:
                 last_error = upload_error
-                log.warning("attempt %d/%d got HTTP %d, retrying",
-                            attempt, self.max_attempts, resp.status_code)
+                log.warning("attempt %d/%d got HTTP %d, retrying", attempt, self.max_attempts, resp.status_code)
                 time.sleep(self.backoff_seconds * attempt)
                 continue
             raise upload_error
@@ -164,7 +182,7 @@ def shrink_options_from_env(environ: Optional[Dict[str, str]] = None) -> Dict[st
     return {"allow_shrink": flag, "shrink_reason": (env.get("BASELINE_SHRINK_REASON") or "").strip() or None}
 
 
-def _parse_wrapper(resp: "requests.Response") -> Dict[str, Any]:
+def _parse_wrapper(resp: requests.Response) -> Dict[str, Any]:
     try:
         body = resp.json()
         if isinstance(body, dict):

@@ -1,5 +1,8 @@
 package com.ssafy.ddubi.domain.schedule.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.ssafy.ddubi.domain.schedule.dto.request.LocationRequest;
 import com.ssafy.ddubi.domain.schedule.dto.request.ScheduleCreateRequest;
 import com.ssafy.ddubi.domain.schedule.dto.request.ScheduleUpdateRequest;
@@ -11,21 +14,15 @@ import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-/**
- * 일정 CRUD (SCH-001~005) — 도메인 규칙 11(soft 취소)과 12(낙관적 잠금)를 고정한다.
- */
+/** 일정 CRUD (SCH-001~005) — 도메인 규칙 11(soft 취소)과 12(낙관적 잠금)를 고정한다. */
 class ScheduleIntegrationTest extends IntegrationTestSupport {
 
     private static final LocationRequest GANGNAM =
@@ -34,13 +31,12 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
             new LocationRequest("광화문", new BigDecimal("37.5716229"), new BigDecimal("126.9767879"));
     private static final LocationRequest BUSAN =
             new LocationRequest("해운대", new BigDecimal("35.1587"), new BigDecimal("129.1604"));
+    private static final LocationRequest DAEJEON =
+            new LocationRequest("대전역", new BigDecimal("36.3321"), new BigDecimal("127.4340"));
 
-    @Autowired
-    private ScheduleService scheduleService;
-    @Autowired
-    private ScheduleRepository scheduleRepository;
-    @Autowired
-    private UserRepository userRepository;
+    @Autowired private ScheduleService scheduleService;
+    @Autowired private ScheduleRepository scheduleRepository;
+    @Autowired private UserRepository userRepository;
 
     private Long ownerId;
     private Long strangerId;
@@ -48,13 +44,20 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
 
     @BeforeEach
     void setUp() {
-        ownerId = userRepository.save(User.builder().email("owner@ddubi.com").nickname("주인").build()).getId();
-        strangerId = userRepository.save(User.builder().email("other@ddubi.com").nickname("남").build()).getId();
+        ownerId =
+                userRepository
+                        .save(User.builder().email("owner@ddubi.com").nickname("주인").build())
+                        .getId();
+        strangerId =
+                userRepository
+                        .save(User.builder().email("other@ddubi.com").nickname("남").build())
+                        .getId();
         tomorrow = LocalDateTime.now().plusDays(1).withNano(0);
     }
 
     private ScheduleResponse createDefault() {
-        return scheduleService.create(ownerId,
+        return scheduleService.create(
+                ownerId,
                 new ScheduleCreateRequest("회의", GANGNAM, GWANGHWAMUN, tomorrow, null, null));
     }
 
@@ -73,19 +76,40 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("과거 도착 시각은 400 — 출발 시각 역산이 불가능하다")
     void rejectsPastArriveBy() {
-        assertThatThrownBy(() -> scheduleService.create(ownerId,
-                new ScheduleCreateRequest("과거", GANGNAM, GWANGHWAMUN,
-                        LocalDateTime.now().minusHours(1), null, null)))
+        assertThatThrownBy(
+                        () ->
+                                scheduleService.create(
+                                        ownerId,
+                                        new ScheduleCreateRequest(
+                                                "과거",
+                                                GANGNAM,
+                                                GWANGHWAMUN,
+                                                LocalDateTime.now().minusHours(1),
+                                                null,
+                                                null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
                 .isEqualTo(ErrorCode.INVALID_REQUEST);
     }
 
     @Test
-    @DisplayName("서울 밖 출발지·목적지는 422")
-    void rejectsOutOfSeoul() {
-        assertThatThrownBy(() -> scheduleService.create(ownerId,
-                new ScheduleCreateRequest("부산행", GANGNAM, BUSAN, tomorrow, null, null)))
+    @DisplayName("부산 목적지는 허용하고 미지원 지역은 422로 거절한다")
+    void acceptsBusanAndRejectsUnsupportedArea() {
+        assertThat(
+                        scheduleService
+                                .create(
+                                        ownerId,
+                                        new ScheduleCreateRequest(
+                                                "부산행", GANGNAM, BUSAN, tomorrow, null, null))
+                                .id())
+                .isNotNull();
+
+        assertThatThrownBy(
+                        () ->
+                                scheduleService.create(
+                                        ownerId,
+                                        new ScheduleCreateRequest(
+                                                "대전행", GANGNAM, DAEJEON, tomorrow, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
                 .isEqualTo(ErrorCode.OUT_OF_SERVICE_AREA);
@@ -175,14 +199,27 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
     @DisplayName("목록은 기간 필터·상태 필터가 걸린다 (SCH-001)")
     void listFilters() {
         createDefault();
-        ScheduleResponse canceled = scheduleService.create(ownerId,
-                new ScheduleCreateRequest("취소될 일정", GANGNAM, GWANGHWAMUN, tomorrow.plusHours(2), null, null));
+        ScheduleResponse canceled =
+                scheduleService.create(
+                        ownerId,
+                        new ScheduleCreateRequest(
+                                "취소될 일정", GANGNAM, GWANGHWAMUN, tomorrow.plusHours(2), null, null));
         scheduleService.cancel(ownerId, canceled.id());
 
-        var all = scheduleService.list(ownerId,
-                tomorrow.minusHours(1), tomorrow.plusHours(3), null, PageRequest.of(0, 20));
-        var upcomingOnly = scheduleService.list(ownerId,
-                tomorrow.minusHours(1), tomorrow.plusHours(3), ScheduleStatus.UPCOMING, PageRequest.of(0, 20));
+        var all =
+                scheduleService.list(
+                        ownerId,
+                        tomorrow.minusHours(1),
+                        tomorrow.plusHours(3),
+                        null,
+                        PageRequest.of(0, 20));
+        var upcomingOnly =
+                scheduleService.list(
+                        ownerId,
+                        tomorrow.minusHours(1),
+                        tomorrow.plusHours(3),
+                        ScheduleStatus.UPCOMING,
+                        PageRequest.of(0, 20));
 
         assertThat(all.totalElements()).isEqualTo(2);
         assertThat(upcomingOnly.totalElements()).isEqualTo(1);

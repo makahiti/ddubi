@@ -4,4 +4,12 @@
     <name>fs.defaultFS</name>
     <value>hdfs://hdfs-namenode:9000</value>
   </property>
+  <!-- 휴지통 보관 시간(분). hdfs dfs -rm 으로 지운 파일이 바로 사라지지 않고 24시간 동안 .Trash 에
+       머물러, 손으로 잘못 지운 것을 되살릴 수 있다. WebHDFS(아카이버)와 Spark 가 프로그램으로 지우는
+       것은 휴지통을 거치지 않으므로, 이 설정은 사람이 shell 로 지울 때의 실수 방지용이다.
+       값을 바꾸면 네임노드 컨테이너를 다시 만들어야 적용된다(단일 파일 마운트). 2026-09-18 도입. -->
+  <property>
+    <name>fs.trash.interval</name>
+    <value>1440</value>
+  </property>
 </configuration>

@@ -1,7 +1,8 @@
 # 수도권 데이터·서비스 연결 보강 (2026-09-11)
 
-현재 운영 수집 대상·주기와 infra/compose/CI 파일은 변경하지 않는다. 새 수집기와 Spark 잡은
-명시적으로 실행할 때만 동작한다. 검증되지 않은 파일을 운영 대응표로 승격하지 않는다.
+현재 운영 수집 대상·주기는 변경하지 않는다. 새 구간 실측/판정 Spark 잡은
+`recommendation-data` Compose 프로필을 명시했을 때만 동작한다. 검증되지 않은 파일을 운영
+대응표로 승격하지 않는다. 최신 활성화 조건은 [추천 데이터 준비 상태](recommendation-data-readiness.md)를 따른다.
 
 ## 구현 경계
 
@@ -93,9 +94,9 @@ Backend 설정: `ddubi.road-impact.path`, `ddubi.road-impact.sha256`,
 시점별 실시간 관측 이력이 아니다. TOPIS 과거 속도/승하차 자료는 존재하나 사건 발표·수집시각 및
 검증된 영향 구간 연결을 대신하지 못한다. 현재 자료로 새 환경 모델을 실제 학습했다고 표시하지 않는다.
 
-Spark 운영 컨테이너의 임시 crosswalk OFF 해제와 OOM/lag 검증은 아직 하지 않았다.
-기존 cache/count 수정은 유지하며 운영 Spark 호스트/배포 경로는 열린 ML Jupyter 서버와 구별해야 한다.
-기존 문서 `bus-crosswalk-cache-validation.md`의 로컬 결과를 운영 성능으로 보고하지 않는다.
+Spark Compose의 임시 crosswalk OFF는 검증 artifact/SHA 기본값으로 해제했다. 기존 cache/count
+수정은 유지한다. 실제 운영 호스트에서 OOM/lag 검증은 아직 필요하며 로컬
+`bus-crosswalk-cache-validation.md` 결과를 운영 성능으로 보고하지 않는다.
 
 ## 2026-09-13 후속 검증
 

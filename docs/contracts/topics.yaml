@@ -53,16 +53,16 @@ topics:
     archive: true
 
   segment.status:
-    description: Spark가 계산한 구간(segment_id)별 최신 상태. 최신값만 의미 있어 짧게 보존. Redis segment:status:{segmentId} 와 같은 값
+    description: Spark가 계산한 구간(segment_id)별 최신 상태와 판정 이력. Redis segment:status:{segmentId} 와 같은 값이며 HDFS 아카이브로 재현한다.
     partitions: 3
     replicationFactor: 1
     retentionHours: 24
     retentionBytes: 1073741824
-    schema: events/segment-status.schema.json   # 초안. Spark·Backend 담당 검토 필요
+    schema: events/segment-status.schema.json
     key: segmentId
     producer: spark
-    consumers: [backend]
-    archive: false
+    consumers: [backend, archiver]
+    archive: true
 
   # ⚠️ 미구현 — 발행자도 소비자도 없다 (2026-09-09 확인, 백엔드)
   #

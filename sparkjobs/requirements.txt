@@ -3,3 +3,4 @@
 redis>=5.0,<6
 pyarrow>=17,<19
 requests>=2.31,<3   # 기준선 업로드 클라이언트(common/baseline_upload.py)
+pyproj>=3.5,<3.6    # Python 3.8 호환: TOPIS GRS80TM(EPSG:5181) → WGS84 좌표 변환

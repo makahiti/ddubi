@@ -43,11 +43,13 @@ for c in spark-streaming-weather spark-streaming-realtime; do
   e=$(docker logs "$c" --since 1h 2>&1 | grep -cE 'ERROR|Exception' || true)
   [ "$e" -eq 0 ] && r PASS Spark "$c 1시간 오류 로그" "0건" || r WARN Spark "$c 1시간 오류 로그" "${e}건"
 done
-# 잡이 켜진 뒤 sparkjobs 코드가 바뀌었으면 옛 코드로 돌고 있는 것이다(9/15 Redis TTL 사고). 브리핑도 같은 것을 본다.
-commit_ts=$(cd ~/S15P21E202 && git log -1 --format=%ct -- sparkjobs)
+# 잡이 켜진 뒤 Spark 실행 코드가 바뀌었으면 옛 코드로 돌고 있는 것이다(9/15 Redis TTL 사고). 브리핑도 같은 것을 본다.
+# 비교 대상은 돌고 있는 잡이 실제로 읽는 폴더(streaming·common·batch)와 submit.sh·requirements.txt 만이다.
+# tools·tests·examples 는 잡과 무관하므로 빼는데, 9/17 에 tools 파일 하나가 바뀐 것을 재시작 필요로 잘못 잡은 뒤 좁혔다.
+commit_ts=$(cd ~/S15P21E202 && git log -1 --format=%ct -- sparkjobs/streaming sparkjobs/common sparkjobs/batch sparkjobs/submit.sh sparkjobs/requirements.txt)
 for c in spark-streaming-weather spark-streaming-realtime; do
   st=$(date -d "$(docker inspect $c --format '{{.State.StartedAt}}')" +%s)
-  [ "$st" -ge "$commit_ts" ] && r PASS Spark "$c 코드 최신" "시작 $(date -d @$st '+%m-%d %H:%M')" || r WARN Spark "$c 재시작 필요" "시작 $(date -d @$st '+%m-%d %H:%M') < sparkjobs 커밋 $(date -d @$commit_ts '+%m-%d %H:%M')"
+  [ "$st" -ge "$commit_ts" ] && r PASS Spark "$c 코드 최신" "시작 $(date -d @$st '+%m-%d %H:%M')" || r WARN Spark "$c 재시작 필요" "시작 $(date -d @$st '+%m-%d %H:%M') < 실행 코드 커밋 $(date -d @$commit_ts '+%m-%d %H:%M')"
 done
 
 # 4. 아카이버 → HDFS. 가장 새 Parquet 이 2시간 안에 생겨야 한다(1시간 단위 저장).

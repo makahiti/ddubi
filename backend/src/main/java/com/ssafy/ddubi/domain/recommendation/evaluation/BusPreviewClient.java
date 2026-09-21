@@ -127,6 +127,9 @@ public class BusPreviewClient {
         return out;
     }
 
+    /** 평가 세션이 HTTP 요청 단위로 예산을 확인하도록 실제 청크 상한을 공유한다. */
+    public int maxBatchSegments() { return maxBatchSegments; }
+
     private Map<Input, Estimate> sendChunk(List<Input> chunk, Contract contract) {
         var out = new LinkedHashMap<Input, Estimate>();
         String requestId = UUID.randomUUID().toString();

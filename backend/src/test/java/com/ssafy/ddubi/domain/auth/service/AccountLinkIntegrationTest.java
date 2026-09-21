@@ -386,6 +386,45 @@ class AccountLinkIntegrationTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("네이버는 인가 코드로도 연결된다 — 앱이 웹 로그인이라 토큰이 없다")
+    void linksSocialWithAuthorizationCode() {
+        Long userId = givenGoogleOnlyUser();
+        given(naverOAuthClient.provider()).willReturn(AuthProvider.NAVER);
+        given(naverOAuthClient.fetchUserInfo(any()))
+                .willReturn(new OAuthUserInfo("naver-9", EMAIL, true, "네이버"));
+
+        var response = authService.linkSocialToCurrentUser(userId,
+                new SocialLinkRequest(AuthProvider.NAVER, null, null,
+                        "naver-code", "https://app.ddubi/callback", "state-1"));
+
+        assertThat(response.providers())
+                .containsExactlyInAnyOrder(AuthProvider.GOOGLE, AuthProvider.NAVER);
+    }
+
+    @Test
+    @DisplayName("인가 코드만 있고 redirectUri 가 없으면 400 — 제공자가 발급 때 쓴 값과 대조한다")
+    void authorizationCodeNeedsRedirectUri() {
+        Long userId = givenGoogleOnlyUser();
+
+        assertThatThrownBy(() -> authService.linkSocialToCurrentUser(userId,
+                new SocialLinkRequest(AuthProvider.NAVER, null, null,
+                        "naver-code", null, "state-1")))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
+    @DisplayName("셋 다 비어 있으면 400 이다")
+    void linkNeedsOneCredential() {
+        Long userId = givenGoogleOnlyUser();
+
+        assertThatThrownBy(() -> authService.linkSocialToCurrentUser(userId,
+                new SocialLinkRequest(AuthProvider.NAVER, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
     @DisplayName("같은 소셜을 다시 연결해도 오류가 아니다 — 이미 원하는 상태다")
     void relinkingSameSocialIsIdempotent() {
         Long userId = givenGoogleOnlyUser();

@@ -56,5 +56,14 @@ class AuditTest(unittest.TestCase):
         self.write(7,[{'표준링크ID':'l1','시작노드ID':'wrong','종료노드ID':'n2','링크ID':'t1'}])
         self.assertEqual(audit(self.root,self.bus)['counts']['TOPIS_PATH_PARTIAL'],1)
 
+    def test_blank_topis_link_id_is_not_a_mapping(self):
+        self.write(7,[{'표준링크ID':'l1','시작노드ID':'n1','종료노드ID':'n2','링크ID':''},
+                      {'표준링크ID':'l2','시작노드ID':'n2','종료노드ID':'n3','링크ID':'t2'}])
+        result = audit(self.root,self.bus)
+        candidate = json.loads((self.root/'mapping-candidates.jsonl').read_text(encoding='utf-8'))
+        self.assertEqual(result['counts']['TOPIS_PATH_PARTIAL'],1)
+        self.assertEqual(candidate['topisServiceLinkIds'],['t2'])
+        self.assertEqual(candidate['unmappedBisLinkIds'],['l1'])
+
 
 if __name__=='__main__':unittest.main()

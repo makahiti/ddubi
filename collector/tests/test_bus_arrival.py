@@ -15,7 +15,6 @@ from sources.bus_arrival import (  # noqa: E402
     load_bus_route_ids,
 )
 
-
 SAMPLE_JSON = {
     "msgHeader": {"headerCd": "0", "headerMsg": "success"},
     "msgBody": {

@@ -9,13 +9,10 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from environment_features import VERSION, NUMERIC_FIELDS, EVENT_TYPES, instant
 
-FEATURES = (
-    ["segmentCode", "dow", "hour", "minute"]
-    + list(NUMERIC_FIELDS)
-    + [k + "Count" for k in EVENT_TYPES]
-)
+from environment_features import EVENT_TYPES, NUMERIC_FIELDS, VERSION, instant
+
+FEATURES = ["segmentCode", "dow", "hour", "minute"] + list(NUMERIC_FIELDS) + [k + "Count" for k in EVENT_TYPES]
 
 
 def vector(row, categories):
@@ -27,8 +24,7 @@ def vector(row, categories):
         raise ValueError("unseen mapped segment")
     at = instant(row["passageAt"])
     return [categories[key], (at.weekday() + 1) % 7 + 1, at.hour, at.minute] + [
-        float("nan") if row["features"].get(k) is None else float(row["features"][k])
-        for k in FEATURES[4:]
+        float("nan") if row["features"].get(k) is None else float(row["features"][k]) for k in FEATURES[4:]
     ]
 
 
@@ -40,10 +36,7 @@ class EnvironmentModel:
 
         root = Path(path)
         self.manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        if (
-            self.manifest.get("featureVersion") != VERSION
-            or self.manifest.get("features") != FEATURES
-        ):
+        if self.manifest.get("featureVersion") != VERSION or self.manifest.get("features") != FEATURES:
             raise ValueError("model feature contract mismatch")
         raw = (root / "model.txt").read_bytes()
         if hashlib.sha256(raw).hexdigest() != self.manifest["modelSha256"]:
@@ -58,9 +51,7 @@ class EnvironmentModel:
 
     def predict(self, prepared):
         """전체 결측 또는 모호한 이력은 수치 대신 unavailable로 반환한다. 결측 0 대체는 하지 않는다."""
-        if prepared["conflictingKinds"] or all(
-            prepared["features"].get(k) is None for k in FEATURES[4:]
-        ):
+        if prepared["conflictingKinds"] or all(prepared["features"].get(k) is None for k in FEATURES[4:]):
             return dict(
                 status="UNAVAILABLE",
                 reason="ENVIRONMENT_DATA_INSUFFICIENT",

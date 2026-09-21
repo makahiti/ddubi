@@ -1,6 +1,6 @@
+import sys
 import tempfile
 import unittest
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,9 +23,7 @@ class SubwayAlertTest(unittest.TestCase):
         }
         total, items = subway_alert._parse_response(payload)
         self.assertEqual(total, 2)
-        self.assertEqual(
-            [item["noftTtl"] for item in items], ["알림 1", "알림 2"]
-        )
+        self.assertEqual([item["noftTtl"] for item in items], ["알림 1", "알림 2"])
 
     def test_parse_wrapped_items_response(self) -> None:
         payload = {
@@ -49,9 +47,7 @@ class SubwayAlertTest(unittest.TestCase):
                 "row": [{"noftTtl": "최근 알림"}],
             }
         }
-        with patch.object(
-            subway_alert, "_request_json", return_value=payload
-        ) as request:
+        with patch.object(subway_alert, "_request_json", return_value=payload) as request:
             result = subway_alert.fetch_alerts("secret", page_size=100)
         request.assert_called_once_with("secret", 1, 100)
         self.assertEqual(result["requestCount"], 1)
@@ -72,12 +68,8 @@ class SubwayAlertTest(unittest.TestCase):
                 "row": [{"noftTtl": "3"}],
             }
         }
-        with patch.object(
-            subway_alert, "_request_json", side_effect=[first, second]
-        ) as request:
-            result = subway_alert.fetch_alerts(
-                "secret", page_size=2, fetch_all=True
-            )
+        with patch.object(subway_alert, "_request_json", side_effect=[first, second]) as request:
+            result = subway_alert.fetch_alerts("secret", page_size=2, fetch_all=True)
         self.assertEqual(request.call_args_list[0].args, ("secret", 1, 2))
         self.assertEqual(request.call_args_list[1].args, ("secret", 3, 4))
         self.assertEqual(result["receivedCount"], 3)

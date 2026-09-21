@@ -88,8 +88,16 @@ Windows sandbox의 임시 폴더 접근 문제가 있으면 프로젝트 `data/`
 
 - `ML_MAX_WAITING_REQUESTS=4`: 실행 1건 외에 FIFO 대기 4건, 범위 0~32.
 - `ML_QUEUE_WAIT_SECONDS=5`: 대기만의 제한시간(초), 범위 0~30. 초과하면 `MODEL_BUSY`.
-- `ML_REFERENCE_CACHE_MIB=256`: 검증된 참조 Arrow Table의 LRU 보관 상한, 범위 0~4096.
+- `ML_REFERENCE_CACHE_MIB=256`: 검증된 참조 Arrow/pandas의 공용 LRU 보관 상한, 범위 0~4096.
   처음 읽을 때 저장하며 큰 단일 파일은 보관하지 않는다. 0은 캐시 비활성화.
+  v12의 pandas 읽기는 변환 결과를 보관하고 요청마다 독립 복사본을 제공한다.
+  pandas 크기는 인덱스와 문자열을 포함한 `memory_usage(deep=True)`로 계산하므로
+  압축 Parquet 파일 크기보다 크다. 상한보다 큰 표는 여전히 요청마다 변환된다.
+  캐시 증설은 서버 RSS 여유와 동시 worker 수를 측정한 뒤 결정한다.
+  v12 월별 수요는 요청일의 두 달 전 월만 Arrow에서 선택해 pandas로 변환한다.
+  월 집합별로 캐시하며 공개일/결측 판단은 원본 특성 함수가 유지한다. 다른 월의
+  중복 키도 검사하므로 잘못된 참조를 부분 필터로 숨기지 않는다. 최초 읽기와 새 월의
+  캐시 미스에서는 전체 Arrow 읽기가 발생한다.
 - 대기 개수/시간을 0으로 두면 혼잡 시 즉시 503이다. 실행 중 연결 취소가 계산을 중단하지는 않는다.
 - 위 환경변수는 프로세스 시작 시 읽으며 `.env.example`은 자동 로드하지 않는다.
 - worker 1개로 시작한다. 캐시 상한은 모델·pandas 변환·임시 버퍼를 포함한 RSS 한도가 아니다.
@@ -106,7 +114,8 @@ Windows sandbox의 임시 폴더 접근 문제가 있으면 프로젝트 `data/`
 - 최대 배치·동시 부하·응답시간/메모리와 Backend timeout 합의
 - 승인된 `BusPredictionPort` HTTP 어댑터 및 내부 배포 주소 확정
 
-현재 단계는 로컬 수치 확인이다. Redis 보정·기준선 적재·Spring 추천 정책을 변경하지 않는다.
+기존 v12 예측은 로컬 수치 확인 단계이며 기준선 적재·Spring 추천 정책을 변경하지 않는다.
+Redis 최신 Feature 조립은 아래의 별도 opt-in API로만 제공한다.
 HTTP 계약: `docs/contracts/ml-serving-http.md`.
 
 ## 백엔드 전달 자료
@@ -125,3 +134,30 @@ Backend 매핑 대응표, 오류 JSON, 동시 호출/timeout과 기존 포트의
 ## 별도 환경 특성 전처리·학습·예측
 
 날씨·도로·사건의 point-in-time 전처리와 별도 모델 경계는 [환경 ML 계약](../docs/contracts/environment-ml.md)에 있다. `environment:prepare`와 `environment:predict`는 같은 전처리를 사용하며 v12 모델을 교체하지 않는다. 새 모델 미등록은 503이다.
+## Redis 최신 Feature 조립
+
+`ML_REDIS_LATEST_FEATURES_ENABLED=true`인 경우 다음 요청은 버스 구간의 활성 날씨·도로·도시
+대응표를 읽고 Redis 최신값을 조립한다. `ML_BUS_CROSSWALK_SHA256`과 대응표 메타데이터가
+다르면 예전 버스 마스터에 맞춘 값을 사용하지 않는다.
+
+현재시각 조립 결과는 표준 Key
+`ml:feature:bus-segment:{featureVersion}:{masterVersion}:{segmentId}`에 저장한다. 경로의 여러
+구간은 `POST /v1/bus/features:batch`로 요청하면 Redis `MGET` 한 번으로 읽는다. 과거 Replay나
+미래 `passageAt` 결과는 CURRENT Snapshot Key에 저장하지 않는다. 전체 계약과 상태 의미는
+[버스 구간 Snapshot 계약](../docs/contracts/bus-segment-feature-snapshot.md)을 따른다.
+
+```http
+POST /v1/bus/features:latest
+Content-Type: application/json
+
+{
+  "segmentId": "BUS:100100609:123456:123789",
+  "masterVersion": "metropolitan-bus-v6",
+  "asOf": "2026-09-18T16:10:00+09:00",
+  "passageAt": "2026-09-18T16:13:00+09:00"
+}
+```
+
+최신 키가 존재해도 `collectedAt`이 요청 이후이거나 `passageAt >= validUntil`이면 사용하지
+않는다. 미매핑·만료·결측은 0으로 만들지 않고 `missingFeatures`에 남긴다. 전체 TOPIS 대응표가
+승인되기 전에는 도로 Feature가 null이어도 날씨·도시·버스 Feature 조립은 계속된다.

@@ -24,10 +24,7 @@ if __package__:
 else:
     from subway_response import validated_rows
 
-API_URL_TEMPLATE = (
-    "http://swopenapi.seoul.go.kr/api/subway/"
-    "{api_key}/json/realtimePosition/0/1000/{subway_line}/"
-)
+API_URL_TEMPLATE = "http://swopenapi.seoul.go.kr/api/subway/{api_key}/json/realtimePosition/0/1000/{subway_line}/"
 COLLECTOR_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_PATH = COLLECTOR_DIR / ".env"
 DEFAULT_OUTPUT_PATH = COLLECTOR_DIR / "data" / "subway_location.json"
@@ -137,9 +134,7 @@ def fetch_subway_location(
             "response": data,
         }
     except httpx.HTTPError as exc:
-        raise SubwayLocationError(
-            f"서울 지하철 위치 API 연결에 실패했습니다: {type(exc).__name__}"
-        ) from exc
+        raise SubwayLocationError(f"서울 지하철 위치 API 연결에 실패했습니다: {type(exc).__name__}") from exc
     finally:
         if owns_client:
             http_client.close()
@@ -154,9 +149,7 @@ def fetch_all_subway_locations(
 ) -> dict[str, Any]:
     """공식 지원 호선을 순차 호출해 전체 실시간 열차 위치를 반환한다."""
     if requests_per_second <= 0 or requests_per_second > MAX_REQUESTS_PER_SECOND:
-        raise SubwayLocationError(
-            f"초당 요청 수는 1 이상 {MAX_REQUESTS_PER_SECOND} 이하여야 합니다"
-        )
+        raise SubwayLocationError(f"초당 요청 수는 1 이상 {MAX_REQUESTS_PER_SECOND} 이하여야 합니다")
 
     owns_client = client is None
     http_client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0))
@@ -178,9 +171,7 @@ def fetch_all_subway_locations(
         if owns_client:
             http_client.close()
 
-    empty_lines = [
-        line for line, result in line_results.items() if result["receivedCount"] == 0
-    ]
+    empty_lines = [line for line, result in line_results.items() if result["receivedCount"] == 0]
     return {
         "collectedAt": datetime.now(timezone.utc).isoformat(),
         "lineCount": len(line_results),
@@ -202,9 +193,7 @@ def save_json(data: dict[str, Any], output_path: Path) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="서울시 호선별 실시간 열차 위치정보를 JSON 파일로 저장"
-    )
+    parser = argparse.ArgumentParser(description="서울시 호선별 실시간 열차 위치정보를 JSON 파일로 저장")
     parser.add_argument(
         "--subway-line",
         help="이 호선 하나만 조회 (미지정 시 별도 호선 파일의 전체 호선 조회)",
@@ -261,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
 # 서버 main.py가 읽는 Kafka 수집 계약. 직접 실행 JSON 기능도 유지한다.
 if __package__:
     from sources.kafka_adapter import make_source
+
     SOURCE = make_source("subway_location")
 
 

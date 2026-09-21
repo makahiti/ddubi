@@ -13,6 +13,9 @@ spring:
     locations: classpath:db/migration
 
 ddubi:
+  walking:
+    # 통합 fixture의 좌표·가짜 키로 외부 카카오를 호출하지 않는다. 도보 HTTP는 전용 fixture에서 검증한다.
+    enabled: false
   recommendation:
     monitor-enabled: false
     commit-wakeup-enabled: false

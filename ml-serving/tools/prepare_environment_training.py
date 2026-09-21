@@ -6,14 +6,14 @@
 """
 
 import argparse
-import json
 import hashlib
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from environment_features import prepare, instant
-from environment_labels import validate_label, quality_report, LABEL_VERSION
+from environment_features import instant, prepare
+from environment_labels import LABEL_VERSION, quality_report, validate_label
 
 
 def build(samples, observations):
@@ -26,9 +26,7 @@ def build(samples, observations):
     # 전체 이력을 매 정답마다 순회하지 않도록 마스터/구간으로 먼저 좁힌다.
     observation_index = {}
     for item in observations:
-        observation_index.setdefault(
-            (item.get("masterVersion"), item.get("segmentId")), []
-        ).append(item)
+        observation_index.setdefault((item.get("masterVersion"), item.get("segmentId")), []).append(item)
     for sample in samples:
         request, label = sample["request"], sample["label"]
         kind = validate_label(request, label)
@@ -58,17 +56,11 @@ def build(samples, observations):
     cumulative = 0
     for day in days[:-1]:
         cumulative += counts[day]
-        boundaries.append(
-            (abs(cumulative - len(rows) * 0.7), days[days.index(day) + 1])
-        )
+        boundaries.append((abs(cumulative - len(rows) * 0.7), days[days.index(day) + 1]))
     boundary = min(boundaries)[1]
-    first_test = min(
-        instant(r["asOf"]) for r in rows if instant(r["asOf"]).date() >= boundary
-    )
+    first_test = min(instant(r["asOf"]) for r in rows if instant(r["asOf"]).date() >= boundary)
     train, test, withheld = [], [], []
-    for row in sorted(
-        rows, key=lambda r: (instant(r["asOf"]), r["segmentId"], r["label"]["eventId"])
-    ):
+    for row in sorted(rows, key=lambda r: (instant(r["asOf"]), r["segmentId"], r["label"]["eventId"])):
         if instant(row["asOf"]).date() >= boundary:
             test.append(row)
         elif instant(row["label"]["availableAt"]) >= first_test:
@@ -113,10 +105,7 @@ def main():
                 labelVersion=LABEL_VERSION,
                 quality=quality_report(result),
                 rows={k: len(v) for k, v in result.items()},
-                sha256={
-                    k: hashlib.sha256((out / (k + ".jsonl")).read_bytes()).hexdigest()
-                    for k in result
-                },
+                sha256={k: hashlib.sha256((out / (k + ".jsonl")).read_bytes()).hexdigest() for k in result},
                 productionReady=False,
             ),
             indent=2,

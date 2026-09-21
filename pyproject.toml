@@ -15,6 +15,12 @@ extend-exclude = [
   "**/__pycache__",
 ]
 
+# Spark 실행·테스트 이미지는 Python 3.8이다. 자동 정리가 3.9~3.11 전용 문법을 넣지 않게 한다.
+[tool.ruff.per-file-target-version]
+"sparkjobs/**/*.py" = "py38"
+# Spark의 봉투 검증이 Collector 모듈을 직접 import하므로 공통 실행 최소 버전을 적용한다.
+"collector/**/*.py" = "py38"
+
 [tool.ruff.lint]
 # E: pycodestyle 오류, W: 경고, F: pyflakes(미사용 import·변수), I: import 정렬, B: 흔한 버그, UP: 최신 문법.
 select = ["E", "W", "F", "I", "B", "UP"]
@@ -24,6 +30,12 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["B011"]
+# 이 도구는 import 앞에서 sys.path 를 먼저 손본다. 순서를 바꾸면 import 가 실패한다.
+"sparkjobs/tools/verify_topis_enrichment.py" = ["E402"]
+
+# future annotations가 있어도 Python 3.8에서 런타임 타입 해석이 가능한 typing 표기를 보존한다.
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
 
 [tool.ruff.format]
 quote-style = "double"

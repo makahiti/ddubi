@@ -22,6 +22,8 @@ python backend/tools/transit-timing/audit_kakao_times.py `
 입력은 공식 서울교통공사 CP949 시간표와 **실제 매핑에 사용하는 같은 버전의** 수도권 마스터다.
 마스터 공급 파일은 기존 `backend/tools/subway-master/README.md` 절차로 준비한다.
 실시간 역 ID가 없어도 정적 역 ID가 확인되면 시간표 계산이 가능하다.
+CSV가 UTF-8 편집기에서 깨져 보이더라도 UTF-8로 다시 저장하지 않는다. 변환기는 공식 원본의
+CP949 인코딩을 직접 읽으며, 필수 열·시각·운행 순서·마스터 인접성을 검증한다.
 
 ```powershell
 python backend/tools/transit-timing/build_timetable.py `
@@ -44,11 +46,24 @@ DAY=평일, SAT=토요일, END=일요일/공휴일이며 자동 공휴일 판단
 적용 날짜를 지정하는 것은 원본 개정판의 현재 유효성을 검증하는 행위가 아니다.
 부분 커버리지·원천 최신성 미확인·수동 달력 선택은 `limitations` 및 응답 `estimate.reasons`에 남는다.
 
+원본 CSV와 생성 JSON은 Git에 넣지 않는다. 로컬 산출물은 gitignored인
+`backend/target/transit-timing/timetable.json`에 두고, 운영에서는 읽기 전용
+`TRANSIT_MASTER_DATA_DIR` 안에 배치한다. JSON 하나는 지정한 운행일 00:00부터 다음날 06:00까지 유효하므로
+운행일이 바뀌면 새 산출물을 만들고 현재 구현에서는 Backend를 재시작해야 한다.
+
 Backend 실행 환경에 아래 두 값을 지정하면 파일을 기동 시 읽는다.
 
 ```text
 DDUBI_SUBWAY_TIMING_TIMETABLE_PATH=C:/Users/SSAFY/Desktop/S15P21E202/backend/target/transit-timing/timetable.json
 DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE=classpath:transit/metropolitan-subway-master.json.gz
+```
+
+Docker Compose 운영 환경은 `TRANSIT_MASTER_DATA_DIR`를 `/opt/ddubi/transit-master`에 읽기 전용으로 마운트한다.
+예를 들어 호스트의 `${TRANSIT_MASTER_DATA_DIR}/subway/timetable.json`에 배치했다면 다음처럼 지정한다.
+
+```text
+DDUBI_SUBWAY_TIMING_TIMETABLE_PATH=/opt/ddubi/transit-master/subway/timetable.json
+DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED=false
 ```
 
 대기시간 합산 설정은 켜지 않는다. 원천 열차 대응이 없으면 `SUBWAY_TIMETABLE`로 표시하고 Redis를 조회하지 않는다.
@@ -58,6 +73,14 @@ DDUBI_TRANSIT_MAPPING_SUBWAY_MASTER_RESOURCE=classpath:transit/metropolitan-subw
 
 ```powershell
 python -m unittest discover -s backend/tools/transit-timing -p 'test_*.py' -v
+```
+
+실제 생성 파일을 Backend 로더와 시간표 계산기에 통과시키는 선택 실행 테스트:
+
+```powershell
+./backend/mvnw.cmd -q -f backend/pom.xml `
+  '-Dtest=SubwayTimingServiceTest#generatedArtifactLoadsAndCalculatesTimetableWaitAndRide' `
+  '-Dtransit.timetable.path=C:/workspace/S15P21E202/backend/target/transit-timing/timetable.json' test
 ```
 
 Java 17, Maven, 실행 중인 Docker가 필요하다. 아래는 저장소 루트 실행 예시다.

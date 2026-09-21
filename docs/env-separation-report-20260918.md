@@ -143,6 +143,31 @@ cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml  
 
 앱은 이전 APK(`release/ddubi-release-9aecc841.apk` 등)를 다시 설치하면 된다.
 
+## 6-2. 관리 포트를 compose 에서 바꾸지 않기로 함 (인프라 판단, 2026-09-18)
+
+점검에서 Redis 6379·Grafana 3000·Prometheus 9090 이 compose 상 전체 인터페이스에 열려 있어
+`127.0.0.1` 로 좁히자고 제안했으나, 인프라 담당 검토 결과 **바꾸지 않는다.**
+
+이유는 두 가지다.
+
+- 이 포트들은 **서버1이 사설망으로 접속해 쓴다.** `127.0.0.1` 로 묶으면 서버1에서 닿지 못해
+  수집·모니터링이 끊긴다.
+- EC2 는 공인 IP 와 사설 IP 가 1:1 로 매핑되는 NAT 구조다. 컨테이너가 `0.0.0.0` 에 붙어도
+  보안 그룹이 허용하지 않으면 외부에서 닿지 않는다. 실제로 외부에서 네 포트를 확인했을 때
+  모두 막혀 있었다.
+
+즉 차단은 compose 가 아니라 보안 그룹·방화벽 계층에서 이미 이루어지고 있다. compose 를 고치면
+서버 간 통신만 끊기고 보안은 나아지지 않는다.
+
+## 6-3. CI 손질 3건 (인프라 요청, 2026-09-18)
+
+- `backend-lint` 에 `resource_group: backend-test` 추가. 같은 Maven 잡이라 러너 동시 실행 2 에서
+  `backend-test` 와 겹치면 서로 느려진다.
+- `backend-lint` 캐시 키를 `backend-maven` → `backend-m2` 로 통일. `backend-test` 와 같은 저장소를
+  쓰면서 키가 달라 캐시가 두 벌 쌓이고 있었다.
+- 새 잡 셋(`forbidden-output-check`·`backend-lint`·`python-lint`)의 `changes` 에 `.gitlab-ci.yml`
+  추가. 검사 규칙 자체가 바뀌면 그 검사를 다시 돌려야 한다.
+
 ## 7. 변경 규모
 
 커밋(작업 브랜치 → fe/dev → fe/main → develop, MR 없음):

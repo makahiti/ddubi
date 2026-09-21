@@ -6,6 +6,25 @@
   "decision": "DATA_INSUFFICIENT",
   "proposedDepartAt": "2026-09-18T08:00:00+09:00",
   "estimatedArrivalAt": null,
-  "quality": {"preview": true, "productionEligible": false, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "UNKNOWN", "missingInputs": ["BUS_ARRIVAL"], "fallbackReasons": []},
-  "validUntil": "2099-09-18T00:05:00Z"
+  "quality": {
+    "preview": true,
+    "productionEligible": false,
+    "realtimeApplied": false,
+    "walkingApiApplied": false,
+    "walkingApiCoverage": "NONE",
+    "costCoverage": "UNKNOWN",
+    "missingInputs": [
+      "BUS_ARRIVAL"
+    ],
+    "fallbackReasons": []
+  },
+  "validUntil": "2099-09-18T00:05:00Z",
+  "guidance": {
+    "canDisplayEstimate": false,
+    "canAccept": false,
+    "source": "UNAVAILABLE",
+    "reasons": [
+      "NO_USABLE_ROUTE_ESTIMATE"
+    ]
+  }
 }

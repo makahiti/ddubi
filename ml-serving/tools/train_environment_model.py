@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from environment_features import VERSION, instant
-from environment_labels import validate_label, quality_report, LABEL_VERSION
+from environment_labels import LABEL_VERSION, quality_report, validate_label
 from environment_model import FEATURES, vector
 
 
@@ -33,10 +33,7 @@ def check(train, test):
         validate_label(r, label)
         targets.add(label["kind"])
         for provenance in r.get("provenance", {}).values():
-            if any(
-                instant(provenance[k]) > instant(r["asOf"])
-                for k in ("publishedAt", "collectedAt")
-            ):
+            if any(instant(provenance[k]) > instant(r["asOf"]) for k in ("publishedAt", "collectedAt")):
                 raise ValueError("future feature leakage")
         if r["featureVersion"] != VERSION or label.get("verified") is not True:
             raise ValueError("unverified row")
@@ -52,9 +49,9 @@ def check(train, test):
             or seconds <= 0
         ):
             raise ValueError("invalid seconds")
-        if instant(label["completedAt"]) <= instant(r["asOf"]) or instant(
-            label["availableAt"]
-        ) < instant(label["completedAt"]):
+        if instant(label["completedAt"]) <= instant(r["asOf"]) or instant(label["availableAt"]) < instant(
+            label["completedAt"]
+        ):
             raise ValueError("label time invalid")
     if len(targets) != 1 or next(iter(targets)) not in (
         "ACTUAL_TRAVERSAL",
@@ -84,30 +81,21 @@ def main():
                     rows.append(json.loads(line))
         return rows
 
-    manifest = json.loads(
-        (Path(a.prepared) / "manifest.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads((Path(a.prepared) / "manifest.json").read_text(encoding="utf-8"))
     for name in ("train", "test"):
-        if hashlib.sha256(
-            (Path(a.prepared) / (name + ".jsonl")).read_bytes()
-        ).hexdigest() != manifest.get("sha256", {}).get(name):
+        if hashlib.sha256((Path(a.prepared) / (name + ".jsonl")).read_bytes()).hexdigest() != manifest.get(
+            "sha256", {}
+        ).get(name):
             raise ValueError("prepared SHA mismatch")
     if manifest.get("labelVersion") != LABEL_VERSION:
         raise ValueError("prepared label version mismatch; prepare again")
     train, test = read("train"), read("test")
     target = check(train, test)
-    import numpy as np
     import lightgbm as lgb
+    import numpy as np
 
-    categories = {
-        k: i
-        for i, k in enumerate(
-            sorted({r["masterVersion"] + "|" + r["segmentId"] for r in train})
-        )
-    }
-    usable = [
-        r for r in test if r["masterVersion"] + "|" + r["segmentId"] in categories
-    ]
+    categories = {k: i for i, k in enumerate(sorted({r["masterVersion"] + "|" + r["segmentId"] for r in train}))}
+    usable = [r for r in test if r["masterVersion"] + "|" + r["segmentId"] in categories]
     if not usable:
         raise ValueError("no comparable future labels")
     x = np.asarray([vector(r, categories) for r in train])
@@ -123,9 +111,7 @@ def main():
             num_leaves=31,
             verbosity=-1,
         ),
-        lgb.Dataset(
-            x, label=y, feature_name=FEATURES, categorical_feature=["segmentCode"]
-        ),
+        lgb.Dataset(x, label=y, feature_name=FEATURES, categorical_feature=["segmentCode"]),
         num_boost_round=300,
     )
     predictions = model.predict(np.asarray([vector(r, categories) for r in usable]))
@@ -159,14 +145,8 @@ def main():
     out = Path(a.output)
     out.mkdir(parents=True, exist_ok=False)
     (out / "model.txt").write_bytes(encoded)
-    (out / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(
-        json.dumps(
-            {k: v for k, v in manifest.items() if k != "categories"}, ensure_ascii=False
-        )
-    )
+    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps({k: v for k, v in manifest.items() if k != "categories"}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -19,8 +19,8 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-
 from config import ConfigError, Settings
+
 from sources.base import PollBatch, Record, SourceSpec, now_kst
 
 log = logging.getLogger(__name__)
@@ -105,7 +105,9 @@ def select_endpoint(settings: Settings) -> tuple[str, str, str]:
     for env_name, url, param in ENDPOINTS:
         if env_name in settings.api_keys:
             return url, param, settings.api_keys[env_name]
-    raise ConfigError("API 키가 없습니다: KMA_API_KEY(기상청 API 허브) 또는 DATA_GO_KR_API_KEY(공공데이터포털) 를 .env 에 설정하세요")
+    raise ConfigError(
+        "API 키가 없습니다: KMA_API_KEY(기상청 API 허브) 또는 DATA_GO_KR_API_KEY(공공데이터포털) 를 .env 에 설정하세요"
+    )
 
 
 def fetch(settings: Settings, client: httpx.Client) -> list[Record]:

@@ -6,6 +6,7 @@
 # owner: 그 키를 쓰는(=포맷을 정하는) 주체
 #   - spark    : 분산 담당 소유. 백엔드는 읽기만 한다.
 #   - backend  : 서비스 백엔드 소유.
+#   - ml-serving: 검증된 현재 통합 Feature Snapshot 조립·짧은 캐시 소유.
 #
 # 메모리 정책 (infra/docker-compose.yml redis): maxmemory 384mb, maxmemory-policy volatile-ttl
 #   - 상한에 닿으면 TTL 이 있는 키 중 만료가 가까운 것부터 지운다 → 캐시성 키(짧은 TTL)가 먼저,
@@ -14,20 +15,108 @@
 #     ttlSeconds: null 로 명시하고 사유를 적는다 (지금은 notificationSuppress 만 정책값).
 
 keys:
+  busSegmentLatest:
+    pattern: "ml:latest:bus-segment:{segmentId}"
+    type: string
+    ttlSeconds: 86400
+    owner: spark
+    description: >-
+      정확한 canonical segmentId가 있는 bus.position 중 구간별 최신 차량 관측이다.
+      Feature 조립기는 값의 validUntil(기본 120초)을 별도로 검사하며 TTL 잔존만으로 사용하지 않는다.
+
   # --- 분산 담당 소유 -------------------------------------------------
   busSegmentOnlineFeature:
     pattern: "ml:feature:bus-segment:{featureVersion}:{masterVersion}:{segmentId}"
     type: string
     ttlSeconds: 900
-    owner: spark
+    owner: ml-serving
     schema: bus-segment-online-feature.schema.json
     description: >-
-      실시간 버스 인접 구간 이동시간 예측용 통합 Feature Snapshot. Spark가 기존 bus·traffic·weather·city
-      최신값을 검증된 segmentId 대응표로 결합해 JSON으로 저장한다. 요청 시각에서 계산하는 hourSlot·요일·휴일은
-      값에 저장하지 않고 ML 입력 조립기가 추가한다. TTL 900초는 보관 상한이며 validUntil이 지났으면 TTL이
-      남아 있어도 사용하지 않는다. 과거값 또는 같은 computedAt의 다른 내용으로 최신값을 덮어쓰지 않는다.
-      ML Serving의 Redis 직접 조회는 아직 구현·배포되지 않았으므로 이 항목은 신규 연동 계약이다.
-    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","featureVersion":"bus-segment-feature-v1","asOf":"2026-09-14T08:10:00+09:00","computedAt":"2026-09-14T08:10:03+09:00","validUntil":"2026-09-14T08:15:00+09:00","features":{"busCongestionCode":null,"busOperationStateCode":null,"recentSegmentMedianSeconds":155.0,"recentSegmentSampleCount":31,"roadSpeedKph":24.0,"roadTravelSeconds":150.0,"roadCoverageRatio":0.92,"accidentCount":0,"closureCount":0,"assemblyCount":null,"protestCount":null,"temperatureC":18.0,"humidityPercent":72.0,"precipitationMm":3.0,"snowDepthCm":0.0,"windSpeedMps":2.1,"cityCongestionLevel":"CROWDED","areaPopulationMin":12000,"areaPopulationMax":14000,"nearbyPopulation":null},"missingFeatures":["busCongestionCode","busOperationStateCode","assemblyCount","protestCount","nearbyPopulation"],"provenance":{}}'
+      실시간 버스 인접 구간 이동시간 예측용 CURRENT Feature Snapshot. 현재시각 조립 결과만 저장하고
+      ML은 경로 구간 Key들을 MGET 한 번으로 읽는다. hourSlot·요일·휴일은 Snapshot에 저장하지 않고
+      실제 모델 입력 단계에서 요청 시각으로 계산한다. TTL 900초는 보관 상한이며 validUntil이 지났으면
+      TTL이 남아 있어도 사용하지 않는다. 과거 Replay·미래 passageAt 결과로 현재값을 덮어쓰지 않는다.
+      세부 읽기 상태와 단위는 bus-segment-feature-snapshot.md를 따른다.
+    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","featureVersion":"bus-segment-feature-v1","snapshotKind":"CURRENT","asOf":"2026-09-14T08:10:00+09:00","computedAt":"2026-09-14T08:10:03+09:00","validUntil":"2026-09-14T08:15:00+09:00","features":{"busCongestionCode":null,"busOperationStateCode":null,"recentSegmentMedianSeconds":155.0,"recentSegmentSampleCount":31,"roadSpeedKph":24.0,"roadTravelSeconds":150.0,"roadCoverageRatio":0.92,"accidentCount":null,"closureCount":null,"assemblyCount":null,"protestCount":null,"temperatureC":18.0,"humidityPercent":72.0,"precipitationMm":3.0,"snowDepthCm":null,"windSpeedMps":2.1,"cityCongestionLevel":"CROWDED","areaPopulationMin":12000,"areaPopulationMax":14000,"nearbyPopulation":null},"missingFeatures":["accidentCount","assemblyCount","busCongestionCode","busOperationStateCode","closureCount","nearbyPopulation","protestCount","snowDepthCm"],"provenance":{}}'
+
+  busWeatherMapping:
+    pattern: "ml:mapping:bus-weather:{mappingVersion}:{masterVersion}:{gridConfigSha256}"
+    type: hash
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      field는 segmentId, value는 같은 버스→날씨 대응표 DataFrame에서 직렬화한 JSON이다.
+      Spark 배치는 staging Hash의 행 수와 segmentId 유일성을 검증한 뒤에만 이 버전 키로 승격한다.
+      RESOLVED뿐 아니라 OUT_OF_COVERAGE·UNRESOLVED 상태도 저장해 소비자가 결측 원인을 구분한다.
+      30일 TTL은 volatile-ttl 메모리 정책을 위한 보관 상한이며 배포할 때 갱신된다.
+    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","mappingVersion":"bus-weather-grid-v1","weatherGridVersion":"kma-vilage-dfs-5km-v1","nx":60,"ny":127,"gridRelation":"SAME_GRID","mappingStatus":"RESOLVED","mappingReason":"NONE"}'
+
+  busWeatherMappingActive:
+    pattern: "ml:mapping:bus-weather:active:{masterVersion}"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      검증 완료된 busWeatherMapping 버전 키를 가리킨다. ML 입력 조립기는 이 포인터를 먼저 읽고
+      그 Hash에서 segmentId를 HGET한 다음 weather:latest:{nx}:{ny}를 조회한다.
+
+  busWeatherMappingMetadata:
+    pattern: "ml:mapping:bus-weather:{mappingVersion}:{masterVersion}:{gridConfigSha256}:meta"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      활성 대응표의 행 수, 버스 마스터·crosswalk·날씨 격자 설정 SHA와 배포시각 JSON이다.
+      대응표 Hash와 같은 원자적 승격 단계에서 기록하고 같은 TTL을 적용한다.
+
+  busRoadMapping:
+    pattern: "ml:mapping:bus-road:{mappingVersion}:{masterVersion}:{roadCrosswalkSha256}"
+    type: hash
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      field는 segmentId이고 value는 승인된 OA-13310 링크 마스터와 검토 완료 도로 대응표로 만든
+      TOPIS LINK_ID 배열 JSON이다. 순환 노선의 같은 segmentId가 서로 다른 도로 경로를 가지면
+      AMBIGUOUS로 남기고 topisLinkIds를 비운다. staging 전체 행 수를 확인한 뒤에만 활성화한다.
+    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","mappingVersion":"bus-road-link-v1","roadCrosswalkVersion":"road-v1","trafficLinkMasterVersion":"oa-13310-v1","mappingAsOf":"2026-09-18T12:00:00+09:00","topisLinkNamespace":"SEOUL_ACCINFO_LINK","topisLinkIds":["1220003800","1220003900"],"topisLinkCount":2,"mappingStatus":"RESOLVED","mappingReason":"NONE","occurrenceCoverageRatio":1.0,"roadPathValidFrom":"2026-09-01T00:00:00+09:00","roadPathValidUntil":"2027-01-01T00:00:00+09:00"}'
+
+  busRoadMappingActive:
+    pattern: "ml:mapping:bus-road:active:{masterVersion}"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: "검증과 전체 기록을 마친 현재 busRoadMapping Hash 키를 가리킨다."
+
+  busRoadMappingMetadata:
+    pattern: "ml:mapping:bus-road:{mappingVersion}:{masterVersion}:{roadCrosswalkSha256}:meta"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      버스·도로 대응표 및 TOPIS 링크 마스터의 버전·SHA, 기준시각, 행 수와 배포시각 JSON이다.
+
+  busCityMapping:
+    pattern: "ml:mapping:bus-city:{mappingVersion}:{masterVersion}:{areaReferenceSha256}"
+    type: hash
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      field는 segmentId, value는 City Silver 영역 도로 좌표와 버스 구간 좌표의 거리로 만든 JSON이다.
+      RESOLVED만 primaryProviderAreaId를 가지며 먼 구간·비슷한 거리의 여러 영역은 자동 확정하지 않는다.
+
+  busCityMappingActive:
+    pattern: "ml:mapping:bus-city:active:{masterVersion}"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: "검증과 전체 기록을 마친 현재 busCityMapping Hash 키를 가리킨다."
+
+  busCityMappingMetadata:
+    pattern: "ml:mapping:bus-city:{mappingVersion}:{masterVersion}:{areaReferenceSha256}:meta"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: "도시 영역 도로 참조 SHA·버스 마스터 SHA·행 수와 배포시각 JSON이다."
 
   segmentStatus:
     pattern: "segment:status:{segmentId}"
@@ -137,6 +226,32 @@ keys:
       arrivalTrainType: 'raw.btrainStt 원문(일반/급행 등). 시간표의 검증된 열차 종류와 비교한다.'
       sourceGeneratedAt: 'raw.recptnDt 원문. 누락은 null/생략이며 collectedAt으로 채우지 않는다.'
 
+  subwayArrivalsByStationSnapshot:
+    pattern: "transit:snapshot:subway-arrivals:{providerLineId}:{providerStationId}"
+    type: string
+    ttlSeconds: 1080
+    owner: spark
+    schemaVersion: subway-snapshot-v1
+    contract: subway-snapshots.md
+    description: >-
+      Backend가 KEYS/SCAN 없이 호선·역 한 키를 GET하여 현재 도착 열차 목록을 읽는 JSON Snapshot.
+      열차별 validUntil(occurredAt+120초)이 실제 사용 가능 시간이며 1080초 TTL은 진단용 보관 상한이다.
+      Spark micro-batch가 한 수집 회차를 나누어도 Redis에서 trainId별 최신 항목을 원자 병합한다.
+      키가 없거나 항목이 stale이면 운행 없음이 아니라 UNKNOWN으로 처리한다.
+
+  subwayPositionsByLineSnapshot:
+    pattern: "transit:snapshot:subway-positions:{providerLineId}"
+    type: string
+    ttlSeconds: 10800
+    owner: spark
+    schemaVersion: subway-snapshot-v1
+    contract: subway-snapshots.md
+    description: >-
+      Backend가 KEYS/SCAN 없이 호선 한 키를 GET하여 현재 열차 위치 목록을 읽는 JSON Snapshot.
+      열차별 validUntil(occurredAt+120초)이 실제 사용 가능 시간이며 10800초 TTL은 진단용 보관 상한이다.
+      부분 batch는 기존의 아직 유효한 열차를 지우지 않고 trainId별 최신 항목과 병합한다.
+      providerLineId·providerStationId는 서울 API ID이며 canonical 역·구간 ID로 간주하지 않는다.
+
   trafficFlowLatest:
     pattern: "traffic:latest:flow:{providerLinkId}"
     ttlSeconds: 900
@@ -153,13 +268,40 @@ keys:
       TOPIS 사고·통제별 최신 요약. 15분 수집 주기의 세 배인 45분 보관하며
       validUntil 이후 현재 위험 판정에 쓰지 않는다. 원문은 HDFS에서 eventId로 추적한다.
 
+  trafficIncidentSilverLatest:
+    pattern: "traffic:latest:incident-silver:{providerIncidentId}"
+    type: string
+    ttlSeconds: 2700
+    owner: spark
+    description: >-
+      EPSG:5181 좌표 변환과 승인된 OA-13310 동일 ID 링크 마스터 검증을 거친 사건 단위 JSON.
+      2700초는 기본값이며 실제 TTL은 validUntil까지다. 만료·부재는 종료가 아니라 UNKNOWN이다.
+      LINK_ID/좌표 충돌은 matchedLinkId를 비우고 원본과 품질 상태를 보존한다.
+
   cityAreaLatest:
     pattern: "city:latest:area:{providerAreaId}"
     ttlSeconds: 64800
     owner: spark
     description: >-
-      서울 주요 장소별 인구 혼잡도·인구 범위·평균 도로속도·기상 대표값.
+      서울 주요 장소별 인구 혼잡도·인구 범위·평균 도로속도 City Silver JSON.
       6시간 수집 주기의 세 배인 18시간 보관한다. validUntil 이후 기준선으로 fallback한다.
+
+  cityRoadLatest:
+    pattern: "city:latest:road:{linkNamespace}:{linkId}"
+    type: string
+    ttlSeconds: 64800
+    owner: spark
+    description: >-
+      서울 실시간 도시데이터의 도로 링크별 최신 속도·상태·WGS84 LineString JSON.
+      namespace 검증 전에는 다른 제공자의 숫자 LINK_ID와 조인하지 않는다.
+
+  cityPopulationForecast:
+    pattern: "city:forecast:population:{providerAreaId}:{forecastAt}"
+    type: string
+    ttlSeconds: 64800
+    owner: spark
+    description: >-
+      장소별 예측 생성시각에 발표된 예측시각별 인구 범위와 혼잡도 JSON.
 
   sdotPopulationLatest:
     pattern: "city:latest:sdot-population:{providerSensorId}"
@@ -183,6 +325,18 @@ keys:
     owner: spark
     description: >-
       TOPIS 공지사항별 최신 제목·본문·분류. 공지 고유 ID를 키로 사용하고 원문은 HDFS에 보존한다.
+
+  topisEventLatest:
+    pattern: "traffic:latest:topis-event:{eventId}"
+    type: string
+    ttlSeconds: 2592000
+    owner: spark
+    description: >-
+      TOPIS 공지 원문을 GMS로 구조화하고 Kakao 장소 검색 좌표를 붙인 행사 단위 JSON이다.
+      TTL 30일은 상한이며 실제 TTL은 validUntil(행사 종료+6시간 또는 종료 미상 시 수집+24시간)까지다.
+      공지 개정 시 종료·만료·목록에서 사라진 eventId는 최신 수집시각을 확인한 뒤 즉시 삭제한다.
+      좌표가 모호하거나 서울 후보가 없는 행을 현재 버스 영향의 확정 근거로 사용하지 않는다.
+      전체 스키마와 품질 표시는 docs/contracts/topis-notice-enrichment.md를 따른다.
 
   # --- 백엔드 소유 ----------------------------------------------------
   authRefresh:

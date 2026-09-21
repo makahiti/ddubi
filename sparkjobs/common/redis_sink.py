@@ -19,6 +19,7 @@ VALUE_COL = "redisValue"
 TTL_COL = "ttlSeconds"
 EVENT_TIME_COL = "occurredAtOrder"
 COLLECTED_TIME_COL = "collectedAtOrder"
+MAX_ITEMS_COL = "maxItems"
 _PIPELINE_CHUNK = 500
 
 # Redis의 GET → 시각 비교 → SET을 하나의 원자 연산으로 묶는다. Spark 마이크로배치는
@@ -48,6 +49,102 @@ if current then
 end
 
 redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+return 1
+"""
+
+# 한 수집 사이클의 이벤트가 Kafka/Spark micro-batch 경계에서 나뉘어도 Snapshot의 다른
+# 열차를 지우지 않도록 trainId별로 병합한다. 개별 item도 occurredAt → collectedAt 순으로
+# 비교하며, 늦게 온 과거 event만 있는 실행은 SET/TTL 연장을 하지 않는다. 기존 item은 새
+# 관측시각에 이미 만료된 경우에만 제거한다. KEYS/SCAN이나 driver GET은 사용하지 않는다.
+_MERGE_SUBWAY_SNAPSHOT_LUA = """
+local incoming_ok, incoming = pcall(cjson.decode, ARGV[1])
+if not incoming_ok or not incoming or type(incoming['items']) ~= 'table' then
+    return redis.error_reply('invalid incoming subway snapshot')
+end
+
+local current = nil
+local current_raw = redis.call('GET', KEYS[1])
+if current_raw then
+    local current_ok, decoded = pcall(cjson.decode, current_raw)
+    if current_ok and decoded and decoded['schemaVersion'] == incoming['schemaVersion']
+            and decoded['snapshotType'] == incoming['snapshotType']
+            and type(decoded['items']) == 'table' then
+        current = decoded
+    end
+end
+
+local by_train = {}
+local changed = false
+local incoming_observed = tostring(incoming['observedAt'] or ARGV[3])
+if current then
+    for _, item in ipairs(current['items']) do
+        local train_id = tostring(item['trainId'] or '')
+        local valid_until = tostring(item['validUntil'] or '')
+        if train_id ~= '' and (valid_until == '' or valid_until > incoming_observed) then
+            by_train[train_id] = item
+        elseif train_id ~= '' then
+            changed = true
+        end
+    end
+end
+
+for _, item in ipairs(incoming['items']) do
+    local train_id = tostring(item['trainId'] or '')
+    if train_id ~= '' then
+        local previous = by_train[train_id]
+        local item_occurred = tostring(item['occurredAt'] or '')
+        local item_collected = tostring(item['collectedAt'] or '')
+        local previous_occurred = previous and tostring(previous['occurredAt'] or '') or ''
+        local previous_collected = previous and tostring(previous['collectedAt'] or '') or ''
+        if not previous or previous_occurred < item_occurred
+                or (previous_occurred == item_occurred and previous_collected <= item_collected) then
+            by_train[train_id] = item
+            if not previous or previous_occurred ~= item_occurred or previous_collected ~= item_collected
+                    or tostring(previous['eventId'] or '') ~= tostring(item['eventId'] or '') then
+                changed = true
+            end
+        end
+    end
+end
+
+if current and not changed then
+    return 0
+end
+
+local merged = {}
+for _, item in pairs(by_train) do table.insert(merged, item) end
+table.sort(merged, function(a, b)
+    local aa = tonumber(a['arrivalSeconds'])
+    local bb = tonumber(b['arrivalSeconds'])
+    if aa and bb and aa ~= bb then return aa < bb end
+    if aa and not bb then return true end
+    if bb and not aa then return false end
+    return tostring(a['trainId'] or '') < tostring(b['trainId'] or '')
+end)
+
+local max_items = tonumber(ARGV[5])
+while #merged > max_items do table.remove(merged) end
+incoming['items'] = merged
+incoming['itemCount'] = #merged
+
+local latest_valid = ''
+for _, item in ipairs(merged) do
+    local valid_until = tostring(item['validUntil'] or '')
+    if valid_until > latest_valid then latest_valid = valid_until end
+end
+if latest_valid ~= '' then incoming['validUntil'] = latest_valid end
+if current then
+    local current_observed = tostring(current['observedAt'] or '')
+    local current_collected = tostring(current['collectedAt'] or '')
+    if current_observed > tostring(incoming['observedAt'] or '') then
+        incoming['observedAt'] = current_observed
+    end
+    if current_collected > tostring(incoming['collectedAt'] or '') then
+        incoming['collectedAt'] = current_collected
+    end
+end
+
+redis.call('SET', KEYS[1], cjson.encode(incoming), 'EX', tonumber(ARGV[2]))
 return 1
 """
 
@@ -162,3 +259,52 @@ def write_latest_with_row_ttl(df: DataFrame, host: str, port: int, password: str
         client.close()
 
     df.select(KEY_COL, VALUE_COL, TTL_COL, EVENT_TIME_COL, COLLECTED_TIME_COL).foreachPartition(write_partition)
+
+
+def write_subway_snapshots(df: DataFrame, host: str, port: int, password: str | None) -> None:
+    """역·노선 지하철 Snapshot을 trainId별로 기존 JSON과 원자 병합한다.
+
+    Snapshot 한 행은 완전한 수집 사이클이라고 가정하지 않는다. Kafka partition과 Spark trigger가
+    같은 poll의 행을 나눌 수 있기 때문이다. Redis Lua가 기존의 아직 유효한 열차를 보존하고
+    새 열차만 갱신한다. 과거 행만 들어오면 값과 TTL을 유지하고, item 상한으로 손상·폭주 입력이
+    Redis 메모리를 무제한 점유하지 못하게 한다.
+    """
+
+    def write_partition(rows) -> None:
+        import redis
+
+        client = redis.Redis(host=host, port=port, password=password, socket_timeout=5, socket_connect_timeout=5)
+        pipe = client.pipeline(transaction=False)
+        pending = 0
+        for row in rows:
+            ttl_seconds = int(row[TTL_COL])
+            max_items = int(row[MAX_ITEMS_COL])
+            occurred_at = row[EVENT_TIME_COL]
+            collected_at = row[COLLECTED_TIME_COL]
+            if ttl_seconds <= 0 or max_items <= 0:
+                client.close()
+                raise ValueError("Snapshot ttlSeconds와 maxItems는 1 이상이어야 합니다")
+            if not occurred_at or not collected_at:
+                client.close()
+                raise ValueError("Snapshot 최신성 비교 시각이 필요합니다")
+            pipe.eval(
+                _MERGE_SUBWAY_SNAPSHOT_LUA,
+                1,
+                row[KEY_COL],
+                row[VALUE_COL],
+                ttl_seconds,
+                occurred_at,
+                collected_at,
+                max_items,
+            )
+            pending += 1
+            if pending >= _PIPELINE_CHUNK:
+                pipe.execute()
+                pending = 0
+        if pending:
+            pipe.execute()
+        client.close()
+
+    df.select(KEY_COL, VALUE_COL, TTL_COL, EVENT_TIME_COL, COLLECTED_TIME_COL, MAX_ITEMS_COL).foreachPartition(
+        write_partition
+    )

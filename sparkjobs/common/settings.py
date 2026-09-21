@@ -31,7 +31,7 @@ class Settings:
     max_offsets_per_trigger: int = 10000  # 트리거(10s)당 최대 소비 건수 = 처리량 상한. 부하 실험 때 올린다
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         return cls(
             kafka_bootstrap_servers=_require("KAFKA_BOOTSTRAP_SERVERS"),
             redis_host=_require("REDIS_HOST"),

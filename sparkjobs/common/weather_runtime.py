@@ -1,4 +1,5 @@
 """Weather stream configuration and lifecycle, testable without Spark."""
+
 import logging
 from urllib.parse import urlsplit
 
@@ -33,8 +34,13 @@ def silver_configuration(env):
 def _progress(query):
     progress = query.lastProgress
     if progress:
-        log.info("query=%s batch=%s inputRows=%s durationMs=%s", query.name,
-                 progress.get("batchId"), progress.get("numInputRows"), progress.get("durationMs"))
+        log.info(
+            "query=%s batch=%s inputRows=%s durationMs=%s",
+            query.name,
+            progress.get("batchId"),
+            progress.get("numInputRows"),
+            progress.get("durationMs"),
+        )
 
 
 def supervise(start_redis, start_silver=None):
@@ -52,7 +58,7 @@ def supervise(start_redis, start_silver=None):
             if redis_query.awaitTermination(30):
                 error = redis_query.exception()
                 if error is not None:
-                    raise RuntimeError("required Redis stream failed: %s" % error)
+                    raise RuntimeError(f"required Redis stream failed: {error}")
                 raise RuntimeError("required Redis stream stopped unexpectedly")
             _progress(redis_query)
             if silver_query is not None:

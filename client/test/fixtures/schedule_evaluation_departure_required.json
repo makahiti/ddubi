@@ -4,5 +4,24 @@
   "scheduleId": "schedule-1",
   "state": "DEPARTURE_REQUIRED",
   "decision": null,
-  "quality": {"preview": false, "productionEligible": false, "realtimeApplied": false, "walkingApiApplied": false, "walkingApiCoverage": "NONE", "costCoverage": "UNKNOWN", "missingInputs": ["PLANNED_DEPART_AT"], "fallbackReasons": []}
+  "quality": {
+    "preview": false,
+    "productionEligible": false,
+    "realtimeApplied": false,
+    "walkingApiApplied": false,
+    "walkingApiCoverage": "NONE",
+    "costCoverage": "UNKNOWN",
+    "missingInputs": [
+      "PLANNED_DEPART_AT"
+    ],
+    "fallbackReasons": []
+  },
+  "guidance": {
+    "canDisplayEstimate": false,
+    "canAccept": false,
+    "source": "UNAVAILABLE",
+    "reasons": [
+      "NO_USABLE_ROUTE_ESTIMATE"
+    ]
+  }
 }
