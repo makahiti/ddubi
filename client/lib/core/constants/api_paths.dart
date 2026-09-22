@@ -44,6 +44,11 @@ class ApiPaths {
   /// 추천 카드 전용. 계산 결과를 짧은 한국어 안내로 바꿔 준다(표현 계층).
   static String latestRecommendationGuide(String scheduleId) =>
       '${latestRecommendation(scheduleId)}/guide';
+
+  /// 일정의 이동 변수(날씨·혼잡도·도로 통제·지하철). 계약: movement-conditions-v1
+  static String scheduleConditions(String scheduleId) =>
+      '${schedule(scheduleId)}/conditions';
+
   static String scheduleRoutes(String scheduleId) =>
       '${schedule(scheduleId)}/routes';
   static String recommendationExplanation(String recommendationId) =>

@@ -52,11 +52,15 @@ public class HomeService {
 
         // 오늘 일정: 취소는 제외하고 완료는 포함한다 — "오늘 하루" 를 보여주는 화면이라
         // 이미 끝난 일정도 목록에 남아야 흐름이 보인다.
+        //
+        // 예전에는 UPCOMING 만 조회해서 이 주석과 반대로 동작했다. 그러면 앱에서 홈을 처음 열 때는
+        // 완료한 일정이 사라지고, 날짜 화살표로 옮겼다가 오늘로 돌아오면(그때는 목록 API 를 쓴다)
+        // 다시 나타난다. 같은 날짜인데 화면 두 곳이 다른 답을 주던 원인이다.
         List<ScheduleResponse> today =
                 scheduleRepository
-                        .findAllByUserIdAndStatusAndArriveByBetweenOrderByArriveBy(
+                        .findAllByUserIdAndStatusNotAndArriveByBetweenOrderByArriveBy(
                                 userId,
-                                ScheduleStatus.UPCOMING,
+                                ScheduleStatus.CANCELED,
                                 now.toLocalDate().atStartOfDay(),
                                 now.toLocalDate().atTime(23, 59, 59))
                         .stream()

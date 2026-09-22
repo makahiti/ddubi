@@ -7,7 +7,9 @@ import '../domain/models.dart';
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton(this.label, {super.key, required this.onPressed});
   final String label;
-  final VoidCallback onPressed;
+
+  /// null 이면 버튼이 눌리지 않는다. 처리 중인 동안 같은 요청을 두 번 보내지 않게 막을 때 쓴다.
+  final VoidCallback? onPressed;
   @override
   Widget build(BuildContext c) => SizedBox(
     width: double.infinity,
@@ -109,6 +111,46 @@ class TtubeeGuideCard extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// 일정의 진행 상태 표시.
+///
+/// 서버는 완료·취소를 제대로 내려주는데 앱이 그 값을 아무 데서도 쓰지 않았다. 그래서
+/// 도착 완료를 눌러도 목록에 "예정" 그대로 남아 있었다(2026-09-22 제보).
+/// 진행 예정은 표시하지 않는다 — 대부분이 그 상태라 뱃지가 의미를 잃는다.
+class ScheduleStatusBadge extends StatelessWidget {
+  const ScheduleStatusBadge(this.status, {super.key});
+
+  final ScheduleStatus status;
+
+  /// 이 상태를 표시할 것이 있는지. 없으면 자리를 차지하지 않는다.
+  static bool shows(ScheduleStatus status) =>
+      status == ScheduleStatus.done || status == ScheduleStatus.canceled;
+
+  /// 끝난 일정은 흐리게 그린다. 목록에서 아직 남은 일정이 먼저 눈에 들어와야 한다.
+  static double opacityFor(ScheduleStatus status) => shows(status) ? 0.55 : 1;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!shows(status)) return const SizedBox.shrink();
+    final done = status == ScheduleStatus.done;
+    return Container(
+      key: Key(done ? 'scheduleDoneBadge' : 'scheduleCanceledBadge'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: done ? const Color(0xFFE9F7EF) : const Color(0xFFF1F3F7),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        done ? '완료' : '취소',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: done ? const Color(0xFF0B5A33) : const Color(0xFF5C6B7F),
+        ),
+      ),
+    );
+  }
 }
 
 class StatusBadge extends StatelessWidget {

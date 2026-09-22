@@ -132,6 +132,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     recommendationApi: recommendationApi,
                     scheduleId: state.pathParameters['id']!,
                     arrivalApi: arrivalApi,
+                    userApi: userApi,
                     initialSchedule: arguments?.schedule,
                     initialRoutes: arguments?.routes,
                   );

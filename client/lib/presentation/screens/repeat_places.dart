@@ -429,19 +429,7 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
         return ListView(
           padding: screenPadding,
           children: [
-            InfoCard(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _recordMetric('전체', '${history.summary.totalCount}건'),
-                  _recordMetric(
-                    '정시율',
-                    '${(history.summary.onTimeRate * 100).round()}%',
-                  ),
-                  _recordMetric('지연', '${history.summary.lateCount}건'),
-                ],
-              ),
-            ),
+            _summaryCard(history.summary),
             const SizedBox(height: 18),
             const SectionHeader('주간 리포트'),
             if (reports.isEmpty)
@@ -478,6 +466,43 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
       },
     ),
   );
+
+  /// 기간 요약 석 줄.
+  ///
+  /// 판정(정시·빠듯·지연)이 하나도 없으면 정시율을 "0%" 로 쓰지 않는다. 서버는 판정 없는 건도
+  /// 분모에 넣으므로 계산 결과는 정말 0 이지만, 화면에서 0% 는 "매번 늦었다" 로 읽힌다.
+  /// 판정이 없는 이유(도착 시각을 남기지 않음)까지 한 줄로 알려 준다.
+  Widget _summaryCard(TravelHistorySummary summary) {
+    final judged = summary.onTimeCount + summary.tightCount + summary.lateCount;
+    return InfoCard(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _recordMetric('전체', '${summary.totalCount}건'),
+              _recordMetric(
+                '정시율',
+                judged == 0
+                    ? '아직 없음'
+                    : '${(summary.onTimeRate * 100).round()}%',
+              ),
+              _recordMetric('지연', '${summary.lateCount}건'),
+            ],
+          ),
+          if (summary.totalCount > 0 && judged == 0) ...[
+            const SizedBox(height: 10),
+            const Text(
+              '도착 시각을 남긴 기록이 없어 정시 여부를 판정하지 못했어요.\n'
+              '더보기 > 이동 기록 저장을 켜면 다음 도착부터 판정해요.',
+              key: Key('noJudgedRecordNotice'),
+              style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   Widget _recordMetric(String label, String value) => Column(
     children: [

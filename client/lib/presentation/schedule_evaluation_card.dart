@@ -116,7 +116,12 @@ class ScheduleEvaluationCard extends StatefulWidget {
     required this.scheduleId,
     this.developerDiagnostics = false,
     this.headline,
+    this.showActions = true,
   });
+
+  /// 버튼 줄을 이 카드에 그릴지. 일정 상세는 같은 버튼을 AI 안내 카드에 두므로 끈다.
+  /// 두 곳에 같이 두면 사용자가 서로 다른 단추로 오해한다.
+  final bool showActions;
 
   final ScheduleEvaluationRepository repository;
   final String scheduleId;
@@ -454,7 +459,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
               textKey: const Key('evaluationNotice'),
             ),
           ],
-          if (evaluation != null) ...[
+          if (evaluation != null && widget.showActions) ...[
             const SizedBox(height: 12),
             _actions(evaluation!, computing),
           ],

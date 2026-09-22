@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../core/constants/api_paths.dart';
 import '../domain/models.dart';
 import '../domain/recommendation_guide.dart';
+import '../domain/travel_conditions.dart';
 import '../domain/schedule_evaluation.dart';
 
 class RecommendationOverview {
@@ -407,7 +408,7 @@ String _transportLabel(String mode) => switch (mode) {
   _ => mode,
 };
 
-class RecommendationApi {
+class RecommendationApi implements TravelConditionsService {
   const RecommendationApi(this._dio);
 
   final Dio _dio;
@@ -547,6 +548,22 @@ class RecommendationApi {
   /// 최신 추천이 READY 일 때만 부르고, `evaluationId` 가 바뀐 경우에만 다시 부른다.
   /// 계산이 아직 안 끝났으면 서버가 409 로 답하는데, 그때는 오류가 아니라 "계산 중" 이므로
   /// null 을 돌려주고 화면은 기존 계산 중 안내를 그대로 둔다.
+  /// 일정의 이동 변수. 못 가져오면 예외 대신 "아무것도 확인 안 됨" 을 돌려준다.
+  ///
+  /// 이동 변수는 화면의 곁가지다. 이것 때문에 일정 화면 전체가 오류로 바뀌면 안 된다.
+  /// 계약: docs/contracts/movement-conditions.md
+  @override
+  Future<TravelConditions> conditionsFor(String scheduleId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      ApiPaths.scheduleConditions(scheduleId),
+    );
+    final data = response.data?['data'];
+    if (response.data?['success'] != true || data is! Map) {
+      return TravelConditions.unknown;
+    }
+    return TravelConditions.fromJson(_stringKeyed(data));
+  }
+
   Future<RecommendationGuide?> getLatestGuide(String scheduleId) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(

@@ -13,7 +13,13 @@ import '../schedule_evaluation_card.dart';
 import 'map.dart';
 import 'shared.dart';
 
-class RouteResultsScreen extends StatelessWidget {
+/// 추천 결과 화면.
+///
+/// 조회를 [State] 에서 한 번만 시작한다. 예전에는 `build()` 안에서 곧바로
+/// `evaluateOrSearch()` 를 불렀는데, Flutter 는 키보드가 올라오거나 화면이 돌아가는 등
+/// 여러 이유로 `build()` 를 다시 부른다. 그때마다 새 요청이 나갔고 서버는 요청마다
+/// 카카오 대중교통·도보 API 를 불렀다. 분당 호출 제한에 걸릴 수 있다(BE 지적, 2026-09-22).
+class RouteResultsScreen extends StatefulWidget {
   const RouteResultsScreen({
     super.key,
     required this.repository,
@@ -25,17 +31,62 @@ class RouteResultsScreen extends StatelessWidget {
   final RecommendationApi api;
   final RouteSearchCondition? condition;
   final ValueChanged<int>? go;
+
+  @override
+  State<RouteResultsScreen> createState() => _RouteResultsScreenState();
+}
+
+class _RouteResultsScreenState extends State<RouteResultsScreen> {
+  /// 화면이 다시 그려져도 같은 Future 를 본다. 검색 조건이 바뀔 때만 새로 만든다.
+  late Future<RouteEvaluationResult> _result;
+
+  @override
+  void initState() {
+    super.initState();
+    _result = _request();
+  }
+
+  @override
+  void didUpdateWidget(RouteResultsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 조건이 그대로면 다시 부르지 않는다. 같은 화면에 머무는 동안은 요청이 한 번이다.
+    if (!_sameRequest(oldWidget.condition, widget.condition)) {
+      setState(() {
+        _result = _request();
+      });
+    }
+  }
+
+  /// 같은 조회인지 값으로 비교한다.
+  ///
+  /// 객체가 같은지(identity)로 보면 안 된다. 화면을 다시 만들면서 같은 내용의 조건을 새로
+  /// 만들어 넘기는 경우가 있고, 그때 또 서버를 부르면 이 수정의 의미가 없어진다.
+  static bool _sameRequest(RouteSearchCondition? a, RouteSearchCondition? b) {
+    if (a == null || b == null) return a == b;
+    return a.origin.lat == b.origin.lat &&
+        a.origin.lng == b.origin.lng &&
+        a.destination.lat == b.destination.lat &&
+        a.destination.lng == b.destination.lng &&
+        a.plannedDepartAt == b.plannedDepartAt &&
+        a.desiredArrivalAt == b.desiredArrivalAt;
+  }
+
+  Future<RouteEvaluationResult> _request() {
+    final condition = widget.condition;
+    return condition == null
+        ? widget.repository.routes().then(RouteEvaluationResult.candidates)
+        : widget.api.evaluateOrSearch(condition);
+  }
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '추천 결과',
     webTitle: '추천 경로',
     webSubtitle: '도착 시간과 이동 조건을 기준으로 가장 알맞은 경로를 안내해요.',
-    index: go == null ? null : 1,
-    onNav: go,
+    index: widget.go == null ? null : 1,
+    onNav: widget.go,
     child: FutureBuilder<RouteEvaluationResult>(
-      future: condition == null
-          ? repository.routes().then(RouteEvaluationResult.candidates)
-          : api.evaluateOrSearch(condition!),
+      future: _result,
       builder: (c, s) {
         if (s.hasError) {
           return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
@@ -48,8 +99,8 @@ class RouteResultsScreen extends StatelessWidget {
           return ListView(
             padding: screenPadding,
             children: [
-              if (condition != null) ...[
-                _RouteSearchSummary(condition: condition!),
+              if (widget.condition != null) ...[
+                _RouteSearchSummary(condition: widget.condition!),
                 const SizedBox(height: 12),
               ],
               ScheduleEvaluationSummary(evaluation: result.evaluation!),
@@ -80,8 +131,8 @@ class RouteResultsScreen extends StatelessWidget {
         key: const Key('mobileRouteResultsLayout'),
         padding: screenPadding,
         children: [
-          if (condition != null) ...[
-            _RouteSearchSummary(condition: condition!),
+          if (widget.condition != null) ...[
+            _RouteSearchSummary(condition: widget.condition!),
             const SizedBox(height: 12),
           ],
           _candidateGuide,
@@ -103,8 +154,8 @@ class RouteResultsScreen extends StatelessWidget {
         key: const Key('webRouteResultsLayout'),
         padding: screenPadding,
         children: [
-          if (condition != null) ...[
-            _RouteSearchSummary(condition: condition!),
+          if (widget.condition != null) ...[
+            _RouteSearchSummary(condition: widget.condition!),
             const SizedBox(height: 16),
           ],
           Row(
@@ -141,9 +192,9 @@ class RouteResultsScreen extends StatelessWidget {
   void _openRouteMap(BuildContext context, RouteOption route) => openPage(
     context,
     RouteMapScreen(
-      repository: repository,
+      repository: widget.repository,
       selectedRoute: route,
-      condition: condition,
+      condition: widget.condition,
     ),
   );
 

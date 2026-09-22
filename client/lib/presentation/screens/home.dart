@@ -13,7 +13,14 @@ import '../departure_headline.dart';
 import '../../domain/schedule_evaluation.dart';
 import 'shared.dart';
 
-class HomeScreen extends StatelessWidget {
+/// 홈 화면.
+///
+/// 조회를 [State] 에서 한 번만 시작하고, 필요할 때만 다시 읽는다. 예전에는 `build()`
+/// 안에서 곧바로 서버를 불렀다. 그러면 두 가지가 같이 어긋난다.
+///  - 다시 그려질 때마다 요청이 나간다.
+///  - 정작 필요한 때(일정을 고치고 돌아왔을 때)는 다시 그려지지 않아 옛 값이 남는다.
+/// 실제로 "수정했는데 홈에 안 뜬다" 는 제보가 있었다(2026-09-22).
+class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.homeApi,
@@ -30,22 +37,62 @@ class HomeScreen extends StatelessWidget {
   final ScheduleRepository? scheduleRepository;
   final ValueChanged<int>? go;
 
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late Future<_HomeData> _data;
+
+  /// 다른 날 목록을 다시 읽으라고 아래쪽에 알리는 값. 늘릴 때마다 새로 읽는다.
+  int _browseGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = _load();
+  }
+
+  /// 홈을 처음부터 다시 읽는다. 다른 날 목록도 같이 버린다.
+  Future<void> _reload() async {
+    final next = _load();
+    setState(() {
+      _data = next;
+      _browseGeneration++;
+    });
+    await next;
+  }
+
+  /// 일정 화면을 열고, 돌아오면 홈을 다시 읽는다.
+  ///
+  /// 일정 상세는 홈 위에 얹히는 방식이라 뒤로 나와도 홈이 스스로 다시 그려지지 않는다.
+  /// 그래서 수정·완료한 내용이 홈에 그대로 남았다. 돌아온 시점을 여기서 잡는다.
+  Future<void> _openAndRefresh(
+    BuildContext context,
+    String location, {
+    Object? extra,
+  }) async {
+    await context.push<void>(location, extra: extra);
+    if (mounted) await _reload();
+  }
+
   Future<_HomeData> _load() async {
+    final homeApi = widget.homeApi;
+    final evaluationRepository = widget.evaluationRepository;
+    final recommendationApi = widget.recommendationApi;
     final summary = await homeApi.getSummary();
     RecommendationOverview? recommendation;
     ScheduleEvaluationV2? evaluation;
     final schedule = summary.nextSchedule;
     if (schedule != null && evaluationRepository != null) {
       try {
-        evaluation = await evaluationRepository!.latestEvaluation(schedule.id);
+        evaluation = await evaluationRepository.latestEvaluation(schedule.id);
       } on Object {
         evaluation = null;
       }
     } else if (schedule != null && recommendationApi != null) {
       try {
-        recommendation = await recommendationApi!.getLatestOverview(
-          schedule.id,
-        );
+        recommendation = await recommendationApi.getLatestOverview(schedule.id);
       } on Object {
         recommendation = null;
       }
@@ -62,8 +109,8 @@ class HomeScreen extends StatelessWidget {
     title: '안녕하세요! 🌱',
     webTitle: '이동 대시보드',
     webSubtitle: '오늘 일정과 추천 출발 시간, 교통 상태를 한눈에 확인하세요.',
-    index: go == null ? null : 2,
-    onNav: go,
+    index: widget.go == null ? null : 2,
+    onNav: widget.go,
     actions: [
       IconButton(
         key: const Key('manageRepeatSchedulesButton'),
@@ -78,10 +125,20 @@ class HomeScreen extends StatelessWidget {
       ),
     ],
     child: FutureBuilder<_HomeData>(
-      future: _load(),
+      future: _data,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const DataLoadError(message: '홈 정보를 불러오지 못했어요.');
+          // 실패해도 다시 읽을 길을 남긴다. 예전에는 문구만 있어 앱을 껐다 켜야 했다.
+          return RefreshIndicator(
+            onRefresh: _reload,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                DataLoadError(message: '홈 정보를 불러오지 못했어요.\n아래로 당기면 다시 시도해요.'),
+              ],
+            ),
+          );
         }
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -97,19 +154,27 @@ class HomeScreen extends StatelessWidget {
           builder: (context, constraints) {
             final isWide =
                 constraints.maxWidth >= LayoutConstants.wideScreenBreakpoint;
-            return isWide
-                ? _WebHomeContent(
-                    routes: routes,
-                    summary: data.summary,
-                    evaluation: data.evaluation,
-                  )
-                : _MobileHomeContent(
-                    schedules: data.summary.todaySchedules,
-                    scheduleRepository: scheduleRepository,
-                    routes: routes,
-                    evaluation: data.evaluation,
-                    scheduleId: schedule?.id,
-                  );
+            if (isWide) {
+              return _WebHomeContent(
+                routes: routes,
+                summary: data.summary,
+                evaluation: data.evaluation,
+              );
+            }
+            // 아래로 당겨 새로 고침. 알림이 와서 우연히 다시 그려지기를 기다리지 않아도 된다.
+            return RefreshIndicator(
+              onRefresh: _reload,
+              child: _MobileHomeContent(
+                key: ValueKey(_browseGeneration),
+                schedules: data.summary.todaySchedules,
+                scheduleRepository: widget.scheduleRepository,
+                routes: routes,
+                evaluation: data.evaluation,
+                scheduleId: schedule?.id,
+                openSchedule: (location, {extra}) =>
+                    _openAndRefresh(context, location, extra: extra),
+              ),
+            );
           },
         );
       },
@@ -156,14 +221,21 @@ class _HomeData {
   final ScheduleEvaluationV2? evaluation;
 }
 
+typedef _OpenSchedule = Future<void> Function(String location, {Object? extra});
+
 class _MobileHomeContent extends StatefulWidget {
   const _MobileHomeContent({
+    super.key,
     required this.schedules,
     required this.routes,
+    required this.openSchedule,
     this.scheduleRepository,
     this.evaluation,
     this.scheduleId,
   });
+
+  /// 일정 화면을 열고 돌아오면 홈을 다시 읽는 통로.
+  final _OpenSchedule openSchedule;
 
   final List<Schedule> schedules;
 
@@ -202,27 +274,32 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
       _selected.month,
       _selected.day + days,
     );
-    if (_browsed == null) {
-      setState(() {
-        _loading = true;
-        _failed = false;
-      });
-      List<Schedule>? loaded;
-      try {
-        loaded = await widget.scheduleRepository!.schedules();
-      } on Object {
-        loaded = null;
-      }
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _browsed = loaded;
-        _failed = loaded == null;
-        if (loaded != null) _selected = next;
-      });
-      return;
+    // 한 번 읽고 마는 게 아니라 날짜를 옮길 때마다 다시 읽는다. 예전에는 처음 한 번만
+    // 읽어서, 그 뒤에 일정을 고쳐도 홈의 다른 날 목록이 계속 옛 값을 보여줬다.
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    List<Schedule>? loaded;
+    try {
+      loaded = await widget.scheduleRepository!.schedules();
+    } on Object {
+      loaded = null;
     }
-    setState(() => _selected = next);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (loaded != null) {
+        _browsed = loaded;
+        _failed = false;
+        _selected = next;
+      } else {
+        // 못 읽었으면 날짜를 옮기지 않는다. 옮겨 놓고 빈 화면을 보여주면 일정이
+        // 없는 날로 오해한다. 이미 읽어 둔 게 있으면 그건 그대로 쓴다.
+        _failed = _browsed == null;
+        if (_browsed != null) _selected = next;
+      }
+    });
   }
 
   void _backToToday() {
@@ -233,6 +310,9 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
   List<Schedule> _schedulesOn(DateTime day) {
     final source = _browsed ?? widget.schedules;
     return source
+        // 취소한 일정은 보이지 않아야 한다. 서버 목록 API 는 상태를 안 주면 취소분까지
+        // 돌려주므로 여기서 거른다. 홈 요약(오늘치)은 서버가 이미 걸러 준다.
+        .where((schedule) => !schedule.isCanceled)
         .where((schedule) => _dayOf(schedule.date) == day)
         .toList(growable: false)
       ..sort((a, b) => a.date.compareTo(b.date));
@@ -246,6 +326,8 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
       color: const Color(0xFFF7FBFA),
       child: ListView(
         key: const Key('todayScheduleList'),
+        // 내용이 한 화면에 들어와도 아래로 당길 수 있어야 새로 고침이 걸린다.
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(18, 6, 18, 28),
         children: [
           const Text(
@@ -291,7 +373,8 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
               compact: true,
               onTap: widget.scheduleId == null
                   ? null
-                  : () => context.push('/schedules/${widget.scheduleId}'),
+                  : () =>
+                        widget.openSchedule('/schedules/${widget.scheduleId}'),
             ),
             const SizedBox(height: 16),
           ],
@@ -362,7 +445,8 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
               ),
               const SizedBox(width: 10),
               OutlinedButton.icon(
-                onPressed: () => context.push('/schedules/new', extra: now),
+                onPressed: () =>
+                    widget.openSchedule('/schedules/new', extra: now),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('일정 추가'),
                 style: OutlinedButton.styleFrom(
@@ -387,6 +471,7 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
           else
             for (var index = 0; index < today.length; index++) ...[
               _TodayScheduleCard(
+                openSchedule: widget.openSchedule,
                 schedule: today[index],
                 routes: widget.routes,
                 index: index,
@@ -404,10 +489,14 @@ class _TodayScheduleCard extends StatelessWidget {
     required this.schedule,
     required this.routes,
     required this.index,
+    required this.openSchedule,
   });
   final Schedule schedule;
   final List<RouteOption> routes;
   final int index;
+
+  /// 일정을 열고 돌아오면 홈을 다시 읽는 통로.
+  final _OpenSchedule openSchedule;
 
   @override
   Widget build(BuildContext context) {
@@ -424,102 +513,120 @@ class _TodayScheduleCard extends StatelessWidget {
       Icons.fitness_center_rounded,
     ];
     final tone = tones[index % tones.length];
-    return Material(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: DdubiColors.green.withValues(alpha: .22)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: Key('todaySchedule-${schedule.id}'),
-        onTap: () => context.push(
-          '/schedules/${schedule.id}',
-          extra: ScheduleDetailArguments(schedule: schedule),
+    return Opacity(
+      // 끝난 일정은 흐리게. 아직 남은 일정이 먼저 눈에 들어와야 한다.
+      opacity: ScheduleStatusBadge.opacityFor(schedule.status),
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: DdubiColors.green.withValues(alpha: .22)),
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          child: Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: tone.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: Key('todaySchedule-${schedule.id}'),
+          // 끝난 일정은 흐리게. 아직 남은 일정이 먼저 눈에 들어와야 한다.
+          onTap: () => openSchedule(
+            '/schedules/${schedule.id}',
+            extra: ScheduleDetailArguments(schedule: schedule),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            child: Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: tone.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icons[index % icons.length], color: tone),
                 ),
-                child: Icon(icons[index % icons.length], color: tone),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      schedule.time,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF1B43A6),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      schedule.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                        color: DdubiColors.navy,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.location_on,
-                          size: 14,
-                          color: Color(0xFF8391A8),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        schedule.time,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1B43A6),
                         ),
-                        const SizedBox(width: 3),
-                        Expanded(
-                          child: Text(
-                            schedule.place,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF718098),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              schedule.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w900,
+                                color: DdubiColors.navy,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F8F2),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Text(
-                  '예정',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: DdubiColors.green,
+                          if (ScheduleStatusBadge.shows(schedule.status)) ...[
+                            const SizedBox(width: 6),
+                            ScheduleStatusBadge(schedule.status),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            size: 14,
+                            color: Color(0xFF8391A8),
+                          ),
+                          const SizedBox(width: 3),
+                          Expanded(
+                            child: Text(
+                              schedule.place,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF718098),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.chevron_right_rounded, color: Color(0xFF1D3F8E)),
-            ],
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F8F2),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Text(
+                    '예정',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: DdubiColors.green,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFF1D3F8E),
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -9,6 +9,7 @@ import '../../services/app_api.dart';
 import '../../services/recommendation_api.dart';
 import '../widgets.dart';
 import '../departure_headline.dart';
+import '../arrival_flow.dart';
 import '../recommendation_guide_card.dart';
 import '../schedule_evaluation_card.dart';
 import '../../domain/schedule_evaluation.dart';
@@ -16,6 +17,7 @@ import '../../domain/route_evaluated_numbers.dart';
 import '../../domain/saved_route_display.dart';
 import '../../domain/transit_reference.dart';
 import '../transit_reference_panel.dart';
+import '../travel_conditions_card.dart';
 import '../../core/diagnostics/developer_diagnostics.dart';
 import 'map.dart';
 import 'schedule_form.dart';
@@ -29,6 +31,7 @@ class ScheduleDetailScreen extends StatelessWidget {
     this.recommendationApi,
     required this.scheduleId,
     required this.arrivalApi,
+    required this.userApi,
     this.initialSchedule,
     this.initialRoutes,
   });
@@ -37,6 +40,10 @@ class ScheduleDetailScreen extends StatelessWidget {
   final RecommendationApi? recommendationApi;
   final String scheduleId;
   final ArrivalApi arrivalApi;
+
+  /// 이동 기록 저장 동의를 켜는 데만 쓴다. 계정 동의가 꺼져 있으면 서버가 도착 시각을 버려서
+  /// 판정이 나오지 않기 때문에, 도착 시각을 남기기로 한 경우에만 함께 켠다.
+  final UserApi userApi;
   final Schedule? initialSchedule;
   final List<RouteOption>? initialRoutes;
 
@@ -180,7 +187,9 @@ class ScheduleDetailScreen extends StatelessWidget {
     bool routesUnavailable = false,
   }) {
     return AppPage(
-      title: '일정 상세',
+      // 맨 위 일정 정보 카드를 없앤 자리다. 제목이 사라지면 어느 일정인지 알 수 없어
+      // 상단 바가 일정 이름을 든다.
+      title: schedule.title,
       child: RefreshIndicator(
         onRefresh: () async => reload?.call(),
         child: EvaluationHeadlineScope(
@@ -190,85 +199,77 @@ class ScheduleDetailScreen extends StatelessWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFD5E6FA)),
-                ),
+              // 없앤 일정 정보 카드에서 꼭 필요한 것만 한 줄로 남긴다. 언제 어디로 가는
+              // 일정인지 모르면 아래 추천이 무엇에 대한 것인지 알 수 없다.
+              Padding(
+                key: const Key('scheduleDetailSubtitle'),
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Row(
                   children: [
-                    Container(
-                      width: 58,
-                      height: 58,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE9F1FF),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(
-                        Icons.work_rounded,
-                        color: Color(0xFF3C73DD),
-                        size: 30,
+                    const Icon(
+                      Icons.schedule_rounded,
+                      size: 15,
+                      color: Color(0xFF5C6B7F),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '${formatFullDate(schedule.date)} ${schedule.time} 도착',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF4A5B70),
                       ),
                     ),
-                    const SizedBox(width: 13),
+                    const SizedBox(width: 10),
+                    const Icon(
+                      Icons.location_on_outlined,
+                      size: 15,
+                      color: Color(0xFF5C6B7F),
+                    ),
+                    const SizedBox(width: 3),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            schedule.title,
-                            style: const TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.w900,
-                              color: DdubiColors.navy,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            '${formatFullDate(schedule.date)}  ${schedule.time}',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF415A89),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.location_on_outlined,
-                                size: 16,
-                                color: Color(0xFF516A98),
-                              ),
-                              const SizedBox(width: 3),
-                              Expanded(
-                                child: Text(
-                                  schedule.place,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF516A98),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      child: Text(
+                        schedule.place,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF4A5B70),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-              // 사용자가 가장 먼저 알고 싶은 "몇 시에 나가면 되는지"를 맨 위에 둔다.
-              if (repository is ScheduleEvaluationRepository) ...[
+              // 이미 다녀왔거나 취소한 일정에 "몇 시에 나가세요" 를 띄우지 않는다.
+              // 대신 무엇이 끝났는지만 알린다.
+              if (ScheduleStatusBadge.shows(schedule.status)) ...[
+                InfoCard(
+                  key: const Key('scheduleFinishedNotice'),
+                  child: Row(
+                    children: [
+                      ScheduleStatusBadge(schedule.status),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          schedule.isCanceled
+                              ? '취소한 일정이에요. 출발 안내는 하지 않아요.'
+                              : '도착을 기록한 일정이에요. 출발 안내는 끝났어요.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF4A5B70),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ] else if (repository is ScheduleEvaluationRepository) ...[
                 ValueListenableBuilder<ScheduleEvaluationV2?>(
                   valueListenable: headline,
                   builder: (_, value, _) =>
-                      DepartureHeadline(evaluation: value),
+                      DepartureHeadline(evaluation: value, emphasized: true),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -432,15 +433,6 @@ class ScheduleDetailScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                // 계산 근거(내부 사유 코드) 대신 사용자가 행동할 수 있는 안내를 보여준다.
-                // 시간과 순서는 서버 계산값이고 앱은 받은 값을 그대로 쓴다.
-                if (recommendationApi != null)
-                  RecommendationGuideCard(
-                    api: recommendationApi!,
-                    scheduleId: schedule.id,
-                    headline: headline,
-                  ),
               ],
               const SizedBox(height: 16),
               _LiveSavedRouteList(
@@ -461,15 +453,42 @@ class ScheduleDetailScreen extends StatelessWidget {
                       ),
               ),
               const SizedBox(height: 16),
-              // 네 칸 모두 "확인 필요"만 나오던 자리다. 값이 붙기 전까지는 한 줄로만 알린다.
-              const InfoCard(
-                child: Text(
-                  '오늘의 이동 변수(혼잡도·도로 통제·지하철 지연)는 아직 확인되지 않았어요.',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF5A6B85)),
+              // 계산 근거(내부 사유 코드) 대신 사용자가 행동할 수 있는 안내를 보여준다.
+              // 시간과 순서는 서버 계산값이고 앱은 받은 값을 그대로 쓴다.
+              // 예전에는 이 카드가 경로 목록 위에 있었고, 옆에 내용 없는 "이 일정에 맞춰"
+              // 카드가 따로 있었다. 둘을 한 장으로 합치고 경로 목록 아래로 내렸다.
+              // 끝난 일정에는 안내를 띄우지 않는다. 이미 다녀온 일정에 "이 경로를 제안해요"
+              // 나 "안내를 불러오지 못했어요" 가 뜨면 아직 할 일이 남은 것처럼 읽힌다.
+              if (recommendationApi != null &&
+                  !ScheduleStatusBadge.shows(schedule.status)) ...[
+                RecommendationGuideCard(
+                  api: recommendationApi!,
+                  scheduleId: schedule.id,
+                  headline: headline,
+                  evaluationRepository:
+                      repository is ScheduleEvaluationRepository
+                      ? repository as ScheduleEvaluationRepository
+                      : null,
                 ),
-              ),
-              const SizedBox(height: 14),
-              if (repository is ScheduleEvaluationRepository)
+                const SizedBox(height: 16),
+              ],
+              // 한 줄이던 자리다. 한 줄이면 무엇이 되고 무엇이 안 되는지 알 수 없어서
+              // 칸을 넷으로 나눴다.
+              //
+              // 끝난 일정에는 띄우지 않는다. 이 값은 "지금" 의 날씨·혼잡도라서 어제 다녀온
+              // 일정 옆에 붙으면 그때의 상황으로 오해한다.
+              if (!ScheduleStatusBadge.shows(schedule.status)) ...[
+                TravelConditionsCard(
+                  scheduleId: schedule.id,
+                  service: recommendationApi,
+                ),
+                const SizedBox(height: 14),
+              ],
+              // 끝난 일정에는 이동 예측을 띄우지 않는다. 다시 계산할 것이 없다.
+              // else 로 흘러 "서버 예측에 연결되지 않았습니다" 가 뜨면 고장으로 읽힌다.
+              if (ScheduleStatusBadge.shows(schedule.status))
+                const SizedBox.shrink()
+              else if (repository is ScheduleEvaluationRepository)
                 // 개발자 진단(원본 코드·버전)은 디버그 빌드나 더보기 > 개발자 옵션을 켠 경우에만 붙는다.
                 ValueListenableBuilder<bool>(
                   valueListenable: DeveloperDiagnostics.enabled,
@@ -477,6 +496,8 @@ class ScheduleDetailScreen extends StatelessWidget {
                     repository: repository as ScheduleEvaluationRepository,
                     scheduleId: schedule.id,
                     developerDiagnostics: diagnostics,
+                    // 같은 버튼이 위 안내 카드에 있다. 두 곳에 두면 서로 다른 단추로 읽힌다.
+                    showActions: false,
                     headline: headline,
                   ),
                 )
@@ -605,6 +626,8 @@ class ScheduleDetailScreen extends StatelessWidget {
         destinationLabel: savedRoute.toName ?? schedule.place,
         displayRank: displayRank,
         evaluated: evaluated,
+        scheduleId: schedule.id,
+        departedAlready: schedule.hasDeparted,
       ),
     );
   }
@@ -623,36 +646,17 @@ class ScheduleDetailScreen extends StatelessWidget {
         ScheduleCommandFailureKind.unknown => '일정을 취소하지 못했어요. 잠시 후 다시 시도해주세요.',
       };
 
+  /// 도착 보고. 확인 창과 서버 호출은 [recordArrivalWithConsent] 한 곳에 있다 —
+  /// 이동 안내의 "도착했어요" 와 같은 흐름을 쓰기 위해서다.
   Future<void> _recordArrival(BuildContext context, Schedule schedule) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('도착을 완료할까요?'),
-        content: const Text('위치 정보 없이 일정만 완료하고 이동 기록을 남깁니다.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('완료'),
-          ),
-        ],
-      ),
+    final record = await recordArrivalWithConsent(
+      context,
+      scheduleId: schedule.id,
+      arrivalApi: arrivalApi,
+      userApi: userApi,
     );
-    if (confirmed != true) return;
-    try {
-      await arrivalApi.record(schedule.id);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('도착 기록을 저장했어요.')));
-      context.go('/schedules');
-    } on Object {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('도착 기록을 저장하지 못했어요.')));
-    }
+    if (record == null || !context.mounted) return;
+    context.go('/schedules');
   }
 }
 
@@ -732,11 +736,17 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
 
   void _onEvaluation() {
     final value = widget.headline.value;
-    if (value != null && mounted && !_sameEstimates(value.candidateEstimates)) {
-      setState(() {
-        _estimates = value.candidateEstimates;
-        _evaluation = value;
-      });
+    if (value != null && mounted) {
+      // 후보의 경로·소요시간·제안 여부가 같아도 평가 자체는 바뀔 수 있다. 구간별 시간
+      // 출처, 실시간 원인, 계산 시각 같은 것들이다. 예전에는 후보가 같으면 평가 객체를
+      // 통째로 안 바꿔서 상세 카드와 지도에 낡은 구간 정보가 남았다(BE 지적, 2026-09-22).
+      final estimatesChanged = !_sameEstimates(value.candidateEstimates);
+      if (estimatesChanged || _isNewEvaluation(value)) {
+        setState(() {
+          _estimates = value.candidateEstimates;
+          _evaluation = value;
+        });
+      }
     }
     final computedAt = widget.headline.value?.computedAt;
     if (computedAt == null) return;
@@ -748,6 +758,16 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
       return;
     }
     _reload();
+  }
+
+  /// 들고 있는 것과 다른 계산인가. 계산 id 가 우선이고, 없으면 계산 시각으로 본다.
+  bool _isNewEvaluation(ScheduleEvaluationV2 next) {
+    final current = _evaluation;
+    if (current == null) return true;
+    if (next.evaluationId != null || current.evaluationId != null) {
+      return next.evaluationId != current.evaluationId;
+    }
+    return next.computedAt != current.computedAt;
   }
 
   bool _sameEstimates(List<EvaluationCandidateEstimate> next) {

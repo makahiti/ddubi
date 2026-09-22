@@ -54,3 +54,28 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 저장소에 들여온 외부 패키지 사본의 잠금 파일. path 의존이라 앱의 잠금 파일이
+# 기준이 되고 이 파일은 쓰이지 않는다. flutter 명령을 그 폴더에서 돌리면 생긴다.
+packages/*/pubspec.lock
+
+# ---------------------------------------------------------------------------
+# 저장소에 들여온 외부 패키지 사본 (client/packages/)
+#
+# 최상위 .gitignore 의 data/ 규칙이 패키지 안의 data 폴더를 통째로 삼켜, 파일 25개가
+# 올라가지 않았다. 내 컴퓨터에는 파일이 있어 빌드가 됐지만 새로 받은 곳에서는
+# 컴파일조차 되지 않았다(2026-09-22).
+#
+# 폴더를 먼저 되살려야 안의 파일이 보인다. 폴더가 제외된 상태에서는 git 이 그 안으로
+# 들어가지 않아 파일 단위 예외가 통하지 않는다.
+# ---------------------------------------------------------------------------
+!packages/
+!packages/**
+
+# 되살린 뒤 다시 빼는 것 — 만들어지는 파일들이다.
+packages/*/pubspec.lock
+packages/*/.dart_tool/
+packages/*/build/
+packages/*/android/build/
+packages/*/android/.gradle/
+packages/*/android/local.properties

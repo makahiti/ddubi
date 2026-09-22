@@ -51,6 +51,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _nightBriefingBusy = false;
   bool _briefingBusy = false;
 
+  /// 저장 직후의 이동 기록 저장 동의. 서버 값을 다시 읽기 전까지 스위치가 되돌아가지 않게 둔다.
+  bool? _historyConsent;
+  bool _historyConsentBusy = false;
+
   @override
   void initState() {
     super.initState();
@@ -143,6 +147,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _nightBriefingCard(context, user),
             const SizedBox(height: 14),
             _mobileServiceStatus(context),
+            const SizedBox(height: 14),
+            _historyConsentCard(user),
             const SizedBox(height: 14),
             _travelHistoryPreview(context),
             const SizedBox(height: 14),
@@ -274,6 +280,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _serviceStatus(context),
                 const SizedBox(height: 16),
+                _historyConsentCard(user),
+                const SizedBox(height: 14),
                 _travelHistoryPreview(context),
                 const SizedBox(height: 16),
                 _accountActionsCard(context),
@@ -1256,6 +1264,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     ),
   );
+
+  /// 이동 기록 저장 동의 스위치.
+  ///
+  /// 서버는 이 계정 동의와 도착 보고에 실린 동의가 **둘 다** 참일 때만 실제 도착 시각을 저장하고,
+  /// 저장한 시각이 있어야 정시·빠듯·지연을 판정한다. 그래서 이 스위치가 꺼져 있으면 이동 기록이
+  /// 전부 "판정 없음" 으로 남고 리포트의 정시율도 0% 로 보인다. 앱에 이 스위치가 아예 없어서
+  /// 사용자가 켤 방법이 없던 것이 그 증상의 원인이었다(2026-09-22 확인).
+  ///
+  /// 끄더라도 이미 저장된 기록은 서버가 지우지 않는다. 문구에서 그렇게 약속하지 않는다.
+  Widget _historyConsentCard(UserProfile user) {
+    final value = _historyConsent ?? user.historyConsented;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: SwitchListTile(
+        key: const Key('historyConsentSwitch'),
+        value: value,
+        onChanged: _historyConsentBusy ? null : _saveHistoryConsent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 17, vertical: 6),
+        title: const Text(
+          '이동 기록 저장',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text(
+          '도착 완료를 누를 때 도착 시각을 함께 남겨요. 켜야 정시·빠듯·지연을 판정하고 리포트에 쓸 수 있어요. 끄면 이후 기록만 판정하지 않고, 이미 남긴 기록은 그대로 둬요.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveHistoryConsent(bool value) async {
+    setState(() => _historyConsentBusy = true);
+    try {
+      final updated = await widget.userApi.update(historyConsent: value);
+      if (!mounted) return;
+      setState(() => _historyConsent = updated.historyConsented);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(value ? '앞으로 도착 시각을 함께 남길게요.' : '이제 도착 시각은 남기지 않아요.'),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이동 기록 저장 설정을 저장하지 못했어요.')));
+    } finally {
+      if (mounted) setState(() => _historyConsentBusy = false);
+    }
+  }
 
   /// 개발자 옵션. 켜면 일정 상세의 이동 예측 카드에 모델 버전·적용 여부·원본 코드가 붙는다.
   /// 디버그 빌드는 기본 켜짐, 릴리스는 기본 꺼짐이며 앱을 다시 시작하면 빌드 기본값으로 돌아간다.

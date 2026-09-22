@@ -680,10 +680,9 @@ packages:
   kakao_maps_flutter:
     dependency: "direct main"
     description:
-      name: kakao_maps_flutter
-      sha256: "239b132bdd72e8281f7bd503715823d0f36a0f5533a0c951668d880fe6a3c8a6"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/kakao_maps_flutter"
+      relative: true
+    source: path
     version: "0.2.2"
   leak_tracker:
     dependency: transitive

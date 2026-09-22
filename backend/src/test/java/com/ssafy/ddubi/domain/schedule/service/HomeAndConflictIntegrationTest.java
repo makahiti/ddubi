@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.ssafy.ddubi.domain.schedule.dto.request.LocationRequest;
 import com.ssafy.ddubi.domain.schedule.dto.request.ScheduleCreateRequest;
 import com.ssafy.ddubi.domain.schedule.dto.response.HomeResponse;
+import com.ssafy.ddubi.domain.schedule.entity.Schedule;
+import com.ssafy.ddubi.domain.schedule.repository.ScheduleRepository;
 import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.util.BusinessTime;
@@ -29,6 +31,7 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
     @Autowired private ScheduleConflictService conflictService;
     @Autowired private ScheduleService scheduleService;
     @Autowired private UserRepository userRepository;
+    @Autowired private ScheduleRepository scheduleRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     private Long userId;
@@ -43,10 +46,13 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
         base = BusinessTime.now().plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0);
     }
 
-    private void schedule(
+    private Long schedule(
             String title, LocationRequest origin, LocationRequest dest, LocalDateTime arriveBy) {
-        scheduleService.create(
-                userId, new ScheduleCreateRequest(title, origin, dest, arriveBy, null, null));
+        return scheduleService
+                .create(
+                        userId,
+                        new ScheduleCreateRequest(title, origin, dest, arriveBy, null, null))
+                .id();
     }
 
     // ------------------------------------------------------------------
@@ -119,6 +125,37 @@ class HomeAndConflictIntegrationTest extends IntegrationTestSupport {
         assertThat(home.unreadNotificationCount()).isZero();
         // 파이프라인 활성화 이력이 없는 초기 상태.
         assertThat(home.dataState()).isEqualTo("UNKNOWN");
+    }
+
+    /**
+     * 홈에서 완료한 일정이 사라지던 버그를 막는다.
+     *
+     * <p>앱은 홈을 열 때 이 API 를, 날짜 화살표로 옮길 때는 목록 API 를 쓴다. 이 API 가 UPCOMING 만 주면 같은 날짜인데 두 화면이 서로 다른
+     * 목록을 보여준다 — 홈을 다시 누를 때마다 완료한 일정이 나타났다 사라진다.
+     */
+    @Test
+    @DisplayName("오늘 목록에 완료된 일정은 남고 취소된 일정만 빠진다")
+    void todayKeepsDoneDropsCanceled() {
+        Long done = schedule("끝난 회의", GANGNAM, GANGNAM, base);
+        Long canceled = schedule("접은 약속", GANGNAM, GANGNAM, base.plusHours(1));
+        schedule("남은 일정", GANGNAM, GANGNAM, base.plusHours(2));
+        // 이 검사는 트랜잭션 안에서 돌지 않는다(@SpringBootTest 만 있고 @Transactional 이 없다).
+        // findById 로 꺼낸 일정은 영속 상태가 아니라서, 상태만 바꾸고 flush 해도 DB 에 남지
+        // 않는다. 그래서 취소한 일정이 그대로 조회돼 이 검사가 깨졌다. 저장까지 해야 한다.
+        Schedule doneSchedule = scheduleRepository.findById(done).orElseThrow();
+        doneSchedule.markDone();
+        scheduleRepository.save(doneSchedule);
+
+        Schedule canceledSchedule = scheduleRepository.findById(canceled).orElseThrow();
+        canceledSchedule.cancel();
+        scheduleRepository.save(canceledSchedule);
+        scheduleRepository.flush();
+
+        HomeResponse home = homeService.summary(userId, base.minusHours(1));
+
+        assertThat(home.todaySchedules()).extracting("title").containsExactly("끝난 회의", "남은 일정");
+        // 다음 일정은 여전히 아직 안 지난 UPCOMING 이어야 한다 — 완료한 일정을 다시 안내하지 않는다.
+        assertThat(home.nextSchedule().title()).isEqualTo("남은 일정");
     }
 
     @Test

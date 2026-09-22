@@ -32,6 +32,26 @@ void main() {
         ...extra,
       });
 
+  // GMS 를 붙인 핵심 결과다. 앱이 두 필드를 읽지 않아 "왜 이 경로인지" 가 화면에
+  // 나오지 않았다(BE 지적, 2026-09-22).
+  test('변경 유형과 추천 사유를 읽는다', () {
+    final guide = parse({
+      'changeType': 'ROUTE_CHANGED',
+      'recommendationReason': '도로 통제 영향 구간을 피해 다른 경로를 제안해요.',
+      'delay': {'status': 'NO_CONFIRMED_DELAY'},
+    });
+    expect(guide.changeType, 'ROUTE_CHANGED');
+    expect(guide.recommendationReason, '도로 통제 영향 구간을 피해 다른 경로를 제안해요.');
+  });
+
+  test('변경 유형과 사유가 없으면 지어내지 않는다', () {
+    final guide = parse({
+      'delay': {'status': 'NO_CONFIRMED_DELAY'},
+    });
+    expect(guide.changeType, isNull);
+    expect(guide.recommendationReason, isNull);
+  });
+
   test('시각은 표기 없는 한국 시각과 UTC 를 모두 지역 시각으로 맞춘다', () {
     final guide = parse({
       'delay': {'status': 'NO_CONFIRMED_DELAY'},

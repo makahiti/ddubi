@@ -172,6 +172,7 @@ class Schedule {
     this.repeatId,
     this.updatedAt,
     this.status = ScheduleStatus.upcoming,
+    this.actualDepartAt,
   });
 
   final String id;
@@ -192,6 +193,13 @@ class Schedule {
 
   final DateTime? updatedAt;
   final ScheduleStatus status;
+
+  /// 사용자가 "출발했어요" 를 눌러 서버가 기록한 실제 출발 시각. 눌렀는지 여부를 앱을 껐다
+  /// 켜도 알 수 있는 유일한 값이다 — 화면 안의 임시 상태로만 두면 뒤로 나가는 순간 사라진다.
+  final DateTime? actualDepartAt;
+
+  /// 이미 출발을 알린 일정인지.
+  bool get hasDeparted => actualDepartAt != null;
 
   bool get isCanceled => status == ScheduleStatus.canceled;
 
@@ -234,6 +242,7 @@ class Schedule {
     repeatId: json['repeatId']?.toString(),
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
     status: ScheduleStatus.fromApi(json['status']?.toString()),
+    actualDepartAt: DateTime.tryParse(json['actualDepartAt'] as String? ?? ''),
   );
 
   Map<String, dynamic> toCreateRequestJson() => {
@@ -274,6 +283,7 @@ class Schedule {
     repeatId: repeatId,
     updatedAt: updatedAt ?? this.updatedAt,
     status: status,
+    actualDepartAt: actualDepartAt,
   );
 }
 
@@ -498,6 +508,7 @@ class UserProfile {
     this.briefingTime,
     this.nightBriefingTime,
     this.provider,
+    this.historyConsented = false,
   });
 
   final String id;
@@ -516,6 +527,13 @@ class UserProfile {
 
   final String? provider;
 
+  /// 이동 기록(실제 도착 시각) 저장에 동의했는지.
+  ///
+  /// 서버는 동의한 **시각**(`historyConsentedAt`)을 주고, 값이 없으면 동의하지 않은 것이다.
+  /// 이 값이 false 면 서버는 도착 보고를 받아도 실제 도착 시각을 저장하지 않고, 그러면
+  /// 정시·빠듯·지연 판정도 나오지 않아 기록이 전부 "판정 없음" 이 된다.
+  final bool historyConsented;
+
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
     id: json['id'].toString(),
     email: json['email'] as String?,
@@ -525,6 +543,7 @@ class UserProfile {
     briefingTime: _hourMinuteOrNull(json['briefingTime']?.toString()),
     nightBriefingTime: _hourMinuteOrNull(json['nightBriefingTime']?.toString()),
     provider: json['provider']?.toString(),
+    historyConsented: json['historyConsentedAt'] != null,
   );
 }
 
@@ -541,13 +560,20 @@ class ArrivalRecord {
     required this.reportDetailId,
     this.actualArrival,
     this.result,
+    this.plannedDepart,
   });
 
   final String scheduleId;
   final String status;
   final String reportDetailId;
   final DateTime? actualArrival;
+
+  /// 'ON_TIME' · 'TIGHT' · 'LATE_RISK'. null 이면 판정하지 않았다는 뜻이다 —
+  /// 도착 시각을 남기지 않으면 서버가 비교할 근거가 없어 여기가 비어서 온다.
   final String? result;
+
+  /// 서버가 기록해 둔 계획 출발 시각. 추천이 없던 일정은 비어 있다.
+  final DateTime? plannedDepart;
 
   factory ArrivalRecord.fromJson(Map<String, dynamic> json) => ArrivalRecord(
     scheduleId: json['scheduleId'].toString(),
@@ -555,6 +581,7 @@ class ArrivalRecord {
     reportDetailId: json['reportDetailId'].toString(),
     actualArrival: DateTime.tryParse(json['actualArrival'] as String? ?? ''),
     result: json['result'] as String?,
+    plannedDepart: DateTime.tryParse(json['plannedDepart'] as String? ?? ''),
   );
 }
 

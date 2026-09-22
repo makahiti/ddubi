@@ -9,6 +9,8 @@ class RecommendationGuide {
     required this.headline,
     required this.routeSummary,
     required this.steps,
+    this.changeType,
+    this.recommendationReason,
     required this.delay,
     this.minimumFareWon,
     this.maximumFareWon,
@@ -24,6 +26,14 @@ class RecommendationGuide {
 
   final String? headline;
   final String? routeSummary;
+
+  /// 서버가 확정한 변경 유형. GMS 가 만드는 값이 아니라 서버 판정이다.
+  /// ROUTE_CHANGED · DEPARTURE_TIME_CHANGED · ETA_UPDATED · NO_CHANGE
+  final String? changeType;
+
+  /// 왜 이렇게 제안하는지 한 문장. GMS 를 붙인 핵심 결과물이다.
+  /// 예: "도로 통제 영향 구간을 피해 다른 경로를 제안해요."
+  final String? recommendationReason;
   final List<GuideStep> steps;
   final GuideDelay delay;
   final DateTime? departureAt;
@@ -49,6 +59,8 @@ class RecommendationGuide {
     evaluationId: json['evaluationId']?.toString(),
     headline: _text(json['headline']),
     routeSummary: _text(json['routeSummary']),
+    changeType: _text(json['changeType']),
+    recommendationReason: _text(json['recommendationReason']),
     steps: (json['routeSteps'] as List? ?? const [])
         .whereType<Map>()
         .map(

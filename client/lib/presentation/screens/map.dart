@@ -29,6 +29,8 @@ class RouteMapScreen extends StatefulWidget {
     this.initialRouteDeviation = false,
     this.displayRank,
     this.evaluated = RouteEvaluatedNumbers.empty,
+    this.scheduleId,
+    this.departedAlready = false,
   });
 
   final DdubiRepository repository;
@@ -48,6 +50,13 @@ class RouteMapScreen extends StatefulWidget {
   /// 목록에서 쓴 것과 같은 평가 결과. 전체 시간과 구간별 시간·출처가 함께 들어 있다.
   /// 목록·상세·지도가 한 곳에서 온 같은 숫자를 보여주게 하려고 통째로 넘겨받는다.
   final RouteEvaluatedNumbers evaluated;
+
+  /// 이 경로가 속한 일정. "출발했어요" 를 서버에 알릴 때 필요하다. 경로 검색처럼 일정과
+  /// 이어지지 않은 화면에서는 없다.
+  final String? scheduleId;
+
+  /// 서버에 이미 출발이 기록된 일정인지. 이동 안내를 열자마자 "이동 중" 으로 시작한다.
+  final bool departedAlready;
 
   @override
   State<RouteMapScreen> createState() => _RouteMapScreenState();
@@ -81,6 +90,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           summary: widget.savedRoute!,
           displayRank: widget.displayRank,
           evaluated: widget.evaluated,
+          scheduleId: widget.scheduleId,
+          departedAlready: widget.departedAlready,
           route:
               widget.selectedRoute ??
               widget.savedRoute!.toRouteOption(
@@ -153,6 +164,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                         widget.destinationLabel ??
                         widget.condition?.destinationPlace ??
                         '도착지',
+                    scheduleId: widget.scheduleId,
+                    departedAlready: widget.departedAlready,
                   );
                   if (isWide) {
                     final layout = Padding(
@@ -215,6 +228,8 @@ class _SavedRouteApiScreen extends StatefulWidget {
     required this.destinationLabel,
     this.displayRank,
     this.evaluated = RouteEvaluatedNumbers.empty,
+    this.scheduleId,
+    this.departedAlready = false,
   });
 
   final RecommendationApi api;
@@ -225,6 +240,8 @@ class _SavedRouteApiScreen extends StatefulWidget {
   final String destinationLabel;
   final int? displayRank;
   final RouteEvaluatedNumbers evaluated;
+  final String? scheduleId;
+  final bool departedAlready;
 
   @override
   State<_SavedRouteApiScreen> createState() => _SavedRouteApiScreenState();
@@ -302,6 +319,8 @@ class _SavedRouteApiScreenState extends State<_SavedRouteApiScreen> {
               repository: widget.repository,
               displayRank: widget.displayRank,
               evaluated: widget.evaluated,
+              scheduleId: widget.scheduleId,
+              departedAlready: widget.departedAlready,
             );
             if (constraints.maxWidth >= 760) {
               return Padding(
@@ -354,6 +373,8 @@ class _SavedRouteDetailPanel extends StatelessWidget {
     required this.repository,
     this.displayRank,
     this.evaluated = RouteEvaluatedNumbers.empty,
+    this.scheduleId,
+    this.departedAlready = false,
   });
 
   final SavedRouteSummary summary;
@@ -371,6 +392,12 @@ class _SavedRouteDetailPanel extends StatelessWidget {
 
   /// 목록에서 쓴 것과 같은 평가 결과. 없을 때만 경로 API 원본을 쓴다.
   final RouteEvaluatedNumbers evaluated;
+
+  /// 이동 안내에서 출발을 알릴 일정.
+  final String? scheduleId;
+
+  /// 서버에 이미 출발이 기록됐는지.
+  final bool departedAlready;
 
   /// 목록 카드와 같은 숫자를 보여준다.
   String get _durationLabel =>
@@ -410,7 +437,7 @@ class _SavedRouteDetailPanel extends StatelessWidget {
             _SavedRouteSegmentTile(segment: segment, evaluated: evaluated),
         const SizedBox(height: 12),
         PrimaryButton(
-          '이동 안내 시작',
+          departedAlready ? '이동 안내 이어보기' : '이동 안내 시작',
           onPressed: () => openPage(
             context,
             MovingScreen(
@@ -418,6 +445,8 @@ class _SavedRouteDetailPanel extends StatelessWidget {
               route: route,
               segments: detail.segments,
               evaluated: evaluated,
+              scheduleId: scheduleId,
+              departedAlready: departedAlready,
             ),
           ),
         ),
@@ -558,6 +587,12 @@ class _SavedRouteMapView extends StatefulWidget {
 class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
   KakaoMapController? _controller;
   StreamSubscription<CameraMoveEndEvent>? _cameraMoveSubscription;
+
+  /// 지도가 선을 직접 그렸는지. 못 그렸으면 예전 방식(지도 위에 얹어 그리기)으로 돌아간다.
+  ///
+  /// 지도가 그리는 쪽이 낫다 — 카메라를 따라가니 깜빡이지 않는다. 다만 기기에서 안 그려지는
+  /// 경우가 있었다. 선이 아예 안 보이는 것보다는 깜빡이더라도 보이는 편이 낫다.
+  bool _nativeLinesDrawn = false;
   List<_ProjectedRouteSegment> _projectedSegments = const [];
   var _projectionGeneration = 0;
 
@@ -581,11 +616,6 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
 
   Future<void> _onMapCreated(KakaoMapController controller) async {
     _controller = controller;
-    if (!kIsWeb) {
-      _cameraMoveSubscription = controller.onCameraMoveEndStream.listen(
-        (_) => _refreshProjectedSegments(),
-      );
-    }
     final points = widget.routeMap.coordinates;
     try {
       if (!kIsWeb) {
@@ -617,7 +647,14 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
           ],
         );
       }
-      await _showEntireRoute();
+      // 선은 카메라와 상관없이 먼저 그린다.
+      //
+      // 예전에는 카메라 이동이 끝난 뒤에 그렸는데, moveCamera 를 기다리는 부분이
+      // 끝나지 않아 그 뒤가 아예 실행되지 않았다. 지도 쪽 onCameraMoveEnd 는 제대로
+      // 오는데도 그랬다(2026-09-22 기기 로그로 확인). 지도가 직접 그리는 선은 카메라가
+      // 어디를 보고 있든 상관없으므로 기다릴 이유가 없다.
+      await _drawRouteLines();
+      unawaited(_showEntireRoute());
     } catch (error) {
       AppLog.debug('Saved route map setup failed: $error');
     }
@@ -651,7 +688,6 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
           isConsecutive: false,
         ),
       );
-      await _refreshProjectedSegments();
     } catch (error) {
       AppLog.debug('Saved route camera move failed: $error');
     }
@@ -710,6 +746,78 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
     }
   }
 
+  /// 경로선을 지도에 그린다.
+  ///
+  /// 지도가 직접 그리므로 카메라가 어떻게 움직여도 선이 따라간다. 예전에는 좌표를 화면
+  /// 위치로 바꿔 지도 위에 얹어 그렸는데, 지도를 만지는 순간 그 위치가 맞지 않아 선을
+  /// 지웠다가 이동이 끝난 뒤 다시 그렸다. 사용자에게는 만질 때마다 깜빡이는 것으로
+  /// 보였다(2026-09-22 제보).
+  ///
+  /// 선 그리기는 저장소 안 사본 패키지에 더한 기능이다.
+  /// 사유: client/packages/kakao_maps_flutter/README.md
+  Future<void> _drawRouteLines() async {
+    final controller = _controller;
+    if (controller == null || kIsWeb) return;
+    try {
+      await controller.clearRouteLines();
+      var index = 0;
+      var drawn = 0;
+      // 좌표가 없는 구간(대개 도보)은 앞뒤를 잇는 직선으로 채워 선이 끊기지 않게 한다.
+      for (final line in routeMapLines(widget.routeMap)) {
+        if (line.points.length < 2) {
+          index++;
+          continue;
+        }
+        final color = _modeColor(line.mode);
+        await controller.addRouteLine(
+          id: 'segment-$index',
+          points: line.points
+              .map(
+                (coordinate) => LatLng(
+                  latitude: coordinate.latitude,
+                  longitude: coordinate.longitude,
+                ),
+              )
+              .toList(growable: false),
+          // 좌표를 모르는 구간은 조금 연하게 그려 실제 경로와 구분한다. 추정임을 숨기지
+          // 않되, 너무 연하면 지도 배경에 묻혀 아예 안 보인다(2026-09-22 기기 확인).
+          color: line.approximate || line.mode == 'WALK'
+              ? color.withValues(alpha: 0.8).toARGB32()
+              : color.toARGB32(),
+          // 굵기는 기기에서 보고 정했다. 7 은 지도 위에서 실처럼 보여 있는지도 몰랐다.
+          width: line.mode == 'WALK' ? 12 : 16,
+          // 흰 테두리를 둘러 밝은 지도 배경에서도 선이 떠 보이게 한다.
+          strokeWidth: 3,
+        );
+        index++;
+        drawn++;
+      }
+      AppLog.debug('Saved route lines drawn: $drawn');
+      if (drawn > 0) {
+        if (mounted) setState(() => _nativeLinesDrawn = true);
+        return;
+      }
+      // 한 줄도 못 그렸다. 지도가 왜 거절했는지는 기기 로그로만 알 수 있다. 여기서는
+      // 원인을 따지지 않고, 사용자에게 선은 보이도록 예전 방식으로 돌아간다.
+      AppLog.debug('Saved route lines: falling back to projected overlay');
+      await _enableProjectedFallback();
+    } on Object catch (error) {
+      // 선을 못 그려도 지도와 마커는 쓸 수 있다. 화면 전체를 실패로 만들지 않는다.
+      AppLog.debug('Saved route line drawing failed: $error');
+      await _enableProjectedFallback();
+    }
+  }
+
+  /// 예전 방식으로 돌아간다. 카메라가 멈출 때마다 화면 좌표를 다시 계산해 그린다.
+  Future<void> _enableProjectedFallback() async {
+    final controller = _controller;
+    if (controller == null || kIsWeb) return;
+    _cameraMoveSubscription ??= controller.onCameraMoveEndStream.listen(
+      (_) => _refreshProjectedSegments(),
+    );
+    await _refreshProjectedSegments();
+  }
+
   @override
   void dispose() {
     _cameraMoveSubscription?.cancel();
@@ -720,12 +828,17 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
   Widget build(BuildContext context) {
     final hasCoordinates = widget.routeMap.coordinates.isNotEmpty;
     return ClipRRect(
+      // 경로선은 이제 지도가 직접 그린다. 위젯 검사에서는 실제 지도가 뜨지 않으므로
+      // 선 자체를 확인할 수 없다. 대신 지도 자리가 붙었는지를 이 키로 확인한다.
+      key: const Key('savedRouteMap'),
       borderRadius: BorderRadius.circular(16),
       child: Stack(
         children: [
           Positioned.fill(
+            // 지도가 직접 그릴 때는 손가락을 가로챌 이유가 없다. 대체 방식일 때만
+            // 지도를 만지는 순간 선을 지운다 — 그때는 화면 좌표가 더 이상 맞지 않는다.
             child: Listener(
-              onPointerDown: _hideProjectedRoute,
+              onPointerDown: _nativeLinesDrawn ? null : _hideProjectedRoute,
               child: KakaoMapConfig.isReady
                   ? KakaoMap(
                       initialPosition: _center,
@@ -735,7 +848,7 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
                   : const ColoredBox(color: Color(0xFFEAF2EC)),
             ),
           ),
-          if (hasCoordinates)
+          if (hasCoordinates && !_nativeLinesDrawn)
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
@@ -747,7 +860,7 @@ class _SavedRouteMapViewState extends State<_SavedRouteMapView> {
                 ),
               ),
             )
-          else
+          else if (!hasCoordinates)
             const Center(
               child: Material(
                 color: Colors.white,
@@ -1197,12 +1310,18 @@ class _RouteMapDetail extends StatelessWidget {
     required this.repository,
     required this.departureLabel,
     required this.destinationLabel,
+    this.scheduleId,
+    this.departedAlready = false,
   });
 
   final RouteOption route;
   final DdubiRepository repository;
   final String departureLabel;
   final String destinationLabel;
+
+  /// 이동 안내에서 출발을 알릴 일정. 경로 검색 결과에는 없다.
+  final String? scheduleId;
+  final bool departedAlready;
 
   @override
   Widget build(BuildContext context) => InfoCard(
@@ -1239,10 +1358,15 @@ class _RouteMapDetail extends StatelessWidget {
           ),
         ),
         PrimaryButton(
-          '이동 안내 시작',
+          departedAlready ? '이동 안내 이어보기' : '이동 안내 시작',
           onPressed: () => openPage(
             context,
-            MovingScreen(repository: repository, route: route),
+            MovingScreen(
+              repository: repository,
+              route: route,
+              scheduleId: scheduleId,
+              departedAlready: departedAlready,
+            ),
           ),
         ),
       ],

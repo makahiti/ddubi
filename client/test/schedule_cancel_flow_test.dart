@@ -1,6 +1,7 @@
 import 'package:ddubi/data/mock_repository.dart';
 import 'package:ddubi/domain/models.dart';
 import 'package:ddubi/presentation/screens.dart';
+import 'package:ddubi/domain/auth.dart';
 import 'package:ddubi/services/app_api.dart';
 import 'package:ddubi/services/recommendation_api.dart';
 import 'package:dio/dio.dart';
@@ -59,6 +60,7 @@ Future<GoRouter> _pumpDetail(
           recommendationApi: _NoRecommendationApi(),
           scheduleId: schedule.id,
           arrivalApi: ArrivalApi(Dio()),
+          userApi: UserApi(Dio(), AuthSessionStore()),
           initialSchedule: schedule,
         ),
       ),

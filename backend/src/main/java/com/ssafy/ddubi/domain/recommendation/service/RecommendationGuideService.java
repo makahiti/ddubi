@@ -275,11 +275,15 @@ public class RecommendationGuideService {
                 confirmed
                         ? "BLOCKED".equals(chosen.effect()) ? "DISRUPTED" : "DELAYED"
                         : "POSSIBLE";
+        // 여러 원인이 함께 있으면 Redis에서 먼저 발견한 상세정보와 최종 선택 원인이 다를 수 있다.
+        // 설명과 출처를 서로 다른 사건에서 섞지 않도록 eventId가 같은 상세정보만 사용한다.
+        boolean detailMatchesChosen =
+                detail != null && detail.cause().eventId().equals(chosen.eventId());
         String reason =
-                detail != null && detail.cause().eventId().equals(chosen.eventId())
+                detailMatchesChosen
                         ? detail.message()
                         : confirmed ? "선택 경로에 공식 교통 영향이 확인됐어요." : "선택 경로 주변에 교통 영향 가능성이 있어요.";
-        String source = detail == null ? chosen.source() : detail.source();
+        String source = detailMatchesChosen ? detail.source() : chosen.source();
         // 평시·시간표 기준 차이가 아직 공개 계약에 없으므로 원인만으로 지연 분을 만들지 않는다.
         return new RecommendationGuideResponse.Delay(status, null, reason, source, confirmed);
     }

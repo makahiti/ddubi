@@ -280,75 +280,89 @@ class _ScheduleSummaryCard extends StatelessWidget {
   final Schedule schedule;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () => context.push('/schedules/${schedule.id}'),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width: 58,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: DdubiColors.blue.withValues(alpha: .1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                schedule.time,
-                style: const TextStyle(
-                  color: DdubiColors.blue,
-                  fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) => Opacity(
+    // 끝난 일정은 흐리게. 아직 남은 일정이 먼저 눈에 들어와야 한다.
+    opacity: ScheduleStatusBadge.opacityFor(schedule.status),
+    child: Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => context.push('/schedules/${schedule.id}'),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 58,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: DdubiColors.blue.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  schedule.time,
+                  style: const TextStyle(
+                    color: DdubiColors.blue,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    schedule.title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on_outlined,
-                        size: 15,
-                        color: Color(0xFF667085),
-                      ),
-                      const SizedBox(width: 3),
-                      Expanded(
-                        child: Text(
-                          schedule.repeatLabel == null
-                              ? schedule.place
-                              : '${schedule.place} · ${schedule.repeatLabel}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            schedule.title,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
                         ),
-                      ),
-                      // 반복에서 만들어진 일정임을 밝힌다. 표시가 없으면 하나를 지워도
-                      // 다음 주에 또 생기는 이유를 알 수 없다.
-                      if (schedule.isRepeating) ...[
-                        const SizedBox(width: 6),
-                        const StatusBadge(
-                          '반복',
-                          tone: DdubiColors.blue,
-                          icon: Icons.event_repeat,
-                        ),
+                        if (ScheduleStatusBadge.shows(schedule.status)) ...[
+                          const SizedBox(width: 6),
+                          ScheduleStatusBadge(schedule.status),
+                        ],
                       ],
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 15,
+                          color: Color(0xFF667085),
+                        ),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            schedule.repeatLabel == null
+                                ? schedule.place
+                                : '${schedule.place} · ${schedule.repeatLabel}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                        // 반복에서 만들어진 일정임을 밝힌다. 표시가 없으면 하나를 지워도
+                        // 다음 주에 또 생기는 이유를 알 수 없다.
+                        if (schedule.isRepeating) ...[
+                          const SizedBox(width: 6),
+                          const StatusBadge(
+                            '반복',
+                            tone: DdubiColors.blue,
+                            icon: Icons.event_repeat,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const Icon(Icons.chevron_right, color: Color(0xFF98A2B3)),
-          ],
+              const Icon(Icons.chevron_right, color: Color(0xFF98A2B3)),
+            ],
+          ),
         ),
       ),
     ),

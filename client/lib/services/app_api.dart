@@ -121,6 +121,11 @@ class ArrivalApi {
   const ArrivalApi(this._dio);
   final Dio _dio;
 
+  /// ARRIVAL-001 도착 보고.
+  ///
+  /// [actualArrival] 과 [locationConsent] 는 **함께** 보내야 뜻이 있다. 서버는 계정 동의와 이번
+  /// 요청 동의가 둘 다 참일 때만 실제 도착 시각을 저장하고, 저장한 시각이 있어야 정시·빠듯·지연을
+  /// 판정한다. 둘 중 하나라도 빠지면 일정만 완료되고 판정은 비어 있는 기록이 남는다.
   Future<ArrivalRecord> record(
     String scheduleId, {
     DateTime? actualArrival,
@@ -308,6 +313,8 @@ class UserApi {
     String? briefingTime,
     // 밤 브리핑 시각. 규칙은 briefingTime 과 같다.
     String? nightBriefingTime,
+    // 이동 기록(실제 도착 시각) 저장 동의. 서버가 동의 시각을 찍거나 지운다.
+    bool? historyConsent,
   }) async {
     if (_sessionStore.session == null) return getMe();
     return UserProfile.fromJson(
@@ -324,6 +331,7 @@ class UserApi {
               'nightBriefingTime': nightBriefingTime.isEmpty
                   ? null
                   : nightBriefingTime,
+            'historyConsent': ?historyConsent,
           },
         ),
       ),

@@ -137,4 +137,66 @@ class RecommendationGuideServiceTest {
         assertThat(result.delay().status()).isEqualTo("NO_CONFIRMED_DELAY");
         assertThat(result.generatedBy()).isEqualTo("GMS:gpt-5.5-pro");
     }
+
+    @Test
+    void guideDoesNotMixSourceFromDifferentCause() throws Exception {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        ScheduleEvaluationV2 evaluation =
+                json.readValue(
+                        """
+                        {
+                          "schemaVersion":"schedule-evaluation-v2",
+                          "evaluationId":"evaluation-multiple-causes",
+                          "proposedDepartAt":"2026-09-21T08:10:00",
+                          "estimatedArrivalAt":"2026-09-21T08:52:00",
+                          "durationSeconds":2520,
+                          "asOf":"2026-09-20T23:00:00Z",
+                          "validUntil":"2026-09-20T23:10:00Z",
+                          "causes":[
+                            {"eventId":"event-potential","source":"EVENT_SOURCE","segmentIds":["segment-1"],"effect":"DELAYED","confirmed":false},
+                            {"eventId":"event-confirmed","source":"TOPIS_CONFIRMED","segmentIds":["segment-2"],"effect":"BLOCKED","confirmed":true}
+                          ],
+                          "segments":[],
+                          "candidateEstimates":[]
+                        }
+                        """,
+                        ScheduleEvaluationV2.class);
+        ScheduleEvaluationStore store = mock(ScheduleEvaluationStore.class);
+        when(store.latestReadyV2(7L, 3L)).thenReturn(evaluation);
+        GmsRecommendationGuideClient gms = mock(GmsRecommendationGuideClient.class);
+        when(gms.generate(any())).thenReturn(Optional.empty());
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.get(anyString())).thenReturn(null);
+        when(values.multiGet(any()))
+                .thenReturn(
+                        java.util.Arrays.asList(
+                                "{\"source\":\"EVENT_DETAIL\",\"contentText\":\"행사 영향 가능성\",\"validUntil\":\"2026-09-20T23:10:00Z\"}",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                null));
+        var properties =
+                new RecommendationGuideProperties(
+                        true,
+                        "https://gms.ssafy.io/gmsapi",
+                        "/api.openai.com/v1/responses",
+                        "synthetic",
+                        "gpt-5.5-pro",
+                        1000);
+        var service = new RecommendationGuideService(store, gms, properties, redis, json);
+
+        var result = service.guide(7L, 3L, Instant.parse("2026-09-20T23:01:00Z"));
+
+        assertThat(result.delay().status()).isEqualTo("DISRUPTED");
+        assertThat(result.delay().source()).isEqualTo("TOPIS_CONFIRMED");
+        assertThat(result.delay().reason()).doesNotContain("행사 영향 가능성");
+    }
 }

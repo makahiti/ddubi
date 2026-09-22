@@ -30,9 +30,19 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
             LocalDateTime to,
             Pageable pageable);
 
-    /** SCH-006 충돌 계산·홈 오늘 일정 — 페이징 없이 시각순 전건. */
+    /** SCH-006 충돌 계산 — 페이징 없이 시각순 전건. 충돌은 아직 안 지난 UPCOMING 끼리만 따진다. */
     List<Schedule> findAllByUserIdAndStatusAndArriveByBetweenOrderByArriveBy(
             Long userId, ScheduleStatus status, LocalDateTime from, LocalDateTime to);
+
+    /**
+     * HOME-001 오늘 일정 — 지정한 상태 하나만 빼고 전건을 시각순으로 준다.
+     *
+     * <p>홈은 "오늘 하루" 를 보여주는 화면이라 이미 끝난(DONE) 일정도 목록에 남아야 흐름이 보인다. 반대로 취소(CANCELED)는 일어나지 않은 일이라 뺀다.
+     * 그래서 상태로 좁히는 대신 상태 하나를 제외하는 형태로 조회한다. 목록 API(SCH-001)가 status 미지정일 때 돌려주는 집합에서 취소만 뺀 것과 같은
+     * 범위라, 홈과 목록이 같은 날짜에 서로 다른 일정을 보여주지 않는다.
+     */
+    List<Schedule> findAllByUserIdAndStatusNotAndArriveByBetweenOrderByArriveBy(
+            Long userId, ScheduleStatus excluded, LocalDateTime from, LocalDateTime to);
 
     /** HOME-001 다음 일정. */
     Optional<Schedule> findFirstByUserIdAndStatusAndArriveByGreaterThanEqualOrderByArriveBy(
