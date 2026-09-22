@@ -36,6 +36,10 @@ case "$target" in
       "0 8 * * * python3 $REPO/infra/scripts/daily-brief.py >> $HOME_DIR/brief.log 2>&1"
       # 도커 빌드 캐시·태그 없는 이미지 주간 정리, 일요일 04:40 KST (볼륨은 건드리지 않음). 서버2는 backend·ml-serving 빌드로 캐시가 빨리 쌓인다
       "40 19 * * 6 bash $REPO/infra/scripts/docker-prune.sh >> $HOME_DIR/docker-prune.log 2>&1"
+      # 지하철 시각표를 그날치로 교체하고 백엔드를 다시 띄운다, 03:30 KST.
+      # 시각표는 하루치라 다음 날 06:00 에 만료된다. 만료되면 백엔드가 조용히 시각표를 쓰지
+      # 않고 예전 추정값으로 돌아간다. 재시작에 1~2분 걸리므로 사람이 가장 적은 시간에 둔다.
+      "30 18 * * * bash $REPO/infra/scripts/refresh-subway-timetable.sh >> $HOME_DIR/subway-timetable.log 2>&1"
     )
     mkdir -p "$HOME_DIR/backups/mysql"
     ;;
