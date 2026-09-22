@@ -203,6 +203,26 @@ public class Schedule extends BaseTimeEntity {
         inputRevision++;
     }
 
+    /**
+     * 도착 확인 없이 시각이 한참 지난 일정을 닫는다.
+     *
+     * <p>{@link #markDone()} 과 달리 {@code journeyState} 는 건드리지 않는다. 사용자가 실제로 도착을 확인한 일정은 {@code
+     * ARRIVED} 로 남고, 여기서 닫힌 일정은 {@code NOT_STARTED} 인 채 DONE 이 되므로 둘을 나중에도 구분할 수 있다. 감시·알림 조회는 모두
+     * {@code status='UPCOMING'} 을 함께 보므로 이 상태로 새는 경로는 없다.
+     *
+     * <p>UPCOMING 이 아니면 아무것도 하지 않는다 — 이미 도착을 기록했거나 취소한 일정을 뒤늦게 덮어쓰면 안 된다.
+     *
+     * @return 실제로 닫았으면 true
+     */
+    public boolean markExpired() {
+        if (status != ScheduleStatus.UPCOMING) {
+            return false;
+        }
+        this.status = ScheduleStatus.DONE;
+        inputRevision++;
+        return true;
+    }
+
     /** UPCOMING 이 아니면 수정을 거부한다 — 끝난·취소된 일정의 수정은 의미가 없다. */
     public void requireEditable() {
         if (status != ScheduleStatus.UPCOMING) {

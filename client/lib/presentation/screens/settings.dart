@@ -1202,7 +1202,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 7),
               const Text(
-                '일정별로 계산 결과와 마지막 확인 시각을 볼 수 있어요.',
+                '앞으로 갈 일정마다 그 일정의 이동 변수(날씨·혼잡도·도로 통제·지하철)를 볼 수 있어요.',
                 style: TextStyle(
                   color: Color(0xFF64708B),
                   fontSize: 12,
@@ -1509,7 +1509,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           icon: Icons.directions_transit_outlined,
         ),
         const SizedBox(height: 6),
-        const Text('일정별로 계산 결과와 마지막 확인 시각을 볼 수 있어요.'),
+        const Text('앞으로 갈 일정마다 그 일정의 이동 변수(날씨·혼잡도·도로 통제·지하철)를 볼 수 있어요.'),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,

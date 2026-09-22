@@ -11,20 +11,51 @@ import com.ssafy.ddubi.global.exception.ErrorCode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 /**
  * 최신 평가를 사용자용 추천 카드로 투영한다. 출발·도착·구간 순서와 지연 판정은 서버 계산값으로 고정하고 GMS에는 문장 표현만 맡긴다. 같은 evaluationId는
  * Redis에 캐시해 카드 조회마다 AI를 호출하지 않는다.
+ *
+ * <h3>GMS 를 부르는 조건 (2026-09-22 크레딧 사고 뒤)</h3>
+ *
+ * 하루에 크레딧 6 만이 나갔다. 원인은 셋이 겹친 것이다 — 출발이 가까우면 1 분마다 새 계산 번호가 생겨 캐시가 매번 빗나갔고, pro 모델이 20 초를 넘겨 시간 초과로
+ * 버려지면서도 크레딧은 나갔고, 만료된 결과는 캐시에 넣지 않아 같은 계산에 또 불렀다. 그래서 이제는:
+ *
+ * <ul>
+ *   <li>바뀐 것이 있을 때만 부른다 — 경로가 달라졌거나 출발시각이 달라졌거나 지연 원인이 있을 때. "그대로 유지" 는 서버 문장으로 충분하다.
+ *   <li>같은 계산 번호에는 한 번만 부른다 — 부르기 <b>전에</b> Redis 에 "물어봤다" 표시를 하루 남긴다. 시간 초과로 답을 못 받았든, 캐시가 사라졌든,
+ *       서버가 다시 떴든 같은 계산에 다시 묻지 않는다. 지금 만드는 중이면(같은 서버 안) 기다리지 않고 서버 문장을 준다.
+ *   <li>하루 상한은 두지 않는다 — GMS 크레딧은 다른 기능도 함께 쓰므로 여기서 숫자로 막으면 정상 안내까지 끊긴다. 대신 위 두 규칙으로 새는 길 자체를 막고, 오늘
+ *       호출 수는 Redis 카운터로만 센다(사람이 볼 용도).
+ *   <li>결과는 실패든 성공이든 최소 5 분은 캐시한다 — 만료가 임박했다고 캐시를 건너뛰면 다음 조회가 또 부른다.
+ * </ul>
  */
 @Service
 public class RecommendationGuideService {
+    private static final Logger log = LoggerFactory.getLogger(RecommendationGuideService.class);
     private static final String CACHE_PREFIX = "recommendation:guide:";
+    private static final String CALLS_PREFIX = CACHE_PREFIX + "gms-calls:";
+    private static final String ASKED_PREFIX = CACHE_PREFIX + "asked:";
+
+    /** "이 계산 번호는 이미 물어봤다" 표시를 남기는 시간. 계산 번호는 재계산마다 새로 생기니 하루면 충분히 길다. */
+    static final Duration ASKED_TTL = Duration.ofDays(1);
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    /** 지금 GMS 문장을 만드는 중인 캐시 키. 같은 계산에 두 요청이 겹치면 뒤의 것은 부르지 않는다. */
+    private final Set<String> generating = ConcurrentHashMap.newKeySet();
+
     private static final List<String> CAUSE_PREFIXES =
             List.of(
                     "traffic:latest:incident-silver:",
@@ -53,10 +84,15 @@ public class RecommendationGuideService {
     }
 
     public RecommendationGuideResponse guide(long scheduleId, long userId, Instant now) {
-        ScheduleEvaluationV2 evaluation = store.latestReadyV2(scheduleId, userId);
-        if (evaluation.validUntil() == null || !evaluation.validUntil().isAfter(now))
+        var latest = store.latestOutcomeV2(scheduleId, userId);
+        ScheduleEvaluationV2 evaluation = latest.evaluation();
+        // 멈춘 일정의 마지막 결과는 유효기간을 따지지 않는다. 더 갱신되지 않는 결과라 "지났다" 가 곧 "틀렸다" 가 아니다 —
+        // 출발한 뒤에도 출발할 때 본 안내를 그대로 다시 보여 주는 것이 목적이다.
+        if (!latest.frozen()
+                && (evaluation.validUntil() == null || !evaluation.validUntil().isAfter(now)))
             throw new BusinessException(ErrorCode.STALE_RECOMMENDATION);
         String cacheKey = CACHE_PREFIX + scheduleId + ":" + evaluation.evaluationId();
+        String askedKey = ASKED_PREFIX + scheduleId + ":" + evaluation.evaluationId();
         RecommendationGuideResponse cached = cached(cacheKey);
         if (cached != null) return cached;
 
@@ -91,7 +127,15 @@ public class RecommendationGuideService {
                         change,
                         new GmsRecommendationGuideClient.DelayFact(
                                 delay.status(), delay.reason(), delay.source(), delay.confirmed()));
-        var generated = gms.generate(facts).orElse(null);
+        GmsRecommendationGuideClient.GeneratedCopy generated = null;
+        boolean owner = false;
+        try {
+            if (worthAsking(change, delay)
+                    && (owner = generating.add(cacheKey))
+                    && firstAsk(askedKey, now)) generated = gms.generate(facts).orElse(null);
+        } finally {
+            if (owner) generating.remove(cacheKey);
+        }
         String delayReason =
                 generated != null && generated.delayExplanation() != null
                         ? generated.delayExplanation()
@@ -122,8 +166,51 @@ public class RecommendationGuideService {
                         evaluation.asOf(),
                         evaluation.validUntil(),
                         generated == null ? "TEMPLATE" : "GMS:" + properties.model());
-        cache(cacheKey, response, now);
+        // 다른 요청이 같은 계산의 AI 문장을 만드는 중이면 이 서버 문장은 캐시하지 않는다. 늦게 끝난 쪽이 AI 문장을 덮어쓰면 안 된다.
+        if (owner || !generating.contains(cacheKey))
+            cache(cacheKey, response, now, latest.frozen());
         return response;
+    }
+
+    /**
+     * AI 문장이 서버 문장보다 나은 경우만 부른다. 경로나 출발시각이 바뀌었거나 지연 원인이 있을 때다. "지금 선택을 유지해도 돼요" 는 서버 문장으로 충분하고, 오늘
+     * 나간 크레딧의 대부분이 바로 이 경우였다.
+     */
+    static boolean worthAsking(
+            GmsRecommendationGuideClient.ChangeFact change,
+            RecommendationGuideResponse.Delay delay) {
+        return "ROUTE_CHANGED".equals(change.type())
+                || "DEPARTURE_TIME_CHANGED".equals(change.type())
+                || !"NO_CONFIRMED_DELAY".equals(delay.status());
+    }
+
+    /**
+     * 이 계산 번호로 GMS 를 처음 부르는지 확인하고, 처음이면 "물어봤다" 표시를 <b>먼저</b> 남긴다. 표시가 이미 있으면 부르지 않는다.
+     *
+     * <p>표시를 남기지 못하면(Redis 장애·응답 없음) 부르지 않는다. 표시 없이 부르면 다음 조회가 또 부를 수 있고, Redis 가 죽었으면 캐시도 없어 조회마다
+     * 새 호출이 된다 — 바로 그 길이 2026-09-22 사고의 모양이다. 그 순간은 서버 문장으로 답하고 로그만 남긴다.
+     */
+    private boolean firstAsk(String askedKey, Instant now) {
+        try {
+            Boolean first = redis.opsForValue().setIfAbsent(askedKey, now.toString(), ASKED_TTL);
+            if (!Boolean.TRUE.equals(first)) return false;
+            countCall(now);
+            return true;
+        } catch (Exception e) {
+            log.warn("GMS 호출 표시를 남기지 못해 이번에는 부르지 않는다: {}", e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    /** 오늘(KST) 실제로 나간 GMS 호출 수. 막는 데 쓰지 않고, 사람이 크레딧 흐름을 확인할 때만 본다. */
+    private void countCall(Instant now) {
+        try {
+            String key = CALLS_PREFIX + LocalDateTime.ofInstant(now, KST).toLocalDate();
+            Long calls = redis.opsForValue().increment(key);
+            if (calls != null && calls == 1) redis.expire(key, Duration.ofDays(2));
+        } catch (Exception ignored) {
+            // 카운터는 참고용이다. 실패해도 안내를 막지 않는다.
+        }
     }
 
     /**
@@ -182,18 +269,29 @@ public class RecommendationGuideService {
         }
     }
 
-    private void cache(String key, RecommendationGuideResponse response, Instant now) {
+    /** 멈춘 일정의 안내를 캐시에 두는 시간. 유효기간이 이미 지난 결과라 그 값으로는 TTL 을 잡을 수 없다. 하루 안에 다시 볼 일이 대부분이다. */
+    static final Duration FROZEN_CACHE_TTL = Duration.ofHours(12);
+
+    /**
+     * 캐시에 두는 최소 시간. 예전에는 유효기간이 지났으면 캐시를 건너뛰었다. 그러면 같은 계산에 대한 다음 조회가 또 GMS 를 부른다 — 출발이 가까울 때 유효기간은 1
+     * 분이고 pro 모델은 그보다 오래 걸렸으니, 만들자마자 버려지고 다시 불렀다.
+     */
+    static final Duration MIN_CACHE_TTL = Duration.ofMinutes(5);
+
+    private void cache(
+            String key, RecommendationGuideResponse response, Instant now, boolean frozen) {
         try {
-            Duration ttl = Duration.between(now, response.validUntil());
-            if (ttl.isNegative() || ttl.isZero()) return;
-            // 실시간 사실의 유효시각을 넘겨 AI 문장만 오래 남기지 않는다.
-            redis.opsForValue()
-                    .set(
-                            key,
-                            json.writeValueAsString(response),
-                            ttl.compareTo(Duration.ofMinutes(30)) > 0
-                                    ? Duration.ofMinutes(30)
-                                    : ttl);
+            Duration ttl;
+            if (frozen) {
+                // 더 갱신되지 않는 결과다. 매번 GMS 를 다시 부르지 않게 고정 시간 동안 둔다.
+                ttl = FROZEN_CACHE_TTL;
+            } else {
+                ttl = Duration.between(now, response.validUntil());
+                if (ttl.compareTo(MIN_CACHE_TTL) < 0) ttl = MIN_CACHE_TTL;
+                // 실시간 사실의 유효시각을 넘겨 AI 문장만 오래 남기지 않는다.
+                if (ttl.compareTo(Duration.ofMinutes(30)) > 0) ttl = Duration.ofMinutes(30);
+            }
+            redis.opsForValue().set(key, json.writeValueAsString(response), ttl);
         } catch (Exception ignored) {
             // 캐시 장애는 추천 계산이나 카드 조회 실패로 승격하지 않는다.
         }

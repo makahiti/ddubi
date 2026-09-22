@@ -20,16 +20,27 @@ class RecommendationGuideCard extends StatefulWidget {
     required this.scheduleId,
     required this.headline,
     this.evaluationRepository,
+    this.onStartJourney,
+    this.pastTense = false,
   });
 
   final RecommendationApi api;
   final String scheduleId;
 
-  /// 버튼 줄(이 제안 적용·다시 계산·출발했어요)을 쓰려면 필요하다. 없으면 버튼을 그리지 않는다.
+  /// 끝난 일정의 기록으로 보여줄 때 true. 말머리가 과거형이 된다. 버튼은 [evaluationRepository]
+  /// 를 넘기지 않으면 어차피 그려지지 않는다.
+  final bool pastTense;
+
+  /// 버튼 줄(이 제안 적용·다시 계산·이동 안내 시작)을 쓰려면 필요하다. 없으면 버튼을
+  /// 그리지 않는다.
   ///
   /// 예전에는 이 버튼들이 "이동 예측" 카드에 있었다. 결론을 읽은 자리에서 바로 누를 수
   /// 있어야 해서 안내 카드로 옮겼다(2026-09-22).
   final ScheduleEvaluationRepository? evaluationRepository;
+
+  /// 이동 안내 화면을 여는 통로. 일정 상세가 선택된 경로를 알고 있으므로 거기서 넘겨준다.
+  /// 없으면 그 버튼을 그리지 않는다.
+  final Future<void> Function()? onStartJourney;
 
   /// 평가 결과를 나르는 통로. 여기서 상태와 evaluationId 를 본다.
   final ValueNotifier<ScheduleEvaluationV2?> headline;
@@ -49,6 +60,16 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
   String? _retryFor;
   bool _loading = false;
 
+  /// 마지막 조회가 "실패" 가 아니라 "아직" 이었는가 — 서버가 계산이 끝나지 않았다고(409) 답한 경우.
+  /// 이때는 사용자가 할 일이 없다. 기다리면 새 평가와 함께 다시 부른다.
+  bool _pending = false;
+
+  /// 화면에 보이는 안내가 최신 계산의 것이 아닌가.
+  ///
+  /// 안내는 있는데 마지막 조회가 실패했다는 뜻이다. 이때 카드를 비우지 않고 "이전 계산
+  /// 기준" 이라고 적는다 — 지우면 1분마다 빈 카드가 되고, 그냥 두면 지난 값이 최신인 척한다.
+  bool get _stale => _guide != null && _retryFor != null;
+
   @override
   void initState() {
     super.initState();
@@ -64,23 +85,31 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
 
   void _onEvaluation() {
     final value = widget.headline.value;
-    if (value == null || value.state != EvaluationState.ready) return;
+    // 멈춘(출발한) 일정도 부른다. 서버가 마지막 계산의 안내를 그대로 돌려주므로(2026-09-22),
+    // 출발한 뒤에도 출발할 때 본 AI 안내가 카드에 남는다. 앱을 다시 켜도 같다.
+    if (value == null ||
+        (value.state != EvaluationState.ready &&
+            value.state != EvaluationState.stopped)) {
+      return;
+    }
     final id = value.evaluationId;
     if (id == null || id.isEmpty || id == _loadedFor || _loading) return;
     _load(id);
   }
 
   Future<void> _load(String evaluationId) async {
-    // 계산이 바뀐 순간 지난 안내를 내린다.
+    // 지난 안내를 지우지 않고 그대로 둔 채 새로 부른다.
     //
-    // 예전에는 조회가 실패해도 _guide 를 그대로 뒀다. 그 결과 새 계산 화면에 지난
-    // 계산의 경로·출발시각·요금이 계속 보였고, 사용자는 그게 방금 결과라고 믿었다
-    // (BE 지적, 2026-09-22). 빈 카드가 틀린 카드보다 낫다.
-    setState(() {
-      _loading = true;
-      _guide = null;
-      _loadedFor = null;
-    });
+    // 한때는 여기서 _guide 를 비웠다. 지난 계산의 경로·출발시각·요금이 새 결과인 척
+    // 남는 것을 막으려던 것이다(BE 지적, 2026-09-22). 그런데 서버는 출발이 가까우면
+    // 1분마다 계산을 새로 하고, 안내 조회는 계산이 끝나기 전이거나 유효기간(=다음 계산
+    // 예정 시각)이 지난 동안에는 반드시 거절한다. 즉 매 주기마다 반드시 실패하는 구간이
+    // 있다. 그래서 카드가 [보임 → 빈칸 → 못 불러왔어요 → 보임] 을 1분마다 반복했다
+    // (2026-09-22 제보).
+    //
+    // 빈 카드도 틀린 카드도 아닌 세 번째 답을 쓴다 — 지난 안내를 그대로 두되, 그것이
+    // 최신 계산의 것이 아님을 카드 위에 적는다. 판단은 _stale 이 한다.
+    setState(() => _loading = true);
     try {
       final guide = await widget.api.getLatestGuide(widget.scheduleId);
       if (!mounted) return;
@@ -89,14 +118,23 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
           _guide = guide;
           _loadedFor = evaluationId;
           _retryFor = null;
+          _pending = false;
         } else {
-          // 계산이 아직이면(409) null 이 온다. 곧 다시 부를 수 있게 열어 둔다.
+          // 계산이 아직이거나(409) 안내가 아직 없다(404). 실패가 아니라 "아직" 이다 — 계산이
+          // 끝나면 평가가 새로 오고 그때 다시 부른다. 그동안 "못 불러왔어요" 라고 쓰지 않는다
+          // (2026-09-22 제보).
           _retryFor = evaluationId;
+          _pending = true;
         }
       });
     } on Object {
-      // 안내를 못 받아도 화면의 다른 정보는 그대로 쓸 수 있다. 오류 화면은 띄우지 않는다.
-      if (mounted) setState(() => _retryFor = evaluationId);
+      // 연결이 끊겼거나 서버가 오류를 냈다. 안내를 못 받아도 화면의 다른 정보는 그대로 쓸 수 있다.
+      if (mounted) {
+        setState(() {
+          _retryFor = evaluationId;
+          _pending = false;
+        });
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -155,9 +193,11 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: const Text(
-                        '이 일정에 맞춰',
-                        style: TextStyle(
+                      child: Text(
+                        // 끝난 일정에서는 과거형이다. 다녀온 일정에 "이 일정에 맞춰 … 제안해요" 가
+                        // 현재형으로 남아 있으면 아직 할 일이 있는 것처럼 읽힌다.
+                        widget.pastTense ? '이 일정에 맞춰 안내했어요' : '이 일정에 맞춰',
+                        style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                           color: Color(0xFF2F4A7D),
@@ -180,6 +220,7 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
               repository: widget.evaluationRepository!,
               scheduleId: widget.scheduleId,
               headline: widget.headline,
+              onStartJourney: widget.onStartJourney,
             ),
           ],
         ],
@@ -195,7 +236,12 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     if (guide == null) {
       return [
         Text(
-          _loading ? '추천 안내를 불러오고 있어요.' : '추천 안내를 아직 불러오지 못했어요.',
+          _loading
+              ? '추천 안내를 불러오고 있어요.'
+              : _pending
+              ? '계산이 끝나면 안내를 준비해요.'
+              : '추천 안내를 아직 불러오지 못했어요.',
+          key: const Key('guideEmptyMessage'),
           style: const TextStyle(
             fontSize: 15,
             height: 1.35,
@@ -203,7 +249,16 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
             color: DdubiColors.navy,
           ),
         ),
-        if (!_loading && _retryFor != null) ...[
+        if (!_loading && _pending) ...[
+          const SizedBox(height: 4),
+          const Text(
+            '계산이 끝나면 자동으로 이어서 불러와요.',
+            key: Key('guidePendingHint'),
+            style: TextStyle(fontSize: 12, color: Color(0xFF5C6B7F)),
+          ),
+        ],
+        // 진짜 실패(연결·서버 오류)일 때만 다시 누르게 한다. "아직" 인 경우에 누르면 또 409 다.
+        if (!_loading && !_pending && _retryFor != null) ...[
           const SizedBox(height: 6),
           TextButton(
             key: const Key('guideRetryButton'),
@@ -220,6 +275,50 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
       ];
     }
     return [
+      // 아래 내용이 최신 계산의 것이 아닐 때만 붙는다. 사용자가 지난 값을 방금 결과로
+      // 믿지 않게 하는 것이 목적이라, 숨기지 않고 제일 위에 적는다.
+      if (_stale) ...[
+        Row(
+          key: const Key('guideStaleNotice'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.history_rounded,
+              size: 14,
+              color: Color(0xFF5C6B7F),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                _loading
+                    ? '새 계산을 반영하는 중이에요. 아래는 이전 계산 기준이에요.'
+                    : '아래는 이전 계산 기준이에요.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  height: 1.3,
+                  color: Color(0xFF5C6B7F),
+                ),
+              ),
+            ),
+            if (!_loading)
+              TextButton(
+                key: const Key('guideRefreshStaleButton'),
+                onPressed: _retry,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: const Color(0xFF00665F),
+                ),
+                child: const Text('새로 보기', style: TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ],
       if (_changeLabel(guide.changeType) != null) ...[
         _changeBadge(guide.changeType!),
         const SizedBox(height: 8),
@@ -494,11 +593,16 @@ class _GuideActions extends StatefulWidget {
     required this.repository,
     required this.scheduleId,
     required this.headline,
+    this.onStartJourney,
   });
 
   final ScheduleEvaluationRepository repository;
   final String scheduleId;
   final ValueNotifier<ScheduleEvaluationV2?> headline;
+
+  /// 이동 안내 화면을 여는 통로. 없으면 그 버튼을 그리지 않는다 — 열어 줄 경로가 없는
+  /// 화면에서 눌리지 않는 버튼을 보여 주지 않는다.
+  final Future<void> Function()? onStartJourney;
 
   @override
   State<_GuideActions> createState() => _GuideActionsState();
@@ -508,6 +612,59 @@ class _GuideActionsState extends State<_GuideActions> {
   bool _busy = false;
   String? _notice;
 
+  /// 지금 띄운 문구가 어느 계산에 대한 것인가. 계산이 바뀌면 문구를 지운다.
+  ///
+  /// 예전에는 한 번 뜬 오류 문구가 다음 버튼을 누를 때까지 사라지지 않았다. 카드 내용은
+  /// 1분마다 새로 바뀌는데 그 아래 오류만 그대로 남아, 다 지난 실패가 지금 고장난 것처럼
+  /// 읽혔다(2026-09-22 제보).
+  String? _noticeFor;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.headline.addListener(_onEvaluation);
+  }
+
+  @override
+  void dispose() {
+    widget.headline.removeListener(_onEvaluation);
+    super.dispose();
+  }
+
+  void _onEvaluation() {
+    if (_notice == null || !mounted) return;
+    final id = widget.headline.value?.evaluationId;
+    if (id == null || id == _noticeFor) return;
+    setState(() {
+      _notice = null;
+      _noticeFor = null;
+    });
+  }
+
+  void _say(String? message) {
+    if (!mounted) return;
+    setState(() {
+      _notice = message;
+      _noticeFor = widget.headline.value?.evaluationId;
+    });
+  }
+
+  /// 방금 누른 결과를 서버에서 다시 읽어 화면에 반영한다.
+  ///
+  /// 이게 없으면 버튼이 성공해도 카드가 그대로였다. 평가 카드가 30초마다 도는 다음
+  /// 차례까지 기다려야 바뀌어서, 눌러도 아무 일도 안 일어난 것처럼 보였다(2026-09-22 제보).
+  Future<void> _reload() async {
+    try {
+      final latest = await widget.repository.latestEvaluation(
+        widget.scheduleId,
+      );
+      if (mounted) widget.headline.value = latest;
+    } on Object {
+      // 다시 읽기 실패는 알리지 않는다. 방금 누른 동작 자체는 성공했고 카드 폴링이 곧
+      // 같은 값을 가져온다. 여기서 오류를 띄우면 성공을 실패로 잘못 알리게 된다.
+    }
+  }
+
   Future<void> _run(Future<void> Function() action, {String? done}) async {
     setState(() {
       _busy = true;
@@ -515,14 +672,80 @@ class _GuideActionsState extends State<_GuideActions> {
     });
     try {
       await action();
-      if (!mounted) return;
-      setState(() => _notice = done);
-    } on Object {
-      if (!mounted) return;
-      setState(() => _notice = '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.');
+      await _reload();
+      _say(done);
+    } on Object catch (failure) {
+      _say(failureMessage(failure));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// "이 제안 적용".
+  ///
+  /// 버튼이 들고 있던 계산 번호를 그대로 보내면 거의 실패한다 — 출발이 가까우면 서버가
+  /// 1분마다 계산을 새로 하고, 수락은 최신 번호와 같을 때만 통과한다. 안내를 읽고 누르는
+  /// 그 사이에 이미 번호가 달라져 있다(2026-09-22 제보). 그래서 누른 순간에 최신 계산을
+  /// 다시 읽어 그 번호로 보낸다.
+  ///
+  /// 대신 사용자가 읽지 않은 제안을 대신 적용하지는 않는다. 그 사이 제안 시각이 바뀌었으면
+  /// 화면만 새 값으로 바꾸고, 확인한 뒤 다시 누르게 한다.
+  Future<void> _accept(DateTime shown) async {
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      final latest = await widget.repository.latestEvaluation(
+        widget.scheduleId,
+      );
+      if (mounted) widget.headline.value = latest;
+      final id = latest.evaluationId;
+      final proposed = latest.proposedDepartAt;
+      if (id == null ||
+          id.isEmpty ||
+          proposed == null ||
+          !latest.canAcceptAt(DateTime.now())) {
+        _say('지금은 이 제안을 적용할 수 없어요. 계산이 끝난 뒤 다시 눌러 주세요.');
+        return;
+      }
+      if (proposed != shown) {
+        _say('제안한 출발 시각이 바뀌었어요. 새 시각을 확인하고 다시 눌러 주세요.');
+        return;
+      }
+      await widget.repository.acceptEvaluation(widget.scheduleId, id);
+      await _reload();
+      _say('제안한 출발 시각을 적용했어요.');
+    } on Object catch (failure) {
+      _say(failureMessage(failure));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 실패 이유를 나눠 적는다.
+  ///
+  /// 무엇이 잘못됐든 "요청을 처리하지 못했어요" 하나만 보여 주면 사용자는 다시 눌러야
+  /// 할지 기다려야 할지 알 수 없다. 특히 계산이 바뀌어 거절된 경우는 할 일이 분명하므로
+  /// 그대로 적는다.
+  @visibleForTesting
+  static String failureMessage(Object failure) {
+    if (failure is! ScheduleEvaluationFailure) {
+      return '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.';
+    }
+    return switch (failure.kind) {
+      EvaluationFailureKind.staleEvaluation =>
+        '계산이 방금 새로 됐어요. 바뀐 제안을 확인하고 다시 눌러 주세요.',
+      // 서버가 이유를 문장으로 준다(예: 검증 중인 제안은 적용할 수 없다).
+      EvaluationFailureKind.validation => failure.message,
+      EvaluationFailureKind.authentication => '로그인이 만료됐어요. 다시 로그인한 뒤 시도해 주세요.',
+      EvaluationFailureKind.notFound => '이 일정의 계산을 찾지 못했어요. 다시 계산해 주세요.',
+      EvaluationFailureKind.rateLimited => '요청이 너무 잦아요. 잠시 뒤 다시 눌러 주세요.',
+      EvaluationFailureKind.dependencyUnavailable =>
+        '지금은 서버가 응답하지 못해요. 잠시 뒤 다시 시도해 주세요.',
+      EvaluationFailureKind.network => '연결이 불안정해 요청을 보내지 못했어요.',
+      _ => '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.',
+    };
   }
 
   @override
@@ -531,8 +754,7 @@ class _GuideActionsState extends State<_GuideActions> {
   ) => ValueListenableBuilder<ScheduleEvaluationV2?>(
     valueListenable: widget.headline,
     builder: (context, evaluation, _) {
-      // 계산이 끝나기 전에는 제안을 적용할 수 없다. 끝난 안내·입력 대기 상태에서는
-      // 다시 계산과 출발 보고도 의미가 없다.
+      // 끝난 안내·입력 대기 상태에서는 다시 계산이 의미가 없다.
       final active =
           evaluation != null &&
           evaluation.state != EvaluationState.stopped &&
@@ -540,39 +762,32 @@ class _GuideActionsState extends State<_GuideActions> {
       final computing =
           evaluation?.state == EvaluationState.pending ||
           evaluation?.state == EvaluationState.running;
-      final evaluationId = evaluation?.evaluationId;
+      final proposed = evaluation?.proposedDepartAt;
       final canAccept =
           evaluation != null &&
-          evaluation.proposedDepartAt != null &&
-          evaluation.canAcceptAt(DateTime.now()) &&
-          evaluationId != null &&
-          evaluationId.isNotEmpty;
+          proposed != null &&
+          evaluation.canAcceptAt(DateTime.now());
+      final departed = evaluation?.actualDepartAt != null;
+      final journey = widget.onStartJourney;
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (evaluation?.proposedDepartAt != null)
+          if (proposed != null)
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 key: const Key('acceptEvaluationButton'),
-                onPressed: _busy || !canAccept
-                    ? null
-                    : () => _run(
-                        () => widget.repository.acceptEvaluation(
-                          widget.scheduleId,
-                          evaluationId,
-                        ),
-                        done: '제안한 출발 시각을 적용했어요.',
-                      ),
+                onPressed: _busy || !canAccept ? null : () => _accept(proposed),
                 icon: const Icon(Icons.check_rounded, size: 18),
                 label: const Text('이 제안 적용'),
               ),
             ),
-          if (active) ...[
-            if (evaluation.proposedDepartAt != null) const SizedBox(height: 8),
-            Row(
-              children: [
+          if (proposed != null && (active || journey != null))
+            const SizedBox(height: 8),
+          Row(
+            children: [
+              if (active)
                 Expanded(
                   child: OutlinedButton.icon(
                     key: const Key('refreshEvaluationButton'),
@@ -590,30 +805,33 @@ class _GuideActionsState extends State<_GuideActions> {
                     label: const Text('다시 계산'),
                   ),
                 ),
-                const SizedBox(width: 8),
+              if (active && journey != null) const SizedBox(width: 8),
+              // 출발 기록은 여기서 하지 않는다. 이 버튼은 이동 안내 화면을 열기만 하고,
+              // "출발했어요" 는 그 화면 한 곳에만 둔다.
+              //
+              // 예전에는 여기에도 "출발했어요" 가 있었다. 같은 이름인데 하는 일이 달랐다 —
+              // 여기 것은 기록만 하고 화면이 그대로였고, 이동 안내 화면의 것은 기록한 뒤
+              // 이동 중으로 넘어갔다. 사용자는 어느 쪽이 진짜인지 알 수 없었다
+              // (2026-09-22 제보). 다음 단계로 가는 문을 하나만 남긴다.
+              //
+              // 이 버튼은 active 바깥에 둔다. 출발을 기록하면 평가가 멈춰 active 가 false 가
+              // 되는데, 그때 이 버튼까지 사라지면 이동 안내로 돌아갈 길이 끊긴다.
+              if (journey != null)
                 Expanded(
                   child: OutlinedButton.icon(
-                    key: const Key('confirmDepartureButton'),
-                    onPressed: _busy
-                        ? null
-                        : () => _run(
-                            () => widget.repository.confirmDeparture(
-                              widget.scheduleId,
-                            ),
-                            done: '출발을 기록했어요.',
-                          ),
+                    key: const Key('startJourneyButton'),
+                    onPressed: _busy ? null : () => journey(),
                     style: OutlinedButton.styleFrom(
                       backgroundColor: Colors.white.withValues(alpha: 0.85),
                       foregroundColor: const Color(0xFF2F4A7D),
                       side: const BorderSide(color: Color(0xFFB9CBE8)),
                     ),
                     icon: const Icon(Icons.directions_run_rounded, size: 18),
-                    label: const Text('출발했어요'),
+                    label: Text(departed ? '이동 안내 이어보기' : '이동 안내 시작'),
                   ),
                 ),
-              ],
-            ),
-          ],
+            ],
+          ),
           if (computing && !_busy) ...[
             const SizedBox(height: 6),
             const Text(

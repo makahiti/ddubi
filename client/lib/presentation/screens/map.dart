@@ -31,11 +31,15 @@ class RouteMapScreen extends StatefulWidget {
     this.evaluated = RouteEvaluatedNumbers.empty,
     this.scheduleId,
     this.departedAlready = false,
+    this.estimatedArrivalAt,
   });
 
   final DdubiRepository repository;
   final RecommendationApi? api;
   final SavedRouteSummary? savedRoute;
+
+  /// 이번 평가가 계산한 도착 예정. 이동 안내 화면의 "예상 도착" 에 그대로 넘긴다.
+  final DateTime? estimatedArrivalAt;
   final RouteOption? selectedRoute;
   final RouteSearchCondition? condition;
   final String? departureLabel;
@@ -92,6 +96,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           evaluated: widget.evaluated,
           scheduleId: widget.scheduleId,
           departedAlready: widget.departedAlready,
+          estimatedArrivalAt: widget.estimatedArrivalAt,
           route:
               widget.selectedRoute ??
               widget.savedRoute!.toRouteOption(
@@ -230,6 +235,7 @@ class _SavedRouteApiScreen extends StatefulWidget {
     this.evaluated = RouteEvaluatedNumbers.empty,
     this.scheduleId,
     this.departedAlready = false,
+    this.estimatedArrivalAt,
   });
 
   final RecommendationApi api;
@@ -242,6 +248,7 @@ class _SavedRouteApiScreen extends StatefulWidget {
   final RouteEvaluatedNumbers evaluated;
   final String? scheduleId;
   final bool departedAlready;
+  final DateTime? estimatedArrivalAt;
 
   @override
   State<_SavedRouteApiScreen> createState() => _SavedRouteApiScreenState();
@@ -321,6 +328,7 @@ class _SavedRouteApiScreenState extends State<_SavedRouteApiScreen> {
               evaluated: widget.evaluated,
               scheduleId: widget.scheduleId,
               departedAlready: widget.departedAlready,
+              estimatedArrivalAt: widget.estimatedArrivalAt,
             );
             if (constraints.maxWidth >= 760) {
               return Padding(
@@ -375,12 +383,16 @@ class _SavedRouteDetailPanel extends StatelessWidget {
     this.evaluated = RouteEvaluatedNumbers.empty,
     this.scheduleId,
     this.departedAlready = false,
+    this.estimatedArrivalAt,
   });
 
   final SavedRouteSummary summary;
   final SavedRouteDetail detail;
   final RouteOption route;
   final DdubiRepository repository;
+
+  /// 이번 평가가 계산한 도착 예정. 이동 안내 화면에 그대로 넘긴다.
+  final DateTime? estimatedArrivalAt;
 
   /// 목록에서 보이던 순번. 목록과 상세가 같은 번호를 쓰게 하려고 그대로 받아 온다.
   /// 없으면 상세 응답의 displayRank 를 쓰고, 그것도 없으면 순위 칸을 그리지 않는다 —
@@ -447,6 +459,7 @@ class _SavedRouteDetailPanel extends StatelessWidget {
               evaluated: evaluated,
               scheduleId: scheduleId,
               departedAlready: departedAlready,
+              estimatedArrivalAt: estimatedArrivalAt,
             ),
           ),
         ),

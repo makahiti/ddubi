@@ -133,6 +133,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     scheduleId: state.pathParameters['id']!,
                     arrivalApi: arrivalApi,
                     userApi: userApi,
+                    // 끝난 일정 화면이 실제 도착 기록(시각·판정)을 보여주는 데 쓴다.
+                    reportApi: reportApi,
                     initialSchedule: arguments?.schedule,
                     initialRoutes: arguments?.routes,
                   );

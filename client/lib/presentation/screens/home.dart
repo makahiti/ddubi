@@ -10,6 +10,7 @@ import '../../services/app_api.dart';
 import '../../services/recommendation_api.dart';
 import '../widgets.dart';
 import '../departure_headline.dart';
+import '../home_greeting.dart';
 import '../../domain/schedule_evaluation.dart';
 import 'shared.dart';
 
@@ -335,38 +336,50 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
             style: TextStyle(fontSize: 14, color: Color(0xFF718497)),
           ),
           const SizedBox(height: 14),
-          Container(
-            height: 130,
-            padding: const EdgeInsets.fromLTRB(22, 16, 8, 0),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFCFF6FA), Color(0xFFE8FAE9)],
-              ),
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    '오늘도\n뚜비와 함께\n좋은 하루 되세요!',
-                    style: TextStyle(
-                      fontSize: 22,
-                      height: 1.35,
-                      fontWeight: FontWeight.w900,
-                      color: DdubiColors.navy,
+          Builder(
+            builder: (context) {
+              final greeting = homeGreeting(DateTime.now());
+              return Container(
+                key: Key('homeGreeting_${greeting.period}'),
+                height: 130,
+                padding: const EdgeInsets.fromLTRB(22, 16, 8, 0),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: greeting.colors),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        greeting.message,
+                        style: TextStyle(
+                          fontSize: 22,
+                          height: 1.35,
+                          fontWeight: FontWeight.w900,
+                          color: greeting.textColor,
+                        ),
+                      ),
                     ),
-                  ),
+                    Image.asset(
+                      'assets/images/ttubee/welcome.png',
+                      width: 145,
+                      fit: BoxFit.contain,
+                    ),
+                  ],
                 ),
-                Image.asset(
-                  'assets/images/ttubee/welcome.png',
-                  width: 145,
-                  fit: BoxFit.contain,
-                ),
-              ],
-            ),
+              );
+            },
           ),
           const SizedBox(height: 16),
           if (widget.evaluation != null) ...[
+            // 어느 일정의 결론인지 이름을 붙인다. 일정이 여럿이면 이름 없는 결론은 헷갈린다.
+            for (final labeled
+                in (_browsed ?? widget.schedules)
+                    .where((schedule) => schedule.id == widget.scheduleId)
+                    .take(1)) ...[
+              HeadlineScheduleLabel(schedule: labeled),
+              const SizedBox(height: 6),
+            ],
             // 홈은 결론 한 줄만 보여주고, 자세한 근거는 일정 상세에서 본다.
             DepartureHeadline(
               evaluation: widget.evaluation!,
@@ -574,6 +587,11 @@ class _TodayScheduleCard extends StatelessWidget {
                           if (ScheduleStatusBadge.shows(schedule.status)) ...[
                             const SizedBox(width: 6),
                             ScheduleStatusBadge(schedule.status),
+                          ] else if (schedule.hasDeparted) ...[
+                            // 출발을 알린 뒤 도착 전까지. 예전에는 이 구간도 "예정" 이라
+                            // 출발 버튼을 눌러도 홈에서는 아무것도 달라지지 않았다(2026-09-22 제보).
+                            const SizedBox(width: 6),
+                            const MovingBadge(),
                           ],
                         ],
                       ),
@@ -602,25 +620,32 @@ class _TodayScheduleCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F8F2),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Text(
-                    '예정',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: DdubiColors.green,
+                // 끝난 일정에는 "예정" 을 붙이지 않는다. 제목 옆에 완료·취소 뱃지가 이미
+                // 있는데 오른쪽에 "예정" 까지 붙어 두 상태가 동시에 보였다(2026-09-22 제보).
+                // 출발한 일정은 제목 옆 "이동 중" 이 말하므로 오른쪽 표시도 뺀다.
+                if (!ScheduleStatusBadge.shows(schedule.status) &&
+                    !schedule.hasDeparted) ...[
+                  Container(
+                    key: const Key('scheduleUpcomingBadge'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F8F2),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Text(
+                      '예정',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: DdubiColors.green,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 4),
+                  const SizedBox(width: 4),
+                ],
                 const Icon(
                   Icons.chevron_right_rounded,
                   color: Color(0xFF1D3F8E),
@@ -756,6 +781,12 @@ class _WebHomeContent extends StatelessWidget {
       ),
       const SizedBox(height: 20),
       if (evaluation != null) ...[
+        // 어느 일정의 결론인지 적는다. 일정이 여럿이면 가장 가까운 것 하나의 결론만 보여주는데,
+        // 이름이 없으면 어느 일정 이야기인지 알 수 없다(2026-09-22 제보).
+        if (summary.nextSchedule != null) ...[
+          HeadlineScheduleLabel(schedule: summary.nextSchedule!),
+          const SizedBox(height: 6),
+        ],
         DepartureHeadline(
           evaluation: evaluation,
           compact: true,

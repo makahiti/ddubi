@@ -10,6 +10,7 @@ import '../../services/place_api.dart';
 import '../widgets.dart';
 import 'schedule_form.dart';
 import 'shared.dart';
+import 'travel_records_calendar.dart';
 
 class RepeatSchedulesScreen extends StatefulWidget {
   const RepeatSchedulesScreen({
@@ -453,7 +454,19 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
                 ),
               ),
             const SizedBox(height: 18),
-            const SectionHeader('최근 이동 기록'),
+            // 같은 기록을 날짜별로 훑어볼 자리. 목록은 그대로 두고 문 하나만 더 낸다.
+            SectionHeader(
+              '최근 이동 기록',
+              trailing: TextButton.icon(
+                key: const Key('openTravelRecordsCalendar'),
+                onPressed: () => openPage(
+                  context,
+                  TravelRecordsCalendarScreen(items: history.items),
+                ),
+                icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                label: const Text('달력으로 보기'),
+              ),
+            ),
             if (history.items.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 14),
@@ -512,11 +525,17 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
     ],
   );
 
+  /// 누르면 그 일정의 상세로 간다. 끝난 일정 상세가 출발·도착 기록과 당시 안내를 보여주므로
+  /// 여기서 더 펼치지 않는다(2026-09-22).
   Widget _historyTile(TravelHistoryItem item) => ListTile(
+    key: Key('historyItem-${item.reportDetailId}'),
     leading: const Icon(Icons.directions_transit_outlined),
     title: Text(item.title),
     subtitle: Text(formatFullDate(item.arriveBy)),
     trailing: Text(arrivalResultText(item.result)),
+    onTap: item.scheduleId.isEmpty
+        ? null
+        : () => context.push('/schedules/${item.scheduleId}'),
   );
 
   Future<void> _showReport(WeeklyReport report) async {

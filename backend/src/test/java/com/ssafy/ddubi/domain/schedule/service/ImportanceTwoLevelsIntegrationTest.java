@@ -45,16 +45,25 @@ class ImportanceTwoLevelsIntegrationTest extends IntegrationTestSupport {
 
     private Long ownerId;
 
+    /**
+     * 한 검사 안에서 만드는 일정들이 <b>같은</b> 도착 시각을 쓰게 한다.
+     *
+     * <p>{@code BusinessTime.now()} 는 초 단위다. 일정을 만들 때마다 다시 읽으면 두 번의 생성 사이에 초가 넘어가는 순간 도착 시각이 1초
+     * 어긋나고, 그러면 출발 예정시각도 1초 어긋난다. "중요도를 바꿔도 출발 예정시각은 같다" 는 검사가 그 1초 때문에 가끔 빨간불이 됐다. 검사 대상은 중요도이지
+     * 시계가 아니므로, 시각은 여기서 한 번만 정한다.
+     */
+    private LocalDateTime arriveBy;
+
     @BeforeEach
     void setUp() {
         ownerId =
                 userRepository
                         .save(User.builder().email("importance@ddubi.com").nickname("중요도").build())
                         .getId();
+        arriveBy = BusinessTime.now().plusDays(1).withNano(0);
     }
 
     private Long createSchedule(Importance importance) {
-        LocalDateTime arriveBy = BusinessTime.now().plusDays(1).withNano(0);
         return scheduleService
                 .create(
                         ownerId,

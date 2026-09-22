@@ -22,12 +22,16 @@ class TravelConditionsCard extends StatefulWidget {
     super.key,
     required this.scheduleId,
     this.service,
+    this.title = '오늘의 이동 변수',
   });
 
   final String scheduleId;
 
   /// 서버에서 값을 가져오는 통로. 없으면 조회하지 않고 "확인 안 됨"만 보여준다.
   final TravelConditionsService? service;
+
+  /// 칸 제목. 일정 상세에서는 "오늘의 이동 변수", 일정별 교통 상황에서는 "이 일정의 이동 변수".
+  final String title;
 
   /// 값이 없을 때 칸에 적는 말. 0 이나 "맑음" 같은 그럴듯한 값으로 채우지 않는다.
   static const String unavailableText = '확인 안 됨';
@@ -78,10 +82,13 @@ class _TravelConditionsCardState extends State<TravelConditionsCard> {
       children: [
         Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
-                '오늘의 이동 변수',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                widget.title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
               ),
             ),
             if (loading)

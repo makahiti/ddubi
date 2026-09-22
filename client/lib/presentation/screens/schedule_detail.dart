@@ -10,6 +10,7 @@ import '../../services/recommendation_api.dart';
 import '../widgets.dart';
 import '../departure_headline.dart';
 import '../arrival_flow.dart';
+import '../finished_schedule_record.dart';
 import '../recommendation_guide_card.dart';
 import '../schedule_evaluation_card.dart';
 import '../../domain/schedule_evaluation.dart';
@@ -19,6 +20,7 @@ import '../../domain/transit_reference.dart';
 import '../transit_reference_panel.dart';
 import '../travel_conditions_card.dart';
 import '../../core/diagnostics/developer_diagnostics.dart';
+import 'journey.dart';
 import 'map.dart';
 import 'schedule_form.dart';
 import 'shared.dart';
@@ -32,6 +34,7 @@ class ScheduleDetailScreen extends StatelessWidget {
     required this.scheduleId,
     required this.arrivalApi,
     required this.userApi,
+    this.reportApi,
     this.initialSchedule,
     this.initialRoutes,
   });
@@ -44,6 +47,9 @@ class ScheduleDetailScreen extends StatelessWidget {
   /// 이동 기록 저장 동의를 켜는 데만 쓴다. 계정 동의가 꺼져 있으면 서버가 도착 시각을 버려서
   /// 판정이 나오지 않기 때문에, 도착 시각을 남기기로 한 경우에만 함께 켠다.
   final UserApi userApi;
+
+  /// 끝난 일정의 실제 도착 기록(시각·판정)을 읽는 통로. 없으면 그 칸은 "기록 없음" 으로 남는다.
+  final ReportApi? reportApi;
   final Schedule? initialSchedule;
   final List<RouteOption>? initialRoutes;
 
@@ -186,6 +192,9 @@ class ScheduleDetailScreen extends StatelessWidget {
     bool recommendationUnavailable = false,
     bool routesUnavailable = false,
   }) {
+    // 다녀왔거나 취소한 일정. 이 화면은 "앞으로 어떻게 갈까" 가 아니라 "어떻게 다녀왔나" 를 보여준다.
+    // 말은 과거형이고, 고치거나 출발할 버튼은 없다(2026-09-22 제보).
+    final finished = ScheduleStatusBadge.shows(schedule.status);
     return AppPage(
       // 맨 위 일정 정보 카드를 없앤 자리다. 제목이 사라지면 어느 일정인지 알 수 없어
       // 상단 바가 일정 이름을 든다.
@@ -242,20 +251,18 @@ class ScheduleDetailScreen extends StatelessWidget {
                 ),
               ),
               // 이미 다녀왔거나 취소한 일정에 "몇 시에 나가세요" 를 띄우지 않는다.
-              // 대신 무엇이 끝났는지만 알린다.
-              if (ScheduleStatusBadge.shows(schedule.status)) ...[
+              // 다녀온 일정은 출발·도착·소요 기록을, 취소한 일정은 취소 사실만 보여준다.
+              if (schedule.isCanceled) ...[
                 InfoCard(
                   key: const Key('scheduleFinishedNotice'),
                   child: Row(
                     children: [
                       ScheduleStatusBadge(schedule.status),
                       const SizedBox(width: 8),
-                      Expanded(
+                      const Expanded(
                         child: Text(
-                          schedule.isCanceled
-                              ? '취소한 일정이에요. 출발 안내는 하지 않아요.'
-                              : '도착을 기록한 일정이에요. 출발 안내는 끝났어요.',
-                          style: const TextStyle(
+                          '취소한 일정이에요. 출발 안내는 하지 않아요.',
+                          style: TextStyle(
                             fontSize: 13,
                             color: Color(0xFF4A5B70),
                           ),
@@ -265,11 +272,26 @@ class ScheduleDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
+              ] else if (finished) ...[
+                FinishedScheduleRecordCard(
+                  schedule: schedule,
+                  headline: headline,
+                  evaluationRepository:
+                      repository is ScheduleEvaluationRepository
+                      ? repository as ScheduleEvaluationRepository
+                      : null,
+                  reportApi: reportApi,
+                ),
+                const SizedBox(height: 10),
               ] else if (repository is ScheduleEvaluationRepository) ...[
                 ValueListenableBuilder<ScheduleEvaluationV2?>(
                   valueListenable: headline,
-                  builder: (_, value, _) =>
-                      DepartureHeadline(evaluation: value, emphasized: true),
+                  builder: (_, value, _) => DepartureHeadline(
+                    evaluation: value,
+                    emphasized: true,
+                    // 출발 뒤에는 서버가 기록한 실제 출발 시각을 큰 숫자로 쓴다.
+                    departedAt: schedule.actualDepartAt,
+                  ),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -304,9 +326,9 @@ class ScheduleDetailScreen extends StatelessWidget {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Text(
-                              '이 일정에 맞춰',
-                              style: TextStyle(
+                            child: Text(
+                              finished ? '이 일정의 기록' : '이 일정에 맞춰',
+                              style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
                                 color: Color(0xFF35528A),
@@ -315,9 +337,12 @@ class ScheduleDetailScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            route == null
+                            finished
+                                ? '당시 선택한 경로와\n실제 기록을 볼 수 있어요.'
+                                : route == null
                                 ? '추천 출발 시간을 확인 중이에요.'
                                 : '지금 선택한 경로와\n새로 계산한 결과를 비교해 보세요.',
+                            key: const Key('scheduleCompareHeadline'),
                             style: const TextStyle(
                               fontSize: 19,
                               height: 1.28,
@@ -325,14 +350,16 @@ class ScheduleDetailScreen extends StatelessWidget {
                               color: DdubiColors.navy,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            '출발 판단과 실시간 반영 여부는 최신 평가에서 확인해 주세요.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF68808B),
+                          if (!finished) ...[
+                            const SizedBox(height: 4),
+                            const Text(
+                              '출발 판단과 실시간 반영 여부는 최신 평가에서 확인해 주세요.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF68808B),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -369,10 +396,12 @@ class ScheduleDetailScreen extends StatelessWidget {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '현재 선택 경로',
-                      style: TextStyle(
+                      // 다녀온 일정은 "지금" 이 아니다. 당시 선택으로 남는다.
+                      finished ? '당시 선택 경로' : '현재 선택 경로',
+                      key: const Key('selectedRouteHeader'),
+                      style: const TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w900,
                         color: DdubiColors.navy,
@@ -450,6 +479,7 @@ class ScheduleDetailScreen extends StatelessWidget {
                         routeRepository,
                         displayRank: displayRank,
                         evaluated: evaluated,
+                        estimatedArrivalAt: headline.value?.estimatedArrivalAt,
                       ),
               ),
               const SizedBox(height: 16),
@@ -457,18 +487,29 @@ class ScheduleDetailScreen extends StatelessWidget {
               // 시간과 순서는 서버 계산값이고 앱은 받은 값을 그대로 쓴다.
               // 예전에는 이 카드가 경로 목록 위에 있었고, 옆에 내용 없는 "이 일정에 맞춰"
               // 카드가 따로 있었다. 둘을 한 장으로 합치고 경로 목록 아래로 내렸다.
-              // 끝난 일정에는 안내를 띄우지 않는다. 이미 다녀온 일정에 "이 경로를 제안해요"
-              // 나 "안내를 불러오지 못했어요" 가 뜨면 아직 할 일이 남은 것처럼 읽힌다.
-              if (recommendationApi != null &&
-                  !ScheduleStatusBadge.shows(schedule.status)) ...[
+              // 다녀온 일정에도 출발할 때 받은 안내를 기록으로 남긴다(과거형, 버튼 없음). 취소한
+              // 일정에는 띄우지 않는다 — 가지 않은 길의 안내는 기록이 아니다.
+              if (recommendationApi != null && !schedule.isCanceled) ...[
                 RecommendationGuideCard(
                   api: recommendationApi!,
                   scheduleId: schedule.id,
                   headline: headline,
-                  evaluationRepository:
-                      repository is ScheduleEvaluationRepository
+                  pastTense: finished,
+                  evaluationRepository: finished
+                      ? null
+                      : repository is ScheduleEvaluationRepository
                       ? repository as ScheduleEvaluationRepository
                       : null,
+                  // 평가는 누르는 순간의 값을 읽는다. 카드를 그릴 때 값을 박아 두면 1분마다
+                  // 바뀌는 계산과 어긋난다.
+                  onStartJourney: finished
+                      ? null
+                      : () => _startJourney(
+                          c,
+                          schedule,
+                          savedRoutes,
+                          headline.value,
+                        ),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -514,37 +555,44 @@ class ScheduleDetailScreen extends StatelessWidget {
                       )
                     : const SizedBox.shrink(),
               ),
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                key: const Key('editScheduleButton'),
-                onPressed: () async {
-                  final changed = await c.push<bool>(
-                    '/schedules/${schedule.id}/edit',
-                  );
-                  if (changed == true && c.mounted) {
-                    c.go('/schedules/${schedule.id}');
-                  }
-                },
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('일정 수정'),
-              ),
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                key: const Key('completeScheduleButton'),
-                onPressed: () => _recordArrival(c, schedule),
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('도착 완료'),
-              ),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                key: const Key('cancelScheduleButton'),
-                onPressed: () => _confirmCancel(c, schedule),
-                icon: const Icon(Icons.delete_outline, color: DdubiColors.red),
-                label: const Text(
-                  '일정 취소',
-                  style: TextStyle(color: DdubiColors.red),
+              // 끝난 일정에는 고칠 것도, 도착을 다시 기록할 것도, 취소할 것도 없다. 서버도 완료된 일정의
+              // 수정·취소를 거절하므로 버튼을 두면 눌러도 실패만 본다.
+              if (!finished) ...[
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  key: const Key('editScheduleButton'),
+                  onPressed: () async {
+                    final changed = await c.push<bool>(
+                      '/schedules/${schedule.id}/edit',
+                    );
+                    if (changed == true && c.mounted) {
+                      c.go('/schedules/${schedule.id}');
+                    }
+                  },
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('일정 수정'),
                 ),
-              ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  key: const Key('completeScheduleButton'),
+                  onPressed: () => _recordArrival(c, schedule),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('도착 완료'),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  key: const Key('cancelScheduleButton'),
+                  onPressed: () => _confirmCancel(c, schedule),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: DdubiColors.red,
+                  ),
+                  label: const Text(
+                    '일정 취소',
+                    style: TextStyle(color: DdubiColors.red),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -604,6 +652,7 @@ class ScheduleDetailScreen extends StatelessWidget {
     DdubiRepository routeRepository, {
     int? displayRank,
     RouteEvaluatedNumbers evaluated = RouteEvaluatedNumbers.empty,
+    DateTime? estimatedArrivalAt,
   }) {
     if (savedRoute.routeId.trim().isEmpty) {
       ScaffoldMessenger.of(c).showSnackBar(
@@ -628,6 +677,68 @@ class ScheduleDetailScreen extends StatelessWidget {
         evaluated: evaluated,
         scheduleId: schedule.id,
         departedAlready: schedule.hasDeparted,
+        estimatedArrivalAt: estimatedArrivalAt,
+      ),
+    );
+  }
+
+  /// 일정 상세에서 곧장 이동 안내를 연다.
+  ///
+  /// 예전에는 이 자리에 "출발했어요" 가 있었다. 누르면 출발 시각만 기록하고 화면은 그대로라,
+  /// 정작 이동 안내를 보려면 경로 카드 → 경로 상세 → "이동 안내 시작" 을 따로 눌러야 했다.
+  /// 그 화면에도 같은 이름의 "출발했어요" 가 또 있어서, 같은 이름의 버튼 둘이 서로 다른 일을
+  /// 했다(2026-09-22 제보). 다음 단계로 가는 문을 하나로 만든다.
+  ///
+  /// 구간은 경로 상세와 같은 API 로 가져온다. 목록이 들고 있는 요약에는 구간이 없다.
+  Future<void> _startJourney(
+    BuildContext c,
+    Schedule schedule,
+    List<SavedRouteSummary> savedRoutes,
+    ScheduleEvaluationV2? evaluation,
+  ) async {
+    final api = recommendationApi;
+    // 선택된 경로가 없으면 목록 첫 줄을 쓴다. 목록의 맨 위가 화면에서 1순위로 보이는 경로다.
+    final selected = savedRoutes.where((route) => route.selected);
+    final savedRoute = selected.isNotEmpty
+        ? selected.first
+        : (savedRoutes.isEmpty ? null : savedRoutes.first);
+    if (api == null ||
+        savedRoute == null ||
+        savedRoute.routeId.trim().isEmpty) {
+      ScaffoldMessenger.of(c).showSnackBar(
+        const SnackBar(
+          key: Key('startJourneyUnavailable'),
+          content: Text('안내할 경로가 아직 없어요. 다시 계산한 뒤 눌러 주세요.'),
+        ),
+      );
+      return;
+    }
+    final SavedRouteDetail detail;
+    try {
+      detail = await api.getSavedRouteDetail(savedRoute.routeId);
+    } on Object {
+      if (!c.mounted) return;
+      ScaffoldMessenger.of(c).showSnackBar(
+        const SnackBar(
+          key: Key('startJourneyError'),
+          content: Text('이동 안내를 열지 못했어요. 잠시 뒤 다시 시도해 주세요.'),
+        ),
+      );
+      return;
+    }
+    if (!c.mounted) return;
+    await openPage(
+      c,
+      MovingScreen(
+        repository: routeRepository,
+        route: savedRoute.toRouteOption(schedule),
+        segments: detail.segments,
+        // 경로 카드·경로 상세와 같은 숫자를 쓴다. 화면마다 시간이 다르면 안 된다.
+        evaluated: RouteEvaluatedNumbers.of(evaluation, savedRoute.routeId),
+        scheduleId: schedule.id,
+        departedAlready: schedule.hasDeparted,
+        // 이동 중 화면의 "예상 도착" 은 이 값에서 온다. 없으면 그 화면은 시각을 만들어내지 않는다.
+        estimatedArrivalAt: evaluation?.estimatedArrivalAt,
       ),
     );
   }

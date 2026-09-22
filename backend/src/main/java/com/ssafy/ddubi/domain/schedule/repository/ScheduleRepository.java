@@ -48,6 +48,15 @@ public interface ScheduleRepository extends JpaRepository<Schedule, Long> {
     Optional<Schedule> findFirstByUserIdAndStatusAndArriveByGreaterThanEqualOrderByArriveBy(
             Long userId, ScheduleStatus status, LocalDateTime at);
 
+    /**
+     * 자동 마감 대상 — 도착 예정 시각이 지났는데 아직 UPCOMING 인 일정.
+     *
+     * <p>한 바퀴에 처리할 개수를 {@code Pageable} 로 묶는다. 오래 방치된 서버에서 수만 건이 한 트랜잭션에 들어오면 그 한 번이 DB 를 오래 잡는다.
+     * 남은 건은 다음 바퀴가 가져간다.
+     */
+    List<Schedule> findAllByStatusAndArriveByLessThanOrderByArriveBy(
+            ScheduleStatus status, LocalDateTime before, Pageable pageable);
+
     /** 반복 인스턴스 중복 생성 방지용 — 이미 있는 도착 시각들. */
     @Query("select s.arriveBy from Schedule s where s.repeat.id = :repeatId")
     List<LocalDateTime> findArriveBysByRepeatId(@Param("repeatId") Long repeatId);

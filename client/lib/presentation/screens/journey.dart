@@ -11,12 +11,20 @@ import '../arrival_flow.dart';
 import '../departure_headline.dart' show formatClock;
 import '../micro_animations.dart';
 import '../widgets.dart';
-import '../schedule_evaluation_card.dart';
+import '../travel_conditions_card.dart';
 import '../../domain/schedule_evaluation.dart';
 import '../../services/recommendation_api.dart';
 import 'shared.dart';
 
-/// 저장된 일정과 서버 재평가 결과를 조회한다. 교통 데이터가 없을 때 가상의 지연·대안을 만들지 않는다.
+/// 앞으로 갈 일정마다 그 일정의 이동 변수(날씨·혼잡도·도로 통제·지하철)를 보여준다.
+///
+/// 예전에는 여기에 일정 상세의 "이동 예측" 카드를 그대로 넣었다. 같은 카드를 다른 제목 아래에서
+/// 다시 보는 것이라 이 화면만의 쓸모가 없었다(2026-09-22 제보). 이제는 일정 상세의 "오늘의 이동
+/// 변수" 칸을 일정마다 세워 "이 일정의 이동 변수" 로 보여준다. 자료가 아직 안 들어오는 항목은 카드가
+/// 스스로 "확인 안 됨" 으로 적는다 — 실시간 자료(TOPIS 등)가 붙으면 그 자리가 채워진다.
+///
+/// 지난 일정은 내보이지 않는다. 이 값은 "지금" 의 상황이라 다녀온 일정 옆에 붙으면 그때의 상황으로
+/// 오해한다.
 class DelayAlertScreen extends ConsumerStatefulWidget {
   const DelayAlertScreen({super.key, required this.repository});
   // 기존 라우트 호출과의 호환 인자다. 실제 조회는 scheduleRepositoryProvider를 사용한다.
@@ -36,6 +44,7 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
   @override
   Widget build(BuildContext context) {
     final repository = ref.watch(scheduleRepositoryProvider);
+    final conditions = ref.watch(recommendationApiProvider);
     return AppPage(
       title: '일정별 교통 상황',
       child: FutureBuilder<List<Schedule>>(
@@ -53,27 +62,22 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
               ),
             );
           }
-          if (repository is! ScheduleEvaluationRepository) {
-            return const Center(
-              child: Text('실제 교통 상황은 일정 API 연결 후 확인할 수 있습니다.'),
-            );
-          }
-          final evaluationRepository =
-              repository as ScheduleEvaluationRepository;
-          // 취소된 일정과 이미 지난 일정은 평가가 멈춘 상태라 카드를 만들 이유가 없다.
+          // 취소·완료된 일정과 도착 시각이 지난 일정은 뺀다. 지금 상황을 보여주는 자리다.
           final now = DateTime.now();
           final schedules =
               Schedule.visible(snapshot.data ?? const <Schedule>[])
-                  .where((schedule) => schedule.arriveBy.isAfter(now))
+                  .where(
+                    (schedule) =>
+                        schedule.status == ScheduleStatus.upcoming &&
+                        schedule.arriveBy.isAfter(now),
+                  )
                   .toList()
                 ..sort((a, b) => a.arriveBy.compareTo(b.arriveBy));
           if (schedules.isEmpty) {
             return const Center(child: Text('앞으로 예정된 일정이 없습니다.'));
           }
-          // ListView.builder 로 그린다. 예전에는 모든 카드를 한 번에 만들어서, 일정이
-          // 열 개면 열 개가 동시에 서버에 물어보고 각자 3초마다 다시 물었다. 화면에 보이는
-          // 카드만 만들면 화면 밖 카드는 아예 요청하지 않고, 스크롤을 벗어나면 타이머도
-          // 정리된다(카드의 dispose 가 타이머를 끈다).
+          // 화면에 보이는 카드만 만든다. 카드마다 서버에 한 번씩 물으므로, 일정이 많을 때
+          // 전부 한 번에 만들면 그만큼 동시에 요청이 나간다.
           return ListView.builder(
             padding: screenPadding,
             itemCount: schedules.length + 1,
@@ -81,11 +85,12 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
               if (index == 0) {
                 return const Padding(
                   padding: EdgeInsets.only(bottom: 4),
-                  child: Text('각 일정의 최신 평가와 데이터 부족 사유를 확인하세요.'),
+                  child: Text('앞으로 갈 일정마다 지금의 이동 변수를 보여줘요.'),
                 );
               }
               final schedule = schedules[index - 1];
               return Column(
+                key: ValueKey('scheduleConditions_${schedule.id}'),
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 16),
@@ -93,10 +98,19 @@ class _DelayAlertScreenState extends ConsumerState<DelayAlertScreen> {
                     schedule.title,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  ScheduleEvaluationCard(
+                  Text(
+                    '${formatFullDate(schedule.arriveBy)} 도착',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6E8193),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TravelConditionsCard(
                     key: ValueKey(schedule.id),
-                    repository: evaluationRepository,
                     scheduleId: schedule.id,
+                    service: conditions,
+                    title: '이 일정의 이동 변수',
                   ),
                 ],
               );
@@ -141,11 +155,19 @@ class MovingScreen extends ConsumerStatefulWidget {
     this.evaluated = RouteEvaluatedNumbers.empty,
     this.scheduleId,
     this.departedAlready = false,
+    this.estimatedArrivalAt,
   });
 
   final DdubiRepository repository;
 
   final RouteOption? route;
+
+  /// 이번 평가가 계산한 도착 예정 시각.
+  ///
+  /// 예전에는 경로 요약의 도착 칸([RouteOption.arrival])을 그대로 썼는데, 저장된 경로의 그 칸은
+  /// 늘 "평가 필요" 라는 자리표시자였다. 그래서 이동 중 화면의 "예상 도착" 이 항상 "평가 필요" 로
+  /// 보였다(2026-09-22 제보). 시각은 평가에서 받아 온 이 값으로만 보여준다.
+  final DateTime? estimatedArrivalAt;
 
   /// 저장된 경로의 실제 이동 구간. 비어 있으면 구간 안내를 생략한다.
   final List<SavedRouteSegment> segments;
@@ -288,10 +310,22 @@ class _MovingScreenState extends ConsumerState<MovingScreen> {
     ];
   }
 
-  /// 도착 예정 시각. 경로에 값이 없으면 시각을 만들어내지 않는다.
+  /// 도착 예정 시각. 값이 없으면 시각을 만들어내지 않는다.
+  ///
+  /// 평가가 준 시각이 먼저다. 그것이 없을 때만 경로 요약의 도착 칸을 보되, "평가 필요"·"확인 필요"
+  /// 같은 자리표시자는 시각이 아니므로 모른다고 적는다.
   Widget _arrivalCard() {
-    final arrival = widget.route?.arrival;
-    final known = arrival != null && arrival.isNotEmpty && arrival != '--:--';
+    final fromEvaluation = widget.estimatedArrivalAt;
+    final fromRoute = widget.route?.arrival;
+    final routeKnown =
+        fromRoute != null &&
+        fromRoute.isNotEmpty &&
+        fromRoute != '--:--' &&
+        !fromRoute.contains('필요');
+    final known = fromEvaluation != null || routeKnown;
+    final arrival = fromEvaluation != null
+        ? formatClock(fromEvaluation)
+        : fromRoute;
     return InfoCard(
       child: Row(
         children: [
@@ -303,7 +337,8 @@ class _MovingScreenState extends ConsumerState<MovingScreen> {
               children: [
                 const Text('예상 도착'),
                 Text(
-                  known ? arrival : '아직 계산되지 않았어요',
+                  known ? arrival! : '아직 계산되지 않았어요',
+                  key: const Key('journeyArrivalValue'),
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ],

@@ -121,8 +121,9 @@ void main() {
 
     expect(repository.latestCalls, 1);
     // 홈은 결론 한 줄만 보여주지만, 시각은 일정 상세와 같은 v2 P와 ETA여야 한다.
+    // 뒤에는 남은 시간에 따른 말("· 아직 N시간 남았어요" 등)이 붙으므로 앞부분만 본다.
     expect(
-      find.text(
+      find.textContaining(
         '${formatClock(keep.proposedDepartAt!)}에 나가면 '
         '${formatClock(keep.estimatedArrivalAt!)} 도착',
       ),

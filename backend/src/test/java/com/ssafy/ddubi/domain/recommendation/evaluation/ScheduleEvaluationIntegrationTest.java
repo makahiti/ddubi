@@ -132,7 +132,8 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         verify(routeClient, times(1)).search(any());
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT COUNT(*) FROM route WHERE schedule_id=? AND is_selected=true",
+                                "SELECT COUNT(*) FROM route WHERE schedule_id=? AND"
+                                    + " is_selected=true",
                                 Integer.class,
                                 scheduleId))
                 .isEqualTo(1);
@@ -181,7 +182,8 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(store.response(result, owner).guidance().canAccept()).isTrue();
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT notification_json FROM schedule_evaluation WHERE schedule_id=?",
+                                "SELECT notification_json FROM schedule_evaluation WHERE"
+                                    + " schedule_id=?",
                                 String.class,
                                 scheduleId))
                 .isNull();
@@ -406,14 +408,16 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         store.wakeSegments(List.of("BUS:9:8:7"), now);
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT event_revision FROM schedule_evaluation WHERE schedule_id=?",
+                                "SELECT event_revision FROM schedule_evaluation WHERE"
+                                    + " schedule_id=?",
                                 Long.class,
                                 scheduleId))
                 .isZero();
         store.wakeSegments(List.of("BUS:1:2:3"), now);
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT event_revision FROM schedule_evaluation WHERE schedule_id=?",
+                                "SELECT event_revision FROM schedule_evaluation WHERE"
+                                    + " schedule_id=?",
                                 Long.class,
                                 scheduleId))
                 .isEqualTo(1);
@@ -509,5 +513,36 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /**
+     * 출발을 확인해 감시가 멈춘 뒤에도 앱은 마지막 결과를 보여줄 수 있어야 한다(2026-09-22 제보).
+     *
+     * <p>출발 확인은 입력 버전을 올리므로, 평소 규칙대로면 저장된 결과는 "오래된 것" 으로 거절된다. 멈춘 일정에서는 그 검사를 풀어 마지막 결과를 그대로 돌려준다.
+     * 상태는 STOPPED 로 남겨 앱이 "더 갱신되지 않는 결과" 임을 알 수 있게 한다.
+     */
+    @Test
+    void stoppedScheduleKeepsLastOutcomeForTheApp() {
+        var first = workflow.evaluate(scheduleId, owner, TriggerType.INITIAL, now);
+        assertThat(store.latest(scheduleId, owner).get("state")).isEqualTo("READY");
+
+        store.stop(scheduleId, owner);
+
+        var status = store.latest(scheduleId, owner);
+        assertThat(status.get("state")).isEqualTo("STOPPED");
+        assertThat(status.get("frozen")).isEqualTo(true);
+        assertThat(status.get("result")).isInstanceOf(ScheduleEvaluationWorkflow.Outcome.class);
+
+        @SuppressWarnings("unchecked")
+        var v2 = (Map<String, Object>) store.latestV2(scheduleId, owner);
+        assertThat(v2.get("state")).isEqualTo("STOPPED");
+        assertThat(v2.get("frozen")).isEqualTo(true);
+        assertThat(v2.get("evaluationId")).isEqualTo(first.evaluationId());
+        assertThat(v2.get("proposedDepartAt")).as("출발할 때 본 제안 시각이 남아야 한다").isNotNull();
+        assertThat(v2.get("estimatedArrivalAt")).as("도착 예정도 남아야 한다").isNotNull();
+
+        var outcome = store.latestOutcomeV2(scheduleId, owner);
+        assertThat(outcome.frozen()).isTrue();
+        assertThat(outcome.evaluation().evaluationId()).isEqualTo(first.evaluationId());
     }
 }

@@ -291,6 +291,17 @@ void main() {
 
     expect(find.text('다녀온 회의'), findsOneWidget);
     expect(find.byKey(const Key('scheduleDoneBadge')), findsOneWidget);
+    // 끝난 일정 카드 오른쪽에 "예정" 이 함께 붙어 두 상태가 동시에 보였다(2026-09-22 제보).
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('다녀온 회의'),
+          matching: find.byType(Opacity),
+        ),
+        matching: find.byKey(const Key('scheduleUpcomingBadge')),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('일정 저장소가 없으면 화살표는 꺼져 있다', (tester) async {

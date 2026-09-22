@@ -43,11 +43,18 @@ import org.springframework.beans.factory.annotation.Autowired;
  */
 class MorningBriefIntegrationTest extends IntegrationTestSupport {
 
-    private static final LocalDate DAY = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
     private static final LocalTime BRIEF_AT = LocalTime.of(7, 0);
 
+    /**
+     * 검사가 쓰는 "내일".
+     *
+     * <p>static 이면 클래스가 처음 열릴 때 한 번만 정해진다. 통합 검사 전체는 몇 분 넘게 도는데, 그 사이 자정을 넘기면 "내일" 이 "오늘" 이 되고 일정
+     * 생성이 과거 시각이라며 거부한다. 검사마다 다시 정해서 그 창을 없앤다.
+     */
+    private LocalDate day;
+
     /** 브리핑 시각 직후. 여기서 대상이 되어야 한다. */
-    private static final LocalDateTime JUST_AFTER = DAY.atTime(7, 1);
+    private LocalDateTime justAfter;
 
     @Autowired private MorningBriefService morningBriefService;
     @Autowired private NotificationRepository notifications;
@@ -60,6 +67,8 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
 
     @BeforeEach
     void setUp() {
+        day = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(1);
+        justAfter = day.atTime(7, 1);
         given(pushSender.send(any())).willReturn(PushResult.ok());
         user = users.save(User.builder().email("brief@ddubi.com").nickname("브리핑").build());
         user.changeBriefingTime(BRIEF_AT);
@@ -82,7 +91,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                                         "역삼",
                                         new BigDecimal("37.5006"),
                                         new BigDecimal("127.0364")),
-                                DAY.atTime(arriveAt),
+                                day.atTime(arriveAt),
                                 null,
                                 null,
                                 null))
@@ -105,7 +114,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         schedule("회사", LocalTime.of(9, 0));
         schedule("병원", LocalTime.of(14, 0));
 
-        assertThat(morningBriefService.dispatchDue(JUST_AFTER)).isEqualTo(1);
+        assertThat(morningBriefService.dispatchDue(justAfter)).isEqualTo(1);
 
         assertThat(briefs())
                 .singleElement()
@@ -113,7 +122,8 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                         brief -> {
                             assertThat(brief.getStatus()).isEqualTo(NotificationStatus.SENT);
                             assertThat(brief.getTitle()).isEqualTo("오늘 일정 2건");
-                            assertThat(brief.getBody()).isEqualTo("09:00 회사 · 14:00 병원 · 오늘 일정을 확인해 보세요");
+                            assertThat(brief.getBody())
+                                    .isEqualTo("09:00 회사 · 14:00 병원 · 오늘 일정을 확인해 보세요");
                         });
     }
 
@@ -126,7 +136,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         schedule("저녁약속", LocalTime.of(19, 0));
         schedule("운동", LocalTime.of(21, 0));
 
-        morningBriefService.dispatchDue(JUST_AFTER);
+        morningBriefService.dispatchDue(justAfter);
 
         assertThat(briefs())
                 .singleElement()
@@ -134,7 +144,8 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                         brief -> {
                             assertThat(brief.getTitle()).isEqualTo("오늘 일정 5건");
                             assertThat(brief.getBody())
-                                    .isEqualTo("09:00 회사 · 12:00 점심 · 14:00 병원 외 2건 · 오늘 일정을 확인해 보세요");
+                                    .isEqualTo(
+                                            "09:00 회사 · 12:00 점심 · 14:00 병원 외 2건 · 오늘 일정을 확인해 보세요");
                         });
     }
 
@@ -144,7 +155,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         schedule("새벽운동", LocalTime.of(6, 0));
         schedule("회사", LocalTime.of(9, 0));
 
-        morningBriefService.dispatchDue(JUST_AFTER);
+        morningBriefService.dispatchDue(justAfter);
 
         assertThat(briefs())
                 .singleElement()
@@ -163,7 +174,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         long earliest = schedule("회사", LocalTime.of(9, 0));
         long later = schedule("병원", LocalTime.of(14, 0));
 
-        morningBriefService.dispatchDue(JUST_AFTER);
+        morningBriefService.dispatchDue(justAfter);
 
         assertThat(briefs())
                 .singleElement()
@@ -188,9 +199,9 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
     void sendsAtMostOncePerDay() {
         schedule("회사", LocalTime.of(9, 0));
 
-        assertThat(morningBriefService.dispatchDue(JUST_AFTER)).isEqualTo(1);
-        assertThat(morningBriefService.dispatchDue(DAY.atTime(7, 2))).isZero();
-        assertThat(morningBriefService.dispatchDue(DAY.atTime(8, 30))).isZero();
+        assertThat(morningBriefService.dispatchDue(justAfter)).isEqualTo(1);
+        assertThat(morningBriefService.dispatchDue(day.atTime(7, 2))).isZero();
+        assertThat(morningBriefService.dispatchDue(day.atTime(8, 30))).isZero();
 
         assertThat(briefs()).hasSize(1);
     }
@@ -200,7 +211,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
     void waitsUntilTheBriefingTime() {
         schedule("회사", LocalTime.of(9, 0));
 
-        assertThat(morningBriefService.dispatchDue(DAY.atTime(6, 59))).isZero();
+        assertThat(morningBriefService.dispatchDue(day.atTime(6, 59))).isZero();
         assertThat(briefs()).isEmpty();
     }
 
@@ -210,12 +221,12 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
     void skipsWhenTooLate() {
         schedule("저녁약속", LocalTime.of(19, 0));
 
-        assertThat(morningBriefService.dispatchDue(DAY.atTime(8, 59)))
+        assertThat(morningBriefService.dispatchDue(day.atTime(8, 59)))
                 .as("2시간 이내면 늦어도 보낸다")
                 .isEqualTo(1);
 
         notifications.deleteAll();
-        assertThat(morningBriefService.dispatchDue(DAY.atTime(9, 1)))
+        assertThat(morningBriefService.dispatchDue(day.atTime(9, 1)))
                 .as("2시간을 넘기면 보내지 않는다")
                 .isZero();
         assertThat(briefs()).isEmpty();
@@ -225,12 +236,12 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("오늘 남은 일정이 없으면 보내지 않고, 일정이 생기면 그때 보낸다")
     void sendsNothingUntilThereIsSomethingToSay() {
-        assertThat(morningBriefService.dispatchDue(JUST_AFTER)).isZero();
+        assertThat(morningBriefService.dispatchDue(justAfter)).isZero();
         assertThat(notifications.count()).as("행도 만들지 않는다").isZero();
 
         schedule("갑자기 생긴 일정", LocalTime.of(11, 0));
 
-        assertThat(morningBriefService.dispatchDue(DAY.atTime(7, 30))).isEqualTo(1);
+        assertThat(morningBriefService.dispatchDue(day.atTime(7, 30))).isEqualTo(1);
         assertThat(briefs()).hasSize(1);
     }
 
@@ -241,7 +252,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         users.saveAndFlush(user);
         schedule("회사", LocalTime.of(9, 0));
 
-        assertThat(morningBriefService.dispatchDue(JUST_AFTER)).isZero();
+        assertThat(morningBriefService.dispatchDue(justAfter)).isZero();
         assertThat(notifications.count()).isZero();
     }
 
@@ -256,7 +267,7 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
         users.saveAndFlush(user);
         schedule("회사", LocalTime.of(23, 0));
 
-        assertThat(morningBriefService.dispatchDue(DAY.plusDays(1).atTime(0, 30))).isZero();
+        assertThat(morningBriefService.dispatchDue(day.plusDays(1).atTime(0, 30))).isZero();
         assertThat(notifications.count()).isZero();
     }
 
@@ -275,22 +286,28 @@ class MorningBriefIntegrationTest extends IntegrationTestSupport {
                                 "강남", new BigDecimal("37.4979"), new BigDecimal("127.0276")),
                         new LocationRequest(
                                 "역삼", new BigDecimal("37.5006"), new BigDecimal("127.0364")),
-                        DAY.atTime(15, 0),
+                        day.atTime(15, 0),
                         null,
                         null,
                         null));
 
-        assertThat(morningBriefService.dispatchDue(JUST_AFTER)).isEqualTo(2);
+        assertThat(morningBriefService.dispatchDue(justAfter)).isEqualTo(2);
 
         assertThat(briefs()).hasSize(2);
         assertThat(briefs())
                 .filteredOn(brief -> brief.isOwnedBy(user.getId()))
                 .singleElement()
-                .satisfies(mine -> assertThat(mine.getBody()).isEqualTo("09:00 내 일정 · 오늘 일정을 확인해 보세요"));
+                .satisfies(
+                        mine ->
+                                assertThat(mine.getBody())
+                                        .isEqualTo("09:00 내 일정 · 오늘 일정을 확인해 보세요"));
         assertThat(briefs())
                 .filteredOn(brief -> brief.isOwnedBy(other.getId()))
                 .singleElement()
-                .satisfies(theirs -> assertThat(theirs.getBody()).isEqualTo("15:00 남의 일정 · 오늘 일정을 확인해 보세요"));
+                .satisfies(
+                        theirs ->
+                                assertThat(theirs.getBody())
+                                        .isEqualTo("15:00 남의 일정 · 오늘 일정을 확인해 보세요"));
     }
 
     /**
