@@ -23,16 +23,19 @@ public class RecommendationController {
     private final ScheduleEvaluationStore store;
     private final RecommendationService recommendationService;
     private final RecommendationGuideService guideService;
+    private final DepartureRecalculationService departureRecalculation;
 
     public RecommendationController(
             ScheduleEvaluationWorkflow workflow,
             ScheduleEvaluationStore store,
             RecommendationService recommendationService,
-            RecommendationGuideService guideService) {
+            RecommendationGuideService guideService,
+            DepartureRecalculationService departureRecalculation) {
         this.workflow = workflow;
         this.store = store;
         this.recommendationService = recommendationService;
         this.guideService = guideService;
+        this.departureRecalculation = departureRecalculation;
     }
 
     /** 기존 프론트 body 형태를 수용한다. forceRealtime는 최신값 확인 요청이지 매번 카카오 호출하라는 뜻이 아니다. */
@@ -90,7 +93,7 @@ public class RecommendationController {
     @PostMapping("/schedules/{scheduleId}/departure")
     public ApiResponse<Map<String, String>> departed(
             @LoginUserId Long userId, @PathVariable long scheduleId) {
-        store.stop(scheduleId, userId);
+        departureRecalculation.depart(scheduleId, userId);
         return ApiResponse.success(Map.of("state", "STOPPED"));
     }
 

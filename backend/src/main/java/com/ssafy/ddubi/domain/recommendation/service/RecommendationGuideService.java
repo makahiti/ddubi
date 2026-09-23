@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.ddubi.domain.recommendation.client.GmsRecommendationGuideClient;
 import com.ssafy.ddubi.domain.recommendation.client.RecommendationGuideProperties;
 import com.ssafy.ddubi.domain.recommendation.dto.response.RecommendationGuideResponse;
+import com.ssafy.ddubi.domain.recommendation.evaluation.DepartureEstimate;
 import com.ssafy.ddubi.domain.recommendation.evaluation.ScheduleEvaluationV2;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
@@ -91,6 +92,8 @@ public class RecommendationGuideService {
         if (!latest.frozen()
                 && (evaluation.validUntil() == null || !evaluation.validUntil().isAfter(now)))
             throw new BusinessException(ErrorCode.STALE_RECOMMENDATION);
+        if (latest.frozen() && latest.departureEstimate() != null)
+            return departedGuide(evaluation, latest.departureEstimate());
         String cacheKey = CACHE_PREFIX + scheduleId + ":" + evaluation.evaluationId();
         String askedKey = ASKED_PREFIX + scheduleId + ":" + evaluation.evaluationId();
         RecommendationGuideResponse cached = cached(cacheKey);
@@ -170,6 +173,45 @@ public class RecommendationGuideService {
         if (owner || !generating.contains(cacheKey))
             cache(cacheKey, response, now, latest.frozen());
         return response;
+    }
+
+    /**
+     * 출발 뒤 안내는 출발 전 evaluationId의 Redis/GMS 문장을 재사용하지 않는다. 새로 계산한 실제 출발·도착만 서버 문장으로 표현하고, 이전 구간별
+     * 시간과 지연 원인을 지금의 사실로 옮겨 쓰지 않는다. 이 경로에서는 GMS를 다시 호출하지 않는다.
+     */
+    private static RecommendationGuideResponse departedGuide(
+            ScheduleEvaluationV2 evaluation, DepartureEstimate estimate) {
+        LocalDateTime departed = LocalDateTime.ofInstant(estimate.actualDepartAt(), KST);
+        LocalDateTime arrival =
+                estimate.estimatedArrivalAt() == null
+                        ? null
+                        : LocalDateTime.ofInstant(estimate.estimatedArrivalAt(), KST);
+        String headline =
+                arrival == null
+                        ? "출발했어요 · 도착 예정 시간을 확인할 수 없어요."
+                        : DateTimeFormatter.ofPattern("HH:mm").format(departed)
+                                + " 출발 · "
+                                + DateTimeFormatter.ofPattern("HH:mm").format(arrival)
+                                + " 도착 예정";
+        return new RecommendationGuideResponse(
+                "recommendation-guide-v1",
+                evaluation.evaluationId(),
+                departed,
+                arrival,
+                estimate.durationSeconds(),
+                evaluation.fare(),
+                headline,
+                "NO_CHANGE",
+                arrival == null
+                        ? "실제 출발 시각은 저장했지만 도착 예정은 계산하지 못했어요."
+                        : "실제 출발 시각으로 선택한 경로를 다시 계산한 결과예요.",
+                "선택한 경로를 따라 이동 중이에요.",
+                List.of(),
+                new RecommendationGuideResponse.Delay(
+                        "NO_CONFIRMED_DELAY", null, null, null, false),
+                estimate.computedAt(),
+                null,
+                "TEMPLATE:DEPARTURE");
     }
 
     /**

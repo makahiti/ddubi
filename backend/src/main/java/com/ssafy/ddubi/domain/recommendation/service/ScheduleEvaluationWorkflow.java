@@ -205,7 +205,8 @@ public class ScheduleEvaluationWorkflow {
             long eventRevision,
             MlRoutePreview.Comparison preview,
             Persistence persistence,
-            ConditionalDepartureEvaluator.Evaluation conditional) {
+            ConditionalDepartureEvaluator.Evaluation conditional,
+            DepartureEstimate departureEstimate) {
         public Outcome {
             candidates = List.copyOf(candidates);
         }
@@ -245,7 +246,70 @@ public class ScheduleEvaluationWorkflow {
                     eventRevision,
                     preview,
                     persistence,
+                    null,
                     null);
+        }
+
+        /** 기존 v2 저장 JSON과 호출자의 생성자 호환. 출발 후 결과는 별도 필드에만 채운다. */
+        public Outcome(
+                String evaluationId,
+                long scheduleId,
+                Long recommendationId,
+                Instant plannedDepartAt,
+                Instant arriveBy,
+                Instant checkedAt,
+                String selectedKey,
+                Result selected,
+                DepartureSuggestionService.Suggestion suggestion,
+                List<CandidateInfo> candidates,
+                RouteEvidenceAssembler.Snapshot evidence,
+                TriggerType trigger,
+                String policyVersion,
+                long eventRevision,
+                MlRoutePreview.Comparison preview,
+                Persistence persistence,
+                ConditionalDepartureEvaluator.Evaluation conditional) {
+            this(
+                    evaluationId,
+                    scheduleId,
+                    recommendationId,
+                    plannedDepartAt,
+                    arriveBy,
+                    checkedAt,
+                    selectedKey,
+                    selected,
+                    suggestion,
+                    candidates,
+                    evidence,
+                    trigger,
+                    policyVersion,
+                    eventRevision,
+                    preview,
+                    persistence,
+                    conditional,
+                    null);
+        }
+
+        public Outcome withDepartureEstimate(DepartureEstimate value) {
+            return new Outcome(
+                    evaluationId,
+                    scheduleId,
+                    recommendationId,
+                    plannedDepartAt,
+                    arriveBy,
+                    checkedAt,
+                    selectedKey,
+                    selected,
+                    suggestion,
+                    candidates,
+                    evidence,
+                    trigger,
+                    policyVersion,
+                    eventRevision,
+                    preview,
+                    persistence,
+                    conditional,
+                    value);
         }
 
         public Outcome withRecommendationId(Long id) {
@@ -266,7 +330,8 @@ public class ScheduleEvaluationWorkflow {
                     eventRevision,
                     preview,
                     persistence,
-                    conditional);
+                    conditional,
+                    departureEstimate);
         }
 
         public Outcome withPersistence(Persistence value) {
@@ -287,7 +352,8 @@ public class ScheduleEvaluationWorkflow {
                     eventRevision,
                     preview,
                     value,
-                    conditional);
+                    conditional,
+                    departureEstimate);
         }
     }
 

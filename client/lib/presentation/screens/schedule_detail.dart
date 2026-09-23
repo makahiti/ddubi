@@ -113,16 +113,26 @@ class ScheduleDetailScreen extends StatelessWidget {
       );
 
   Future<Schedule?> _loadSchedule() async {
+    // 홈에서 전달된 일정은 빠른 첫 표시용이다. 출발 버튼을 누르고 돌아왔을 때는
+    // 실제 출발 시각과 이동 상태를 서버에서 다시 읽어야 이전 스냅샷이 남지 않는다.
+    // 서버가 값을 주면 언제나 그것이 이긴다.
+    try {
+      final fromServer = await repository.scheduleById(scheduleId);
+      if (fromServer != null) return fromServer;
+    } on Object {
+      // 조회 실패는 아래 대체 경로로 내려간다.
+    }
+    // 서버가 못 주었을 때만(장애이거나 이미 사라진 일정) 갖고 있던 것을 쓴다. 이것까지 버리면
+    // 이미 취소된 일정을 다시 취소하는 것처럼 되돌릴 수 있는 화면에서도 아무것도 못 하게 된다.
     if (initialSchedule != null) return initialSchedule;
     try {
-      return await repository.scheduleById(scheduleId);
-    } on Object {
-      final schedules = await repository.schedules();
-      for (final schedule in schedules) {
+      for (final schedule in await repository.schedules()) {
         if (schedule.id == scheduleId) return schedule;
       }
+    } on Object {
       return null;
     }
+    return null;
   }
 
   Future<_ScheduleRecommendationData> _loadRecommendation(
@@ -472,15 +482,20 @@ class ScheduleDetailScreen extends StatelessWidget {
                 headline: headline,
                 onSelected: recommendationApi == null
                     ? null
-                    : (savedRoute, displayRank, evaluated) => _openSavedRoute(
-                        c,
-                        schedule,
-                        savedRoute,
-                        routeRepository,
-                        displayRank: displayRank,
-                        evaluated: evaluated,
-                        estimatedArrivalAt: headline.value?.estimatedArrivalAt,
-                      ),
+                    : (savedRoute, displayRank, evaluated) async {
+                        final result = await _openSavedRoute(
+                          c,
+                          schedule,
+                          savedRoute,
+                          routeRepository,
+                          displayRank: displayRank,
+                          evaluated: evaluated,
+                          estimatedArrivalAt:
+                              headline.value?.estimatedArrivalAt,
+                        );
+                        if (c.mounted) reload?.call();
+                        return result;
+                      },
               ),
               const SizedBox(height: 16),
               // 계산 근거(내부 사유 코드) 대신 사용자가 행동할 수 있는 안내를 보여준다.
@@ -504,12 +519,15 @@ class ScheduleDetailScreen extends StatelessWidget {
                   // 바뀌는 계산과 어긋난다.
                   onStartJourney: finished
                       ? null
-                      : () => _startJourney(
-                          c,
-                          schedule,
-                          savedRoutes,
-                          headline.value,
-                        ),
+                      : () async {
+                          await _startJourney(
+                            c,
+                            schedule,
+                            savedRoutes,
+                            headline.value,
+                          );
+                          if (c.mounted) reload?.call();
+                        },
                 ),
                 const SizedBox(height: 16),
               ],

@@ -182,23 +182,40 @@ sparkjobs-test:
 # 시간대(+09:00)·문자셋(utf8mb4)은 테스트 코드(IntegrationTestSupport)가 컨테이너를 띄울 때 지정한다.
 backend-test:
   stage: test
-  resource_group: backend-test          # dind 안에 MySQL·Redis 를 띄우는 무거운 잡. 러너 동시 실행 2 에서도 한 번에 하나만
+  resource_group: backend-test          # MySQL·Redis 서비스 컨테이너를 곁에 두는 무거운 잡. 러너 동시 실행 2 에서도 한 번에 하나만
   image: eclipse-temurin:17-jdk        # 팀 표준 Java 17
+  # 2026-09-23 dind 에서 GitLab services 로 바꿨다(backend 합의). 전에는 dind 안에서 Testcontainers 가 mysql·redis 이미지를
+  # 잡마다 다시 내려받고 MySQL 을 세 번 띄워 중간 17분이 걸렸다. 이제는 GitLab 이 잡 옆에 붙여 주는 컨테이너 두 개를 쓰고,
+  # 테스트 코드는 CI_MYSQL_HOST·CI_REDIS_HOST 가 있으면 Testcontainers 를 건너뛰고 이 주소에 붙는다
+  # (IntegrationTestSupport, support/IsolatedMySql). 이미지는 러너 호스트에 한 번만 받아 두면 다음 잡부터는 캐시를 쓴다.
   services:
-    - name: docker:27-dind
-      alias: docker
+    - name: mysql:8.0
+      alias: mysql
+      # 아래 네 값은 IntegrationTestSupport 의 withCommand 와 같아야 한다. 로컬(Testcontainers)과 CI(services)가
+      # 다른 경로로 DB 를 얻으므로 한쪽만 바꾸면 CI 에서만 깨진다. 시간대가 어긋나면 시각 비교가 9시간 밀리고,
+      # 문자셋이 어긋나면 한글 비교가 깨지며, 패킷 상한이 작으면 20MiB 압축 BLOB 적재 시험이 실패한다.
+      command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci",
+                "--default-time-zone=+09:00", "--max-allowed-packet=64M"]
+    - name: redis:7-alpine
+      alias: redis
   variables:
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_HOST: "tcp://docker:2375"
-    # Testcontainers 가 띄운 컨테이너는 dind 안에 있다. 이 값이 없으면 테스트가 localhost 로 붙으려다 전부 실패한다
-    TESTCONTAINERS_HOST_OVERRIDE: "docker"
-    # 정리 컨테이너(ryuk)는 dind 에서 자주 막힌다. 잡이 끝나면 dind 가 통째로 사라지므로 없어도 된다
-    TESTCONTAINERS_RYUK_DISABLED: "true"
+    # 잡 안에서만 살고 밖에서는 닿을 수 없는 일회용 DB 라 비밀번호를 파일에 적어도 된다.
+    MYSQL_DATABASE: ddubi
+    MYSQL_USER: ddubi
+    MYSQL_PASSWORD: ddubi
+    MYSQL_ROOT_PASSWORD: root
+    CI_MYSQL_HOST: mysql
+    CI_REDIS_HOST: redis
+    # 격리 DB 를 직접 만드는 테스트(IsolatedMySql)가 CREATE DATABASE 를 하려면 root 가 필요하다.
+    CI_MYSQL_ROOT_PASSWORD: root
   cache:
     key: backend-m2
     paths: [.m2/repository]
     unprotect: true
   script:
+    # MySQL 8 은 첫 기동에 초기화가 있어 러너가 서비스를 기다리는 30초를 넘길 수 있다. 러너는 그때 경고만 내고 진행하므로
+    # 3306 포트가 열릴 때까지 최대 2분 직접 기다린다. 초기화 중의 임시 서버는 네트워크를 열지 않아 포트가 열리면 준비된 것이다.
+    - for i in $(seq 1 60); do (echo > /dev/tcp/mysql/3306) 2>/dev/null && break; sleep 2; done
     # 윈도우에서 권한 비트가 사라진 checkout도 같은 잡을 재현할 수 있도록 실행 권한을 보정한다.
     - cd backend && chmod +x mvnw && ./mvnw -B -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository test
   artifacts:

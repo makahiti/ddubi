@@ -96,11 +96,12 @@ void main() {
   // 출발한 뒤
   // ------------------------------------------------------------------
 
-  /// 서버는 멈춘 일정에도 마지막 계산 결과를 실어 준다(2026-09-22). 그 값으로 출발·도착·여유를
-  /// 그대로 보여준다. 예전의 "출발 안내가 끝났어요" 는 결과가 없을 때만 남는다.
-  test('출발한 뒤에는 실제 출발 시각과 도착 예정·여유를 그대로 보여준다', () async {
+  /// 마지막 출발 전 제안과 실제 출발 뒤 재계산은 다르다. 서버가 새로 계산한 ETA만 표시한다.
+  test('출발한 뒤에는 실제 출발 기준으로 다시 계산된 ETA를 보여준다', () async {
     final raw = await _raw('keep');
     raw['state'] = 'STOPPED';
+    raw['estimatedArrivalAt'] = '2026-09-18T01:08:00';
+    raw['actualDepartAt'] = '2026-09-17T23:52:00';
     final stopped = ScheduleEvaluationV2.fromJson(raw);
     final departedAt = DateTime(2026, 9, 17, 23, 52);
 
@@ -119,6 +120,21 @@ void main() {
     expect(content.title, contains('에 출발해'));
     expect(content.title, contains('도착 예정'));
     expect(content.title, isNot(contains('끝났어요')));
+  });
+
+  test('출발 후 재계산이 실패하면 출발 전 ETA를 임의로 재사용하지 않는다', () async {
+    final raw = await _raw('keep');
+    raw['state'] = 'STOPPED';
+    raw['actualDepartAt'] = '2026-09-17T23:52:00';
+    raw['estimatedArrivalAt'] = null;
+    raw['departureEstimate'] = {'status': 'UNAVAILABLE'};
+    final stopped = ScheduleEvaluationV2.fromJson(raw);
+
+    final content = DepartureHeadlineContent.of(stopped, now);
+
+    expect(content.title, contains('도착 예정 계산 불가'));
+    expect(content.arriveAt, isNull);
+    expect(content.departAt, isNotNull);
   });
 
   test('출발했는데 마지막 결과가 없는 예전 일정은 옛 문구를 그대로 쓴다', () {

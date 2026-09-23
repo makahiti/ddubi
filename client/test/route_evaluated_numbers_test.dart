@@ -3,58 +3,68 @@ import 'package:ddubi/domain/schedule_evaluation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 후보 두 개를 담은 평가 응답. 서버 계약(schedule-evaluation-v2)과 같은 모양이다.
-ScheduleEvaluationV2 evaluation() => ScheduleEvaluationV2.fromJson({
-  'schemaVersion': 'schedule-evaluation-v2',
-  'evaluationId': 'eval-1',
-  'state': 'READY',
-  'decision': 'KEEP',
-  'candidateEstimates': [
-    {
-      'candidateKey': 'cand-A',
-      'routeId': 101,
-      'rank': 1,
-      'durationSeconds': 2_460,
-      'selected': true,
-      'proposed': false,
-    },
-    {
-      'candidateKey': 'cand-B',
-      'routeId': 202,
-      'rank': 2,
-      'durationSeconds': 3_000,
-      'selected': false,
-      'proposed': true,
-    },
-  ],
-  'segments': [
-    {
-      'candidateKey': 'cand-A',
-      'sequence': 1,
-      'mode': 'WALK',
-      'legRole': 'ACCESS_WALK',
-      'durationSeconds': 240,
-      'durationSource': 'KAKAO_WALKING_API',
-    },
-    {
-      'candidateKey': 'cand-A',
-      'sequence': 2,
-      'mode': 'BUS',
-      'legRole': 'TRANSIT',
-      'durationSeconds': 1_500,
-      'durationSource': 'BUS_HISTORICAL_REFERENCE',
-    },
-    {
-      'candidateKey': 'cand-B',
-      'sequence': 1,
-      'mode': 'SUBWAY',
-      'legRole': 'TRANSIT',
-      'durationSeconds': 900,
-      'durationSource': 'TIMETABLE',
-    },
-  ],
-});
+ScheduleEvaluationV2 evaluation({bool stopped = false}) =>
+    ScheduleEvaluationV2.fromJson({
+      'schemaVersion': 'schedule-evaluation-v2',
+      'evaluationId': 'eval-1',
+      'state': stopped ? 'STOPPED' : 'READY',
+      'selectedRouteId': 101,
+      'durationSeconds': stopped ? 2_700 : 2_460,
+      'decision': 'KEEP',
+      'candidateEstimates': [
+        {
+          'candidateKey': 'cand-A',
+          'routeId': 101,
+          'rank': 1,
+          'durationSeconds': 2_460,
+          'selected': true,
+          'proposed': false,
+        },
+        {
+          'candidateKey': 'cand-B',
+          'routeId': 202,
+          'rank': 2,
+          'durationSeconds': 3_000,
+          'selected': false,
+          'proposed': true,
+        },
+      ],
+      'segments': [
+        {
+          'candidateKey': 'cand-A',
+          'sequence': 1,
+          'mode': 'WALK',
+          'legRole': 'ACCESS_WALK',
+          'durationSeconds': 240,
+          'durationSource': 'KAKAO_WALKING_API',
+        },
+        {
+          'candidateKey': 'cand-A',
+          'sequence': 2,
+          'mode': 'BUS',
+          'legRole': 'TRANSIT',
+          'durationSeconds': 1_500,
+          'durationSource': 'BUS_HISTORICAL_REFERENCE',
+        },
+        {
+          'candidateKey': 'cand-B',
+          'sequence': 1,
+          'mode': 'SUBWAY',
+          'legRole': 'TRANSIT',
+          'durationSeconds': 900,
+          'durationSource': 'TIMETABLE',
+        },
+      ],
+    });
 
 void main() {
+  test('출발 후에는 실제 출발 재계산 총시간만 쓰고 옛 구간 시간은 숨긴다', () {
+    final numbers = RouteEvaluatedNumbers.of(evaluation(stopped: true), '101');
+
+    expect(numbers.totalMinutes, 45);
+    expect(numbers.minutesOf(1), isNull);
+    expect(numbers.minutesOf(2), isNull);
+  });
   test('경로 ID로 그 경로의 전체 시간과 구간 시간만 가져온다', () {
     final numbers = RouteEvaluatedNumbers.of(evaluation(), '101');
 

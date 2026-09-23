@@ -1165,11 +1165,15 @@ void main() {
   /// 서버에 이미 출발이 기록된 일정은 화면을 열자마자 이동 중이어야 한다. 예전에는 화면 안의
   /// 임시 상태만 있어서 뒤로 나갔다 들어오면 다시 "출발 전" 이 됐다.
   testWidgets('이미 출발한 일정은 이동 중으로 열린다', (tester) async {
+    // 화면은 열리자마자 "실제 출발 시각 기준 도착 예정" 을 저장소에서 읽는다(S15P21E202-83).
+    // 저장소를 갈아 끼우지 않으면 테스트가 진짜 서버를 부른다.
+    final repository = _DepartureRecordingRepository();
     await tester.pumpWidget(
       ProviderScope(
+        overrides: [scheduleRepositoryProvider.overrideWithValue(repository)],
         child: MaterialApp(
           home: MovingScreen(
-            repository: MockDdubiRepository(),
+            repository: repository,
             route: MockDdubiRepository.routeData.first,
             scheduleId: 'schedule-1',
             departedAlready: true,
@@ -1177,6 +1181,7 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
     await tester.pump();
 
     expect(find.text('이동 중'), findsOneWidget);

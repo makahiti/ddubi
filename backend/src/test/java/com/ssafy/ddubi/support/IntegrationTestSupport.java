@@ -54,7 +54,10 @@ public abstract class IntegrationTestSupport {
                             .withPassword("ddubi")
                             .withCommand(
                                     // 실제 수도권 마스터의 압축 BLOB 전송이 약 20 MiB다. 테스트 이미지 기본 1 MiB로는
-                                    // 관리 적재 경계를 검증할 수 없다. 격리 컨테이너만 조정하며 운영/CI 서비스 설정은 바꾸지 않는다.
+                                    // 관리 적재 경계를 검증할 수 없다. 운영 MySQL 설정은 바꾸지 않는다.
+                                    // 아래 네 값은 .gitlab-ci.yml backend-test 의 services command 와 같아야
+                                    // 한다.
+                                    // CI 는 이 컨테이너 대신 그 서비스에 붙으므로, 여기만 바꾸면 CI 에서만 깨진다(2026-09-23).
                                     "--max-allowed-packet=64M",
                                     "--character-set-server=utf8mb4",
                                     "--collation-server=utf8mb4_0900_ai_ci",

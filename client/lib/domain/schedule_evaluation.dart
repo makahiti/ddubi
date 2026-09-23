@@ -458,6 +458,7 @@ class ScheduleEvaluationV2 {
     this.plannedDepartAt,
     this.effectiveDepartAt,
     this.actualDepartAt,
+    this.departureEstimateStatus,
     this.arriveBy,
     this.originalEstimatedArrivalAt,
     this.targetArriveAt,
@@ -497,6 +498,9 @@ class ScheduleEvaluationV2 {
   final DateTime? plannedDepartAt;
   final DateTime? effectiveDepartAt;
   final DateTime? actualDepartAt;
+
+  /// 실제 출발 기준 재계산 상태. ETA가 null일 때 계산 중인지 실패인지 구분한다.
+  final String? departureEstimateStatus;
   final DateTime? arriveBy;
   final DateTime? originalEstimatedArrivalAt;
   final DateTime? targetArriveAt;
@@ -635,6 +639,9 @@ class ScheduleEvaluationV2 {
       plannedDepartAt: _date(json['plannedDepartAt']),
       effectiveDepartAt: _date(json['effectiveDepartAt']),
       actualDepartAt: _date(json['actualDepartAt']),
+      departureEstimateStatus: _map(
+        json['departureEstimate'],
+      )['status']?.toString(),
       arriveBy: _date(json['arriveBy']),
       originalEstimatedArrivalAt: _date(json['originalEstimatedArrivalAt']),
       targetArriveAt: _date(json['targetArriveAt']),

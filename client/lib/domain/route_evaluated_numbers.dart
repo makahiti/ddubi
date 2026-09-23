@@ -54,6 +54,12 @@ class RouteEvaluatedNumbers {
       totalSeconds = estimate.durationSeconds;
       break;
     }
+    if (evaluation.state == EvaluationState.stopped &&
+        evaluation.selectedRouteId == routeId) {
+      // 출발 시각에 다시 계산한 전체 소요시간과 출발 전 구간별 값을 섞지 않는다.
+      // 새 구간별 근거가 없는 동안은 총시간만 표시하고 구간은 원본 표기를 쓴다.
+      return RouteEvaluatedNumbers(totalSeconds: evaluation.durationSeconds);
+    }
     if (candidateKey == null) return RouteEvaluatedNumbers.empty;
     final legs = <int, EvaluationRouteLeg>{};
     for (final leg in evaluation.legs) {

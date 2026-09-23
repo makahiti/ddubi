@@ -187,6 +187,38 @@ class MovingScreen extends ConsumerStatefulWidget {
 
 class _MovingScreenState extends ConsumerState<MovingScreen> {
   late bool _hasDeparted = widget.departedAlready;
+  DateTime? _departureArrivalAt;
+  bool _departureEstimateLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_hasDeparted) _refreshDepartureEstimate();
+  }
+
+  /// 이미 출발한 화면을 다시 열거나 출발을 누른 뒤, 서버의 실제 출발 기준 ETA를 읽는다.
+  /// 조회 실패나 계산 불가를 출발 전 ETA로 대신하지 않는다.
+  Future<void> _refreshDepartureEstimate() async {
+    DateTime? arrival;
+    final scheduleId = widget.scheduleId;
+    final repository = ref.read(scheduleRepositoryProvider);
+    if (scheduleId != null && repository is ScheduleEvaluationRepository) {
+      try {
+        final evaluation = await (repository as ScheduleEvaluationRepository)
+            .latestEvaluation(scheduleId);
+        if (evaluation.state == EvaluationState.stopped) {
+          arrival = evaluation.estimatedArrivalAt;
+        }
+      } on Object {
+        // 출발 기록과 계산 조회는 별개다. 조회 장애 시에는 이전 제안 ETA를 숨긴다.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _departureArrivalAt = arrival;
+      _departureEstimateLoaded = true;
+    });
+  }
 
   /// 서버에 출발을 알리는 중. 두 번 눌러 두 번 보내지 않게 막는다.
   bool _sendingDeparture = false;
@@ -227,7 +259,11 @@ class _MovingScreenState extends ConsumerState<MovingScreen> {
       _sendingDeparture = false;
       _departureUnsynced = failed;
       _hasDeparted = true;
+      _departureArrivalAt = null;
+      _departureEstimateLoaded = failed;
     });
+    if (!failed) await _refreshDepartureEstimate();
+    if (!mounted) return;
     if (failed) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('출발을 서버에 알리지 못했어요. 안내는 계속 볼 수 있어요.')),
@@ -315,14 +351,16 @@ class _MovingScreenState extends ConsumerState<MovingScreen> {
   /// 평가가 준 시각이 먼저다. 그것이 없을 때만 경로 요약의 도착 칸을 보되, "평가 필요"·"확인 필요"
   /// 같은 자리표시자는 시각이 아니므로 모른다고 적는다.
   Widget _arrivalCard() {
-    final fromEvaluation = widget.estimatedArrivalAt;
+    final fromEvaluation = _hasDeparted
+        ? _departureArrivalAt
+        : widget.estimatedArrivalAt;
     final fromRoute = widget.route?.arrival;
     final routeKnown =
         fromRoute != null &&
         fromRoute.isNotEmpty &&
         fromRoute != '--:--' &&
         !fromRoute.contains('필요');
-    final known = fromEvaluation != null || routeKnown;
+    final known = fromEvaluation != null || (!_hasDeparted && routeKnown);
     final arrival = fromEvaluation != null
         ? formatClock(fromEvaluation)
         : fromRoute;
@@ -337,7 +375,11 @@ class _MovingScreenState extends ConsumerState<MovingScreen> {
               children: [
                 const Text('예상 도착'),
                 Text(
-                  known ? arrival! : '아직 계산되지 않았어요',
+                  known
+                      ? arrival!
+                      : _hasDeparted && !_departureEstimateLoaded
+                      ? '출발 시각으로 다시 계산 중이에요'
+                      : '도착 예정 시간을 확인할 수 없어요',
                   key: const Key('journeyArrivalValue'),
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),

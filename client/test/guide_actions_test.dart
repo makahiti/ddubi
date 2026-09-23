@@ -28,31 +28,34 @@ ScheduleEvaluationV2 _evaluation(String id) {
 }
 
 /// 안내 조회에는 늘 같은 답을 준다. 이 검사의 관심은 버튼 줄이라 안내 내용은 고정한다.
-Dio _dio() =>
+Dio _dio({void Function()? onGuideRequest}) =>
     Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
       ..interceptors.add(
         InterceptorsWrapper(
-          onRequest: (options, handler) => handler.resolve(
-            Response<dynamic>(
-              requestOptions: options,
-              statusCode: 200,
-              data: {
-                'success': true,
-                'data': {
-                  'schemaVersion': 'recommendation-guide-v1',
-                  'evaluationId': 'eval-1',
-                  'departureAt': '2026-09-22T08:00:00',
-                  'estimatedArrivalAt': '2026-09-22T08:46:00',
-                  'durationSeconds': 2760,
-                  'fare': {'minimumWon': 1650, 'maximumWon': 1650},
-                  'headline': '08:00 출발 · 08:46 도착 예정',
-                  'routeSummary': '도보로 역까지 이동한 뒤 지하철을 이용하세요.',
-                  'routeSteps': <Map<String, dynamic>>[],
-                  'delay': {'status': 'NO_CONFIRMED_DELAY'},
+          onRequest: (options, handler) {
+            if (options.path.endsWith('/guide')) onGuideRequest?.call();
+            handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'success': true,
+                  'data': {
+                    'schemaVersion': 'recommendation-guide-v1',
+                    'evaluationId': 'eval-1',
+                    'departureAt': '2026-09-22T08:00:00',
+                    'estimatedArrivalAt': '2026-09-22T08:46:00',
+                    'durationSeconds': 2760,
+                    'fare': {'minimumWon': 1650, 'maximumWon': 1650},
+                    'headline': '08:00 출발 · 08:46 도착 예정',
+                    'routeSummary': '도보로 역까지 이동한 뒤 지하철을 이용하세요.',
+                    'routeSteps': <Map<String, dynamic>>[],
+                    'delay': {'status': 'NO_CONFIRMED_DELAY'},
+                  },
                 },
-              },
-            ),
-          ),
+              ),
+            );
+          },
         ),
       );
 
@@ -98,6 +101,7 @@ void main() {
     WidgetTester tester, {
     required _FakeRepository repository,
     Future<void> Function()? onStartJourney,
+    Dio? dio,
   }) async {
     final headline = ValueNotifier<ScheduleEvaluationV2?>(
       _evaluation('eval-1'),
@@ -107,7 +111,7 @@ void main() {
         home: Scaffold(
           body: SingleChildScrollView(
             child: RecommendationGuideCard(
-              api: RecommendationApi(_dio()),
+              api: RecommendationApi(dio ?? _dio()),
               scheduleId: 'schedule-1',
               headline: headline,
               evaluationRepository: repository,
@@ -244,5 +248,25 @@ void main() {
 
     // 다 지난 실패가 지금 고장난 것처럼 남아 있으면 안 된다.
     expect(find.byKey(const Key('guideActionNotice')), findsNothing);
+  });
+
+  testWidgets('평가 ID가 같아도 실제 출발 재계산 후 안내를 다시 읽는다', (tester) async {
+    var requests = 0;
+    final headline = await pumpActions(
+      tester,
+      repository: _FakeRepository(latest: _evaluation('eval-1')),
+      dio: _dio(onGuideRequest: () => requests++),
+    );
+    expect(requests, 1);
+    final raw = jsonDecode(_fixtureRaw) as Map<String, dynamic>;
+    raw['evaluationId'] = 'eval-1';
+    raw['state'] = 'STOPPED';
+    raw['actualDepartAt'] = '2026-09-23T07:51:00';
+    raw['computedAt'] = '2026-09-22T22:51:01Z';
+    raw['estimatedArrivalAt'] = '2026-09-23T08:34:00';
+    headline.value = ScheduleEvaluationV2.fromJson(raw);
+    await tester.pumpAndSettle();
+
+    expect(requests, 2);
   });
 }

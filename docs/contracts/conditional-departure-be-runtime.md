@@ -22,9 +22,13 @@
 |---|---|
 | `POST /api/v1/routes/evaluate` | 등록 전 조회. 아래 request 예제를 사용한다. schedule/route/recommendation/outbox 행을 만들지 않는다. 인증 사용자당 고정 분 창 6회, 초과 429, Redis 제한 확인 실패 503 |
 | `POST /api/v1/schedules/{id}/recommendations` | 저장된 P/D로 평가. 기본 v2, `?version=1`은 이전 Outcome 형식 |
-| `GET /api/v1/schedules/{id}/recommendations/latest` | 기본 v2. PENDING/RUNNING/FAILED/STOPPED/DEPARTURE_REQUIRED는 가벼운 상태 응답. READY/STALE는 전체 평가 DTO |
+| `GET /api/v1/schedules/{id}/recommendations/latest` | 기본 v2. READY/STALE는 전체 평가 DTO. STOPPED는 마지막 평가가 있으면 `frozen=true`와 출발 시각 재계산 결과를 함께 반환하고, 없으면 가벼운 상태 응답 |
 | `POST /api/v1/schedules/{id}/recommendations/accept` | `{"evaluationId":"서버가 준 값"}`. PREVIEW는 409, 출발시각/경로를 Client에서 보내 적용하지 않음 |
-| `POST /api/v1/schedules/{id}/departure` | 최초 actualDepartAt 보존, IN_PROGRESS 전환, 출발 전 감시 중단 |
+| `POST /api/v1/schedules/{id}/departure` | 최초 actualDepartAt 보존, IN_PROGRESS 전환, 출발 전 감시 중단. 선택된 저장 경로 하나를 실제 출발시각으로 재평가해 ETA를 평가 JSON에 저장. 중복 요청은 최초 시각과 결과를 유지 |
+
+출발 후 `latest`의 `actualDepartAt`은 실제 출발시각이다. `departureEstimate.status=READY`이면 최상위 `estimatedArrivalAt`·`durationSeconds`와 선택 후보의 같은 값은 그 시각 기준 재계산값이다. 버스·지하철 대기와 환승을 다시 평가하므로 출발 전 소요시간을 실제 출발시각에 단순 가산하지 않는다. `departureEstimate`가 없거나 `UNAVAILABLE`이면 최상위 ETA·소요시간은 `null`이며, 이전 제안의 도착시각을 현재 예상으로 표시하지 않는다. 날짜 없는 시각 문자열이 아니라 전체 KST 업무시각으로 전달한다. 출발 사실은 외부 계산 전에 저장되므로 재계산 실패가 출발 기록을 되돌리지 않는다.
+
+출발 후 사용자 안내(`/recommendations/latest/guide`)도 재계산 결과가 있으면 실제 출발·도착 시각으로 서버 문장을 만든다. 출발 전 평가 ID로 캐시된 GMS 문장을 재사용하거나 GMS에 시간을 다시 계산시키지 않는다. 새 구간별 시간이 없으므로 출발 전 구간 시간도 새 안내에 복제하지 않는다.
 
 일정 응답에 `userInputDepartAt`, `planSource`, `actualDepartAt`, `journeyState`, `inputRevision`이 추가됐다. 기존 계획만 있는 행의 source는 `LEGACY_UNKNOWN`으로 남긴다.
 

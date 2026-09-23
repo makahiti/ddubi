@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.ddubi.domain.recommendation.client.GmsRecommendationGuideClient;
 import com.ssafy.ddubi.domain.recommendation.client.RecommendationGuideProperties;
+import com.ssafy.ddubi.domain.recommendation.evaluation.DepartureEstimate;
 import com.ssafy.ddubi.domain.recommendation.evaluation.ScheduleEvaluationV2;
 import java.time.Duration;
 import java.time.Instant;
@@ -428,5 +429,59 @@ class RecommendationGuideServiceTest {
                         eq("recommendation:guide:7:evaluation-departed"),
                         anyString(),
                         eq(RecommendationGuideService.FROZEN_CACHE_TTL));
+    }
+
+    @Test
+    void departedGuideUsesActualDepartureEstimateInsteadOfCachedPredepartureCopy()
+            throws Exception {
+        // 출발 전 평가 ID는 그대로여도 실제 출발 시각으로 재계산한 ETA가 다르다.
+        // 이때 이전 Redis 문장/GMS 응답을 다시 보여주지 않아야 한다.
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        ScheduleEvaluationV2 evaluation =
+                json.readValue(
+                        """
+                {
+                  "schemaVersion":"schedule-evaluation-v2",
+                  "evaluationId":"same-id",
+                  "proposedDepartAt":"2026-09-23T08:10:00",
+                  "estimatedArrivalAt":"2026-09-23T08:52:00",
+                  "durationSeconds":2520,
+                  "causes":[],"segments":[],"candidateEstimates":[]
+                }
+                """,
+                        ScheduleEvaluationV2.class);
+        var departure =
+                new DepartureEstimate(
+                        "READY",
+                        Instant.parse("2026-09-22T22:51:00Z"),
+                        Instant.parse("2026-09-22T23:34:00Z"),
+                        2580L,
+                        Instant.parse("2026-09-22T22:51:01Z"),
+                        "selected",
+                        null);
+        ScheduleEvaluationStore store = mock(ScheduleEvaluationStore.class);
+        when(store.latestOutcomeV2(7L, 3L))
+                .thenReturn(new ScheduleEvaluationStore.LatestOutcome(evaluation, true, departure));
+        GmsRecommendationGuideClient gms = mock(GmsRecommendationGuideClient.class);
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        var properties =
+                new RecommendationGuideProperties(
+                        true,
+                        "https://gms.ssafy.io/gmsapi",
+                        "/api.openai.com/v1/responses",
+                        "synthetic",
+                        "gpt-5.4-nano",
+                        1000);
+
+        var guide =
+                new RecommendationGuideService(store, gms, properties, redis, json)
+                        .guide(7L, 3L, Instant.parse("2026-09-22T22:52:00Z"));
+
+        assertThat(guide.departureAt()).isEqualTo(LocalDateTime.parse("2026-09-23T07:51:00"));
+        assertThat(guide.estimatedArrivalAt())
+                .isEqualTo(LocalDateTime.parse("2026-09-23T08:34:00"));
+        assertThat(guide.durationSeconds()).isEqualTo(2580L);
+        assertThat(guide.generatedBy()).isEqualTo("TEMPLATE:DEPARTURE");
+        verify(gms, never()).generate(any());
     }
 }

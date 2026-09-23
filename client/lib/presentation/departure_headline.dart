@@ -253,23 +253,35 @@ class DepartureHeadlineContent {
 
   /// 출발한 뒤의 결론.
   ///
-  /// 예전에는 "이 일정의 출발 안내가 끝났어요." 한 줄이었다. 서버가 멈춘 일정에는 상태 한 단어만
-  /// 돌려줘서 쓸 수 있는 값이 없었기 때문이다. 이제 서버가 마지막 계산 결과를 함께 주므로
-  /// (2026-09-22), 출발 시각·도착 예정·여유를 그대로 보여준다. 결과가 없는 예전 일정에는 옛 문구가
-  /// 그대로 남는다.
+  /// 출발 전 제안의 도착 예정은 실제 출발 뒤에 재사용하지 않는다. 서버가 출발 시각에
+  /// 선택 경로를 다시 계산했을 때만 ETA를 보여주며, 실패했다면 출발 사실만 보여준다.
   ///
-  /// 출발 시각은 서버가 기록한 실제 출발([departedAt])이 먼저다. 그것이 없으면 제안 시각을 쓴다.
+  /// 출발 시각은 서버가 기록한 실제 출발([departedAt])이 먼저다.
   static DepartureHeadlineContent _departed(
     ScheduleEvaluationV2 evaluation,
     DateTime? departedAt,
   ) {
     final arrival = evaluation.estimatedArrivalAt;
-    final depart =
-        departedAt ?? evaluation.actualDepartAt ?? evaluation.proposedDepartAt;
-    if (arrival == null || depart == null) {
+    final depart = departedAt ?? evaluation.actualDepartAt;
+    if (depart == null) {
       return const DepartureHeadlineContent(
         title: '이 일정의 출발 안내가 끝났어요.',
         tone: DepartureHeadlineTone.waiting,
+      );
+    }
+    if (arrival == null) {
+      final unavailable = evaluation.departureEstimateStatus == 'UNAVAILABLE';
+      return DepartureHeadlineContent(
+        title: unavailable
+            ? '${formatClock(depart)}에 출발했어요 · 도착 예정 계산 불가'
+            : '${formatClock(depart)}에 출발했어요 · 도착 예정 확인 중',
+        detail: unavailable
+            ? '현재 자료로는 실제 출발 시각의 도착 예정을 계산할 수 없어요.'
+            : '실제 출발 시각으로 도착 예정을 다시 계산하고 있어요.',
+        tone: DepartureHeadlineTone.attention,
+        departAt: depart,
+        label: '출발 시각',
+        clockSuffix: '에 출발했어요',
       );
     }
     final spare = _spareMinutes(evaluation, arrival);

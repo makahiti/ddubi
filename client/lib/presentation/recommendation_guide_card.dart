@@ -53,7 +53,8 @@ class RecommendationGuideCard extends StatefulWidget {
 class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
   RecommendationGuide? _guide;
 
-  /// 마지막으로 불러온 계산의 id. 같은 값이면 다시 부르지 않는다.
+  /// 마지막으로 불러온 계산의 버전. 출발 후에는 평가 ID가 같아도 실제 출발
+  /// 재계산 시각이 달라지므로 별도 버전으로 취급한다.
   String? _loadedFor;
 
   /// 조회에 실패한 계산의 id. 값이 있으면 "다시 불러오기" 를 띄운다.
@@ -92,8 +93,12 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
             value.state != EvaluationState.stopped)) {
       return;
     }
-    final id = value.evaluationId;
-    if (id == null || id.isEmpty || id == _loadedFor || _loading) return;
+    final evaluationId = value.evaluationId;
+    if (evaluationId == null || evaluationId.isEmpty) return;
+    final id = value.state == EvaluationState.stopped
+        ? '$evaluationId:departed:${value.computedAt?.toIso8601String()}'
+        : evaluationId;
+    if (id == _loadedFor || _loading) return;
     _load(id);
   }
 
