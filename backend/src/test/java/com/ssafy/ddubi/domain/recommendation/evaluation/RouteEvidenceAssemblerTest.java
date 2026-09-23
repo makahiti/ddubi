@@ -85,10 +85,10 @@ public class RouteEvidenceAssemblerTest {
         var state =
                 json.readTree(
                         """
-                {"segmentId":"BUS:1:2:3","status":"delayed","observedSeconds":120,
-                 "delaySeconds":60,"observationCount":3,"observedAt":"2026-09-10T00:00:00Z",
-                 "computedAt":"2026-09-10T00:00:00Z","validUntil":"2026-09-10T00:05:00Z"}
-                """);
+{"segmentId":"BUS:1:2:3","status":"delayed","observedSeconds":120,
+ "delaySeconds":60,"observationCount":3,"observedAt":"2026-09-10T00:00:00Z",
+ "computedAt":"2026-09-10T00:00:00Z","validUntil":"2026-09-10T00:05:00Z"}
+""");
         var snapshot = new RouteEvidenceAssembler.Snapshot(Map.of("BUS:1:2:3", state), List.of());
         var journey = assembler.assemble(candidate(0, 60, 30), snapshot, now);
         var result =
@@ -110,6 +110,45 @@ public class RouteEvidenceAssemblerTest {
                                 now.plusSeconds(1000),
                                 List.of());
         assertThat(future.estimatedArrivalAt()).isEqualTo(now.plusSeconds(690));
+    }
+
+    /**
+     * 승인 파일이 설정되지 않은 승인 근거 부품은 구간마다 "설정 없음" 값을 돌려준다. 그것을 승인 근거로 읽으면 후보 근거가 한 번도 쓰이지 않는다 (2026-09-23
+     * 운영에서 실제로 그랬다). 설정이 없으면 후보 근거로 넘어가고, 설정이 있으면 승인 근거가 이긴다.
+     */
+    @Test
+    void unconfiguredApprovedEvidenceDoesNotShadowProvisionalEvidence() throws Exception {
+        var redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.multiGet(anyList())).thenReturn(java.util.Arrays.asList((String) null));
+        var unconfigured = new RoadImpactEvidence(json, redis, "", "", 600);
+        var provisional = mock(ProvisionalRoadEvidence.class);
+        var marker =
+                json.readTree("{\"segmentId\":\"BUS:1:2:3\",\"mappingStatus\":\"PROVISIONAL\"}");
+        when(provisional.enabled()).thenReturn(true);
+        when(provisional.read(anyList(), any())).thenReturn(Map.of("BUS:1:2:3:1", marker));
+
+        var snapshot =
+                new RouteEvidenceAssembler(redis, json, unconfigured, provisional)
+                        .read(List.of(candidate(0, 60, 30)), now);
+
+        assertThat(unconfigured.configured()).isFalse();
+        assertThat(snapshot.roads()).containsOnlyKeys("BUS:1:2:3:1");
+        assertThat(snapshot.roads().get("BUS:1:2:3:1").path("mappingStatus").asText())
+                .isEqualTo("PROVISIONAL");
+
+        // 후보 근거가 꺼져 있으면 예전처럼 승인 부품의 "설정 없음" 사유를 그대로 남긴다.
+        when(provisional.enabled()).thenReturn(false);
+        var fallback =
+                new RouteEvidenceAssembler(redis, json, unconfigured, provisional)
+                        .read(List.of(candidate(0, 60, 30)), now);
+        assertThat(fallback.roads().values())
+                .allMatch(
+                        node ->
+                                "ROAD_MASTER_UNAVAILABLE_OR_MISMATCH"
+                                        .equals(node.path("reason").asText()));
     }
 
     @Test

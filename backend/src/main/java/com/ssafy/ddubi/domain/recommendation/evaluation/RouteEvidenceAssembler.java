@@ -129,11 +129,13 @@ public class RouteEvidenceAssembler {
      * 위해서다. 후보 근거로 나오는 원인은 "가능성" 이며 경로를 막거나 예상 시각을 바꾸지 않는다.
      */
     private Map<String, JsonNode> roads(List<RouteCandidate> candidates, Instant asOf) {
-        if (road != null) {
-            var approved = road.read(candidates, asOf);
-            if (!approved.isEmpty()) return approved;
-        }
-        return provisionalRoad == null ? Map.of() : provisionalRoad.read(candidates, asOf);
+        // 승인 파일이 설정돼 있으면 결과가 비어도 그쪽이 권위다. 설정이 없을 때 돌아오는 "설정 없음" 값은
+        // 근거가 아니므로 후보 근거로 넘어간다(2026-09-23: 이 구분이 없어 후보 근거가 한 번도 쓰이지 않았다).
+        if (road != null && road.configured()) return road.read(candidates, asOf);
+        if (provisionalRoad != null && provisionalRoad.enabled())
+            return provisionalRoad.read(candidates, asOf);
+        // 둘 다 없으면 예전처럼 승인 부품의 "설정 없음" 사유를 남긴다. 사고 없음으로 바꾸지 않는다.
+        return road == null ? Map.of() : road.read(candidates, asOf);
     }
 
     /**
