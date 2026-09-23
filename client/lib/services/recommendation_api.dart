@@ -413,6 +413,24 @@ class RecommendationApi implements TravelConditionsService {
 
   final Dio _dio;
 
+  /// 첫 평가가 화면에 그려진 뒤 발표 전용 TOPIS 가짜 통제를 작동시킨다.
+  /// 대상 구간과 소유권은 서버가 저장된 경로로 결정한다.
+  Future<({String state, String notificationStatus})> activateRoadClosureDemo(
+    String scheduleId,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      ApiPaths.roadClosureDemo(scheduleId),
+    );
+    final data = response.data?['data'];
+    if (response.data?['success'] != true || data is! Map) {
+      throw const FormatException('시연용 도로 통제 결과를 확인할 수 없습니다.');
+    }
+    return (
+      state: data['state']?.toString() ?? 'UNKNOWN',
+      notificationStatus: data['notificationStatus']?.toString() ?? 'UNKNOWN',
+    );
+  }
+
   Future<RouteEvaluationResult> evaluateOrSearch(
     RouteSearchCondition condition,
   ) async {

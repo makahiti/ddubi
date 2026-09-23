@@ -45,6 +45,10 @@ public class MovementConditionsService {
     private static final int MAX_ROUTE_EDGES = 128;
     private static final int MAX_ROAD_LINKS = 256;
     private static final int MAX_SUBWAY_ALERT_KEYS = 300;
+
+    /** 발표용 가짜 통제 키. {@code RoadClosureDemoSupport} 가 일정마다 하나씩 쓴다. */
+    static final String DEMO_ROAD_CONTROL_PREFIX = "demo:topis:road-control:schedule:";
+
     private static final Pattern DIGITS = Pattern.compile("(\\d+)");
 
     private final ScheduleRepository schedules;
@@ -53,7 +57,26 @@ public class MovementConditionsService {
     private final ObjectMapper json;
     private final boolean provisionalRoadMappingEnabled;
     private final Duration congestionMaxAge;
+    private final boolean demoRoadClosureEnabled;
 
+    public MovementConditionsService(
+            ScheduleRepository schedules,
+            SavedRouteRepository routes,
+            MovementConditionsRedisReader redis,
+            ObjectMapper json,
+            boolean provisionalRoadMappingEnabled,
+            int congestionMaxAgeHours) {
+        this(
+                schedules,
+                routes,
+                redis,
+                json,
+                provisionalRoadMappingEnabled,
+                congestionMaxAgeHours,
+                false);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public MovementConditionsService(
             ScheduleRepository schedules,
             SavedRouteRepository routes,
@@ -62,7 +85,9 @@ public class MovementConditionsService {
             @Value("${ddubi.road.provisional-mapping-enabled:false}")
                     boolean provisionalRoadMappingEnabled,
             @Value("${ddubi.movement-conditions.congestion-max-age-hours:12}")
-                    int congestionMaxAgeHours) {
+                    int congestionMaxAgeHours,
+            @Value("${ddubi.demo.road-closure.enabled:false}") boolean demoRoadClosureEnabled) {
+        this.demoRoadClosureEnabled = demoRoadClosureEnabled;
         this.schedules = schedules;
         this.routes = routes;
         this.redis = redis;
@@ -105,7 +130,9 @@ public class MovementConditionsService {
                         () -> unavailableCongestion("CONGESTION_READ_FAILED"));
         var road =
                 isolated(
-                        () -> roadBlock(route.busEdges(), now),
+                        () ->
+                                demoRoad(schedule, route.busEdges(), now)
+                                        .orElseGet(() -> roadBlock(route.busEdges(), now)),
                         () -> unavailableRoad("ROAD_CONTROL_READ_FAILED"));
         var subway =
                 isolated(
@@ -209,6 +236,49 @@ public class MovementConditionsService {
         return observed != null
                 && !observed.isAfter(now)
                 && observed.isAfter(now.minus(congestionMaxAge));
+    }
+
+    /**
+     * 발표용 가짜 통제가 이 일정에 걸려 있으면 도로 칸에도 보여준다. 추천은 이 통제로 경로를 바꾸는데 도로 칸만 "확인된 통제 없음" 이면 화면이 서로 어긋난다.
+     *
+     * <p>실제 사고로 오해하지 않게 문장과 출처에 시연임을 밝힌다. 판단 조건은 추천 쪽({@code RoadClosureDemoSupport#overlay})과 같다 —
+     * 같은 일정·같은 입력 버전·아직 유효·지금 경로의 버스 구간일 때만. 기능이 꺼져 있으면 키를 읽지도 않는다.
+     */
+    private java.util.Optional<MovementConditionsResponse.RoadBlock> demoRoad(
+            Schedule schedule, List<EdgeRef> edges, Instant now) {
+        if (!demoRoadClosureEnabled || edges.isEmpty()) return java.util.Optional.empty();
+        JsonNode event = parse(redis.value(DEMO_ROAD_CONTROL_PREFIX + schedule.getId()));
+        if (event == null
+                || !event.path("demo").asBoolean(false)
+                || !"DEMO_TOPIS".equals(event.path("source").asText())
+                || event.path("scheduleId").asLong(-1) != schedule.getId()
+                || event.path("inputRevision").asLong(-1) != schedule.getInputRevision())
+            return java.util.Optional.empty();
+        Instant startsAt = instant(event.path("computedAt").asText(null));
+        Instant until = instant(event.path("validUntil").asText(null));
+        String segmentId = event.path("segmentId").asText("");
+        if (startsAt == null
+                || until == null
+                || !until.isAfter(now)
+                || edges.stream().noneMatch(edge -> edge.segmentId().equals(segmentId)))
+            return java.util.Optional.empty();
+        String message = "[시연] 선택한 버스 구간에 가짜 도로 통제를 적용했어요.";
+        return java.util.Optional.of(
+                new MovementConditionsResponse.RoadBlock(
+                        true,
+                        null,
+                        1,
+                        message,
+                        List.of(
+                                new MovementConditionsResponse.RoadIncident(
+                                        event.path("eventId").asText("DEMO"),
+                                        "DEMO",
+                                        message,
+                                        startsAt,
+                                        until)),
+                        startsAt,
+                        "DEMO_TOPIS",
+                        "DEMO"));
     }
 
     private MovementConditionsResponse.RoadBlock roadBlock(List<EdgeRef> edges, Instant now) {

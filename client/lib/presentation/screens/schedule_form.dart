@@ -919,11 +919,14 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     );
     try {
       if (widget.schedule == null) {
-        await widget.repository.addSchedule(schedule);
+        // 서버가 발급한 실제 ID를 목록으로 돌려준다. 저장 직후 상세의 계산 대기 화면을
+        // 열 때 폼에서 만든 임시 ID로 404를 조회하지 않기 위해서다.
+        final created = await widget.repository.addSchedule(schedule);
+        if (mounted) context.pop(created);
       } else {
         await widget.repository.updateSchedule(schedule);
+        if (mounted) context.pop(true);
       }
-      if (mounted) context.pop(true);
     } on ScheduleConflictException {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

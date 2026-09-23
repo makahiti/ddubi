@@ -6,8 +6,8 @@ import 'package:flutter/foundation.dart';
 /// 하나로 묶으면 둘 중 하나가 된다 — 날씨만 들어와도 네 칸이 모두 "확인 안 됨"이 되거나,
 /// 반대로 빈 칸을 0 이나 "맑음" 으로 채워 사용자가 없는 정보를 믿게 된다. 둘 다 안 된다.
 ///
-/// 서버 조회 API 는 아직 없다(2026-09-22). 그때까지 이 화면은 네 칸을 모두 "확인 안 됨"
-/// 으로 그린다. 예전처럼 한 줄로 뭉뚱그리면 무엇이 되고 무엇이 안 되는지 알 수 없었다.
+/// 서버의 일정별 conditions API와 연결된다. `available=false`는 정상 상태가 아니라
+/// 해당 경로에 연결할 수 있는 유효한 관측이 없다는 뜻이며 reason을 보존해 화면에 설명한다.
 class TravelConditions {
   const TravelConditions({
     this.weather = const TravelConditionItem.unavailable(),
@@ -17,7 +17,7 @@ class TravelConditions {
     this.observedAt,
   });
 
-  /// 아무것도 확인되지 않은 상태. 조회 API 가 붙기 전의 기본값이다.
+  /// 아직 조회하지 못한 상태. 정상/통제 없음으로 추정하지 않는다.
   static const TravelConditions unknown = TravelConditions();
 
   final TravelConditionItem weather;
@@ -54,7 +54,6 @@ class TravelConditions {
   static DateTime? _parseTime(Object? value) =>
       value is String ? DateTime.tryParse(value)?.toLocal() : null;
 
-  /// 항목이 쓸 수 있는 상태인지. `available` 이 참이어야만 값을 읽는다.
   /// 값이 없을 때 서버가 준 사유 코드. 화면에 코드를 그대로 쓰지 않고 말을 고르는 데만 쓴다.
   static String? _reason(Object? value) {
     if (value is! Map) return null;
@@ -62,10 +61,30 @@ class TravelConditions {
     return reason is String ? reason : null;
   }
 
+  /// 항목이 쓸 수 있는 상태인지. `available` 이 참이어야만 값을 읽는다.
   static Map<String, Object?>? _usable(Object? value) {
     if (value is! Map) return null;
     if (value['available'] != true) return null;
     return value.map((key, item) => MapEntry(key.toString(), item));
+  }
+
+  static TravelConditionItem _unavailable(Object? value) {
+    final reason = value is Map ? value['reason']?.toString() : null;
+    final note = switch (reason) {
+      'NO_BUS_SEGMENT' => '선택 경로에 버스 구간이 없어요.',
+      'ROAD_PATH_UNMAPPED' => '버스 구간과 도로 위치가 아직 연결되지 않았어요.',
+      'NO_ACTIVE_ROAD_CONTROL' => '선택 경로에 연결된 유효한 통제 정보가 없어요.',
+      'NO_SUBWAY_SEGMENT' => '선택 경로에 지하철 구간이 없어요.',
+      'NO_MATCHING_ACTIVE_ALERT' => '선택한 호선에 연결된 유효한 운행 공지가 없어요.',
+      'CONGESTION_UNAVAILABLE_OR_STALE' => '연결된 혼잡도 자료가 없거나 오래됐어요.',
+      'WEATHER_NOT_FOUND' || 'WEATHER_STALE' => '현재 유효한 날씨 자료가 없어요.',
+      'WEATHER_READ_FAILED' ||
+      'CONGESTION_READ_FAILED' ||
+      'ROAD_CONTROL_READ_FAILED' ||
+      'SUBWAY_ALERT_READ_FAILED' => '자료 조회가 일시적으로 실패했어요.',
+      _ => null,
+    };
+    return TravelConditionItem.unavailable(note: note);
   }
 
   static double? _number(Object? value) =>
@@ -76,7 +95,7 @@ class TravelConditions {
   /// 기온이 없으면 칸을 비운다. 강수량만으로는 "지금 어떤지" 를 말할 수 없다.
   static TravelConditionItem _weather(Object? value) {
     final data = _usable(value);
-    if (data == null) return const TravelConditionItem.unavailable();
+    if (data == null) return _unavailable(value);
     final temperature = _number(data['temperatureC']);
     if (temperature == null) return const TravelConditionItem.unavailable();
     final rain = _number(data['precipitationMm']);
@@ -102,7 +121,7 @@ class TravelConditions {
       // 혼잡도는 버스가 지나는 곳 기준으로만 계산한다. 지하철만 타는 경로면 확인 범위 밖이다.
       return _reason(value) == 'NO_BUS_SEGMENT'
           ? const TravelConditionItem.checked('해당 없음', note: '버스 구간 기준으로만 확인해요')
-          : const TravelConditionItem.unavailable();
+          : _unavailable(value);
     }
     final area = data['areaName'];
     final level = congestionLabel(data['level']);
@@ -148,12 +167,16 @@ class TravelConditions {
           '해당 없음',
           note: '버스로 가는 구간이 없어요',
         ),
-        _ => const TravelConditionItem.unavailable(),
+        _ => _unavailable(value),
       };
     }
     final summary = data['summary'];
     if (summary is! String || summary.isEmpty) {
       return const TravelConditionItem.unavailable();
+    }
+    // 발표용 가짜 통제. 실제 사고로 오해하지 않게 덧말로 한 번 더 밝힌다.
+    if (data['source'] == 'DEMO_TOPIS') {
+      return TravelConditionItem.value(summary, note: '시연용 가상 통제');
     }
     final count = data['count'];
     final provisional = data['mappingStatus'] == 'PROVISIONAL';
@@ -177,7 +200,7 @@ class TravelConditions {
           '해당 없음',
           note: '지하철로 가는 구간이 없어요',
         ),
-        _ => const TravelConditionItem.unavailable(),
+        _ => _unavailable(value),
       };
     }
     final summary = data['summary'];
@@ -208,9 +231,8 @@ class TravelConditionItem {
   const TravelConditionItem.value(String this.text, {this.note})
     : checkedEmpty = null;
 
-  const TravelConditionItem.unavailable()
+  const TravelConditionItem.unavailable({this.note})
     : text = null,
-      note = null,
       checkedEmpty = null;
 
   /// 확인은 했는데 보여줄 값이 없는 칸. "확인된 통제 없음", "해당 없음" 처럼 적는다.
@@ -235,8 +257,8 @@ class TravelConditionItem {
 
 /// 이동 변수를 가져오는 통로.
 ///
-/// 서버 API 가 생기면 이 인터페이스만 구현해서 화면에 넘기면 된다. 화면은 이 통로가
-/// 없어도(=null) 동작한다.
+/// 일정별 conditions API의 응답을 읽는 통로다. 화면은 이 통로가 없어도 동작하지만
+/// 그 경우에는 확인하지 못했다고 표시한다.
 abstract class TravelConditionsService {
   Future<TravelConditions> conditionsFor(String scheduleId);
 }

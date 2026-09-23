@@ -19,6 +19,7 @@ class RecommendationGuide {
     this.durationSeconds,
     this.dataAsOf,
     this.validUntil,
+    this.generatedBy,
   });
 
   /// 어느 계산에 대한 안내인지. 이 값이 바뀌었을 때만 다시 불러온다.
@@ -49,6 +50,9 @@ class RecommendationGuide {
 
   /// 이 시각이 지나면 최신 추천부터 다시 조회한다.
   final DateTime? validUntil;
+
+  /// 서버가 GMS로 작성했는지, 안전한 기본 문구를 썼는지 구분한다.
+  final String? generatedBy;
 
   bool isExpiredAt(DateTime now) =>
       validUntil != null && !now.isBefore(validUntil!);
@@ -82,6 +86,7 @@ class RecommendationGuide {
     maximumFareWon: ((json['fare'] as Map?)?['maximumWon'] as num?)?.toInt(),
     dataAsOf: _date(json['dataAsOf']),
     validUntil: _date(json['validUntil']),
+    generatedBy: _text(json['generatedBy']),
   );
 }
 

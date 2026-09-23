@@ -67,6 +67,18 @@ class DepartureHeadlineContent {
     DateTime now, {
     DateTime? departedAt,
   }) {
+    // 실제 출발 기록은 추천 평가 상태보다 우선한다. STOPPED 결과를 기다리는 동안
+    // 출발 전 ETA를 실제 출발 기준 ETA처럼 보여주지 않고, 출발 사실만 확정해서 보여준다.
+    if (departedAt != null && evaluation?.state != EvaluationState.stopped) {
+      return DepartureHeadlineContent(
+        title: '${formatClock(departedAt)}에 출발했어요 · 도착 예정 확인 중',
+        detail: '실제 출발 시각으로 선택한 경로를 다시 계산하고 있어요.',
+        tone: DepartureHeadlineTone.departed,
+        departAt: departedAt,
+        label: '출발 시각',
+        clockSuffix: '에 출발했어요',
+      );
+    }
     if (evaluation == null) {
       return const DepartureHeadlineContent(
         title: '추천 출발 시간을 계산하고 있어요.',

@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import '../domain/schedule_evaluation.dart';
 import '../domain/travel_conditions.dart';
 import 'widgets.dart';
 
@@ -15,20 +17,28 @@ import 'widgets.dart';
 /// 한 줄이라 **무엇이 되고 무엇이 안 되는지 알 수 없었다.** 날씨만 들어와도 이 문구는
 /// 그대로였다. 그래서 칸을 넷으로 나눠 각각의 상태를 따로 보여준다.
 ///
-/// 조회 API 는 아직 없다(2026-09-22 기준, 백엔드 작업 중). [service] 가 null 이면
-/// 네 칸 모두 "확인 안 됨"으로 그린다 — 지금 실제 상태가 그렇다.
+/// [service]가 연결되면 선택 경로에 해당하는 관측만 표시한다. 조회 불가와
+/// 해당 경로에 연결된 유효 자료 없음은 항목별 사유로 구분한다.
 class TravelConditionsCard extends StatefulWidget {
   const TravelConditionsCard({
     super.key,
     required this.scheduleId,
+    this.routeId,
     this.service,
+    this.evaluation,
     this.title = '오늘의 이동 변수',
   });
 
   final String scheduleId;
 
+  /// 선택 경로가 바뀌면 같은 일정이라도 도로·호선 연결을 다시 계산해야 한다.
+  final String? routeId;
+
   /// 서버에서 값을 가져오는 통로. 없으면 조회하지 않고 "확인 안 됨"만 보여준다.
   final TravelConditionsService? service;
+
+  /// 선택 경로 평가가 새로 끝나면 해당 경로의 이동 변수를 다시 읽는다.
+  final ValueListenable<ScheduleEvaluationV2?>? evaluation;
 
   /// 칸 제목. 일정 상세에서는 "오늘의 이동 변수", 일정별 교통 상황에서는 "이 일정의 이동 변수".
   final String title;
@@ -47,27 +57,66 @@ class _TravelConditionsCardState extends State<TravelConditionsCard> {
   /// 조회가 실패해도 카드를 숨기지 않는다. 네 칸이 "확인 안 됨"으로 남을 뿐이다.
   /// 이동 변수는 참고 정보라, 못 가져왔다고 해서 오류 화면을 띄울 일은 아니다.
   bool failed = false;
+  String? _lastEvaluationId;
+  int _request = 0;
 
   @override
   void initState() {
     super.initState();
+    widget.evaluation?.addListener(_onEvaluation);
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant TravelConditionsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.evaluation != widget.evaluation) {
+      oldWidget.evaluation?.removeListener(_onEvaluation);
+      widget.evaluation?.addListener(_onEvaluation);
+    }
+    if (oldWidget.scheduleId != widget.scheduleId ||
+        oldWidget.routeId != widget.routeId ||
+        oldWidget.service != widget.service) {
+      _lastEvaluationId = null;
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _request++;
+    widget.evaluation?.removeListener(_onEvaluation);
+    super.dispose();
+  }
+
+  void _onEvaluation() {
+    final latest = widget.evaluation?.value;
+    if (latest == null ||
+        (latest.state != EvaluationState.ready &&
+            latest.state != EvaluationState.stopped) ||
+        latest.evaluationId == null ||
+        latest.evaluationId == _lastEvaluationId) {
+      return;
+    }
+    _lastEvaluationId = latest.evaluationId;
     _load();
   }
 
   Future<void> _load() async {
+    final request = ++_request;
     final service = widget.service;
     if (service == null) return;
     setState(() => loading = true);
     try {
       final result = await service.conditionsFor(widget.scheduleId);
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() {
         conditions = result;
         failed = false;
         loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() {
         failed = true;
         loading = false;
@@ -113,8 +162,10 @@ class _TravelConditionsCardState extends State<TravelConditionsCard> {
           const SizedBox(height: 10),
           Text(
             failed
-                ? '이동 변수를 불러오지 못했어요. 계산 결과에는 영향이 없어요.'
-                : '아직 이동 변수를 받아오지 않아요. 계산 결과에는 영향이 없어요.',
+                ? '이동 변수 조회에 실패했어요. 잠시 후 다시 확인해 주세요.'
+                : widget.service == null
+                ? '이동 변수 조회가 연결되지 않았어요.'
+                : '선택 경로에 연결된 유효한 자료가 없어요. 항목별 이유를 확인해 주세요.',
             style: const TextStyle(fontSize: 12, color: Color(0xFF667085)),
           ),
         ],

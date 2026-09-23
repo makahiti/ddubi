@@ -92,6 +92,23 @@ void main() {
     expect(content.title, contains('계산하고 있어요'));
   });
 
+  test('출발 기록이 있으면 새 평가를 기다리는 중에도 실제 출발 시각을 보여준다', () async {
+    final departedAt = DateTime(2026, 9, 23, 8, 11);
+    final previous = ScheduleEvaluationV2.fromJson(await _raw('keep'));
+
+    for (final evaluation in <ScheduleEvaluationV2?>[null, previous]) {
+      final content = DepartureHeadlineContent.of(
+        evaluation,
+        now,
+        departedAt: departedAt,
+      );
+      expect(content.departAt, departedAt);
+      expect(content.arriveAt, isNull, reason: '출발 전 제안 ETA는 실제 출발 기준이 아니다');
+      expect(content.title, contains('${formatClock(departedAt)}에 출발했어요'));
+      expect(content.title, isNot(contains('추천 출발')));
+    }
+  });
+
   // ------------------------------------------------------------------
   // 출발한 뒤
   // ------------------------------------------------------------------

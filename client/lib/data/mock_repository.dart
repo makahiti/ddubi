@@ -111,8 +111,10 @@ class MockDdubiRepository implements DdubiRepository {
   }
 
   @override
-  Future<void> addSchedule(Schedule schedule) async =>
-      _addedSchedules.add(schedule);
+  Future<Schedule> addSchedule(Schedule schedule) async {
+    _addedSchedules.add(schedule);
+    return schedule;
+  }
 
   @override
   Future<void> updateSchedule(Schedule schedule) async {

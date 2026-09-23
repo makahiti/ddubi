@@ -1,4 +1,5 @@
 import 'package:ddubi/domain/travel_conditions.dart';
+import 'package:ddubi/domain/schedule_evaluation.dart';
 import 'package:ddubi/presentation/travel_conditions_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,11 +33,16 @@ class _FailingService implements TravelConditionsService {
 Future<void> pumpCard(
   WidgetTester tester, {
   TravelConditionsService? service,
+  ValueNotifier<ScheduleEvaluationV2?>? evaluation,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: TravelConditionsCard(scheduleId: 's1', service: service),
+        body: TravelConditionsCard(
+          scheduleId: 's1',
+          service: service,
+          evaluation: evaluation,
+        ),
       ),
     ),
   );
@@ -54,10 +60,10 @@ void main() {
     expect(find.text('확인 안 됨'), findsNWidgets(4));
   });
 
-  testWidgets('값이 없어도 계산에는 영향이 없다고 알린다', (tester) async {
+  testWidgets('조회 통로가 없으면 연결되지 않았다고 알린다', (tester) async {
     await pumpCard(tester);
 
-    expect(find.textContaining('계산 결과에는 영향이 없어요'), findsOneWidget);
+    expect(find.textContaining('이동 변수 조회가 연결되지 않았어요'), findsOneWidget);
   });
 
   testWidgets('값이 있는 칸만 값으로 바뀐다 — 나머지는 채우지 않는다', (tester) async {
@@ -86,7 +92,7 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('계산 결과에는 영향이 없어요'), findsNothing);
+    expect(find.textContaining('이동 변수 조회가 연결되지 않았어요'), findsNothing);
   });
 
   testWidgets('관측 시각이 오면 기준 시각을 붙인다', (tester) async {
@@ -103,12 +109,29 @@ void main() {
     expect(find.text('08:05 기준'), findsOneWidget);
   });
 
+  testWidgets('선택 경로의 새 평가가 끝나면 이동 변수를 다시 조회한다', (tester) async {
+    final service = _StubService(TravelConditions.unknown);
+    final evaluation = ValueNotifier<ScheduleEvaluationV2?>(null);
+    addTearDown(evaluation.dispose);
+    await pumpCard(tester, service: service, evaluation: evaluation);
+    expect(service.calls, 1);
+
+    evaluation.value = ScheduleEvaluationV2.fromJson(const {
+      'schemaVersion': 'schedule-evaluation-v2',
+      'evaluationId': 'new-route-evaluation',
+      'state': 'READY',
+    });
+    await tester.pump();
+    expect(service.calls, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('조회가 실패해도 카드는 남고 오류 화면을 띄우지 않는다', (tester) async {
     await pumpCard(tester, service: _FailingService());
 
     expect(find.text('오늘의 이동 변수'), findsOneWidget);
     expect(find.text('확인 안 됨'), findsNWidgets(4));
-    expect(find.textContaining('불러오지 못했어요'), findsOneWidget);
+    expect(find.textContaining('조회에 실패했어요'), findsOneWidget);
   });
 
   testWidgets('긴 통제 문구가 와도 좁은 화면에서 넘치지 않는다', (tester) async {
@@ -163,8 +186,10 @@ void main() {
       expect(parsed.weather.note, '종로구·중구 기준');
       expect(parsed.congestion.text, '시청 일대 붐빔');
       expect(parsed.roadBlock.text, '봉은교 양방향 전면통제');
-      // NO_MATCHING_ACTIVE_ALERT 는 "지연 없음" 이 아니다. 확인 못 했다는 뜻이다.
+      // NO_MATCHING_ACTIVE_ALERT 는 "지연 없음" 이 아니다. 탈 호선을 살펴봤는데 걸린 공지가 없다는 뜻이라
+      // "확인 안 됨" 과도 구분해 적는다(2026-09-24).
       expect(parsed.subwayDelay.available, isFalse);
+      expect(parsed.subwayDelay.checkedEmpty, '확인된 공지 없음');
       expect(parsed.observedAt, DateTime.utc(2026, 9, 22, 1, 58).toLocal());
     });
 
@@ -199,6 +224,20 @@ void main() {
       });
       expect(parsed.roadBlock.text, '경로 주변 돌발정보');
       expect(parsed.roadBlock.note, '후보 매핑 · 추정 정보');
+    });
+
+    test('시연용 가짜 통제는 실제 사고로 보이지 않게 덧말을 붙인다', () {
+      final parsed = TravelConditions.fromJson(const {
+        'roadBlock': {
+          'available': true,
+          'count': 1,
+          'summary': '[시연] 선택한 버스 구간에 가짜 도로 통제를 적용했어요.',
+          'source': 'DEMO_TOPIS',
+          'mappingStatus': 'DEMO',
+        },
+      });
+      expect(parsed.roadBlock.text, startsWith('[시연]'));
+      expect(parsed.roadBlock.note, '시연용 가상 통제');
     });
 
     test('기온이 없으면 강수량만으로 날씨를 만들지 않는다', () {

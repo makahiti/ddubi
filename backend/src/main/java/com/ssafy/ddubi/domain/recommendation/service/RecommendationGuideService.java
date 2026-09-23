@@ -122,30 +122,21 @@ public class RecommendationGuideService {
                                 .orElse("이동 경로를 확인하고 있어요.");
         var facts =
                 new GmsRecommendationGuideClient.Facts(
-                        value(evaluation.proposedDepartAt()),
-                        value(evaluation.estimatedArrivalAt()),
-                        steps.stream()
-                                .map(
-                                        step ->
-                                                new GmsRecommendationGuideClient.StepFact(
-                                                        step.sequence(),
-                                                        step.mode(),
-                                                        step.routeLabel(),
-                                                        step.fromName(),
-                                                        step.toName(),
-                                                        step.durationSeconds()))
-                                .toList(),
-                        evaluation.durationSeconds(),
-                        evaluation.fare(),
                         change,
                         new GmsRecommendationGuideClient.DelayFact(
                                 delay.status(), delay.reason(), delay.source(), delay.confirmed()));
         GmsRecommendationGuideClient.GeneratedCopy generated = null;
         boolean owner = false;
-        String copyKey = COPY_PREFIX + scheduleId + ":" + situation(facts, properties.model());
+        String copyKey =
+                COPY_PREFIX + scheduleId + ":" + situation(facts, steps, properties.model());
         try {
-            if (worthAsking(change, delay)) {
-                // 같은 상황(경로·변경 종류·지연 원인)을 이미 AI 에게 물었으면 그 문장을 다시 쓴다.
+            // 발표용 사건은 실제 TOPIS 공지로 오해하면 안 된다. 서버의 [시연용] 문장을
+            // 그대로 쓰고 생성 AI에는 보내지 않아 가짜 상황을 사실처럼 부풀리지 않는다.
+            boolean syntheticDemo =
+                    evaluation.causes().stream()
+                            .anyMatch(cause -> "DEMO_TOPIS".equals(cause.source()));
+            if (!syntheticDemo && worthAsking(change, delay)) {
+                // 같은 상황(경로·변경 종류와 방향·지연 원인)을 이미 AI 에게 물었으면 그 문장을 다시 쓴다.
                 // 출발 직전엔 1분마다 새 계산 번호가 생겨, 계산 번호만으로는 같은 문장을 매번 새로 받았다.
                 generated = reusedCopy(copyKey);
                 if (generated == null
@@ -158,13 +149,16 @@ public class RecommendationGuideService {
         } finally {
             if (owner) generating.remove(cacheKey);
         }
+        // GMS가 지시를 어기고 경로 구간을 재서술하면 사용자 화면의 상세 목록과 중복된다.
+        // AI가 만든 문장만 버리고 서버 계산·교통 원인은 그대로 유지한다.
+        if (generated != null && routeNarration(generated.recommendationReason())) generated = null;
         String delayReason =
                 generated != null && generated.delayExplanation() != null
                         ? generated.delayExplanation()
                         : delay.reason();
         String recommendationReason =
                 generated == null
-                        ? fallbackRecommendation(change.type(), delay)
+                        ? fallbackRecommendation(change, delay)
                         : generated.recommendationReason();
         RecommendationGuideResponse response =
                 new RecommendationGuideResponse(
@@ -177,7 +171,7 @@ public class RecommendationGuideService {
                         headline(evaluation),
                         change.type(),
                         recommendationReason,
-                        generated == null ? fallbackRoute : generated.routeSummary(),
+                        fallbackRoute,
                         steps,
                         new RecommendationGuideResponse.Delay(
                                 delay.status(),
@@ -242,6 +236,7 @@ public class RecommendationGuideService {
             RecommendationGuideResponse.Delay delay) {
         return "ROUTE_CHANGED".equals(change.type())
                 || "DEPARTURE_TIME_CHANGED".equals(change.type())
+                || "ETA_UPDATED".equals(change.type())
                 || !"NO_CONFIRMED_DELAY".equals(delay.status());
     }
 
@@ -309,11 +304,24 @@ public class RecommendationGuideService {
     /**
      * AI 문장이 기대는 사실만으로 만든 상황 지문. 시각·소요시간·요금처럼 계산마다 조금씩 흔들리는 값은 넣지 않는다 — 넣으면 1분마다 지문이 달라져 다시 묻게 된다.
      * 모델을 바꾸면 지문도 바뀌어 새 모델로 다시 쓴다.
+     *
+     * <p>변경의 <b>방향</b>(앞당김/늦춤, 빨라짐/늦어짐)은 넣는다. AI 가 방향을 설명하므로, 방향이 바뀌었는데 지난 문장을 다시 쓰면 반대로 안내하게 된다. 몇
+     * 분인지는 넣지 않고 문장에도 쓰지 못하게 한다({@link GmsRecommendationGuideClient#withoutAmount}).
      */
-    static String situation(GmsRecommendationGuideClient.Facts facts, String model) {
-        StringBuilder text = new StringBuilder();
-        text.append(model).append('|').append(facts.change().type());
-        for (var step : facts.routeSteps())
+    static String situation(
+            GmsRecommendationGuideClient.Facts facts,
+            List<RecommendationGuideResponse.RouteStep> steps,
+            String model) {
+        StringBuilder text = new StringBuilder("v2|");
+        var change = facts.change();
+        text.append(model)
+                .append('|')
+                .append(change.type())
+                .append('|')
+                .append(direction(change.departureDeltaSeconds()))
+                .append('/')
+                .append(direction(change.arrivalDeltaSeconds()));
+        for (var step : steps)
             text.append('|')
                     .append(step.mode())
                     .append('/')
@@ -346,6 +354,11 @@ public class RecommendationGuideService {
         }
     }
 
+    /** 느낄 만한 변화의 방향만. 1분 미만은 변화 없음으로 본다. */
+    private static int direction(Long deltaSeconds) {
+        return meaningful(deltaSeconds) ? Long.signum(deltaSeconds) : 0;
+    }
+
     private GmsRecommendationGuideClient.GeneratedCopy reusedCopy(String key) {
         try {
             String value = redis.opsForValue().get(key);
@@ -372,15 +385,55 @@ public class RecommendationGuideService {
     }
 
     private static String fallbackRecommendation(
-            String changeType, RecommendationGuideResponse.Delay delay) {
+            GmsRecommendationGuideClient.ChangeFact change,
+            RecommendationGuideResponse.Delay delay) {
         String cause = delay.reason();
-        return switch (changeType) {
+        String context = cause == null ? null : sentence(cause) + " 이를 반영해 ";
+        return switch (change.type()) {
             case "ROUTE_CHANGED" ->
-                    cause == null ? "현재 이동 상황을 반영해 다른 경로를 제안해요." : cause + " 다른 경로를 제안해요.";
-            case "DEPARTURE_TIME_CHANGED" -> "같은 경로를 이용하되 출발시각 변경을 제안해요.";
-            case "ETA_UPDATED" -> "경로와 출발시각은 유지하고 예상 도착시간을 갱신했어요.";
-            default -> "현재 선택한 경로와 출발시각을 유지해도 돼요.";
+                    context == null ? "이동 상황을 다시 확인해 다른 경로를 제안해요." : context + "다른 경로를 제안해요.";
+            case "DEPARTURE_TIME_CHANGED" ->
+                    (context == null ? "최신 계산 결과를 반영해 " : context)
+                            + "출발시각을 "
+                            + departureDirection(change.departureDeltaSeconds())
+                            + " 제안해요.";
+            case "ETA_UPDATED" ->
+                    (context == null ? "최신 계산 결과로 " : context)
+                            + "예상 도착시각이 "
+                            + arrivalDirection(change.arrivalDeltaSeconds())
+                            + " 안내를 갱신했어요.";
+            default ->
+                    context == null
+                            ? "현재 선택한 경로와 출발시각을 유지해도 돼요."
+                            : sentence(cause) + " 현재 경로와 출발시각은 유지해요.";
         };
+    }
+
+    /** 원인 문장과 서버가 계산한 변경 방향을 결합한다. 원문을 사건의 확정 근거로 승격하지 않는다. */
+    private static String sentence(String value) {
+        String trimmed = value.strip();
+        return trimmed.endsWith(".") || trimmed.endsWith("!") || trimmed.endsWith("?")
+                ? trimmed
+                : trimmed + ".";
+    }
+
+    /** 경로 단계 열거와 교통 상황 설명을 구분한다. 시각/요금은 다른 카드의 책임이다. */
+    static boolean routeNarration(String value) {
+        if (value == null) return false;
+        return value.contains("→")
+                || (value.contains("탑승 후") && value.contains("하차") && value.contains("에서"));
+    }
+
+    private static String departureDirection(Long seconds) {
+        if (seconds == null || seconds == 0) return "다시 확인하도록";
+        long minutes = Math.abs(seconds) / 60;
+        return (minutes > 0 ? minutes + "분 " : "") + (seconds < 0 ? "앞당기도록" : "늦추도록");
+    }
+
+    private static String arrivalDirection(Long seconds) {
+        if (seconds == null || seconds == 0) return "변경되어";
+        long minutes = Math.abs(seconds) / 60;
+        return (minutes > 0 ? minutes + "분 " : "") + (seconds < 0 ? "빨라져" : "늦어져");
     }
 
     private RecommendationGuideResponse cached(String key) {
@@ -503,7 +556,11 @@ public class RecommendationGuideService {
         String reason =
                 detailMatchesChosen
                         ? detail.message()
-                        : confirmed ? "선택 경로에 공식 교통 영향이 확인됐어요." : "선택 경로 주변에 교통 영향 가능성이 있어요.";
+                        : "DEMO_TOPIS".equals(chosen.source())
+                                ? "[시연용] 선택한 버스 경로에 가짜 도로 통제를 적용해 다른 경로를 계산했어요."
+                                : confirmed
+                                        ? "선택 경로에 공식 교통 영향이 확인됐어요."
+                                        : "선택 경로 주변에 교통 영향 가능성이 있어요.";
         String source = detailMatchesChosen ? detail.source() : chosen.source();
         // 평시·시간표 기준 차이가 아직 공개 계약에 없으므로 원인만으로 지연 분을 만들지 않는다.
         return new RecommendationGuideResponse.Delay(status, null, reason, source, confirmed);

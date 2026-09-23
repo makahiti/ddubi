@@ -17,7 +17,7 @@ Future<ScheduleEvaluationV2> _fixture(String name) async {
   return ScheduleEvaluationV2.fromJson(jsonDecode(raw) as Map<String, dynamic>);
 }
 
-HomeApi _homeApi() {
+HomeApi _homeApi({String? actualDepartAt}) {
   final dio = Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
     ..interceptors.add(
       InterceptorsWrapper(
@@ -34,6 +34,7 @@ HomeApi _homeApi() {
                   'origin': {'name': '집', 'lat': 37.5, 'lng': 127.0},
                   'destination': {'name': '회사', 'lat': 37.51, 'lng': 127.03},
                   'plannedDepartAt': '2026-09-17T23:50:00+09:00',
+                  'actualDepartAt': actualDepartAt,
                   'arriveBy': '2026-09-18T00:40:00+09:00',
                 },
                 'todaySchedules': <Object>[],
@@ -130,6 +131,46 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('departureHeadlineTap')), findsOneWidget);
+  });
+
+  testWidgets('출발한 일정은 평가가 아직 갱신 전이어도 홈에 실제 출발을 표시한다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _HomeEvaluationRepository(evaluation: keep);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          homeApi: _homeApi(actualDepartAt: '2026-09-17T23:52:00+09:00'),
+          evaluationRepository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('출발했어요'), findsWidgets);
+    expect(find.textContaining('도착 예정 확인 중'), findsOneWidget);
+    expect(find.text('이 일정의 출발 안내가 끝났어요.'), findsNothing);
+  });
+
+  testWidgets('출발 후 평가 조회가 실패해도 실제 출발 기록은 홈에 남긴다', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _HomeEvaluationRepository(failure: Exception('network'));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          homeApi: _homeApi(actualDepartAt: '2026-09-17T23:52:00+09:00'),
+          evaluationRepository: repository,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('도착 예정 확인 중'), findsOneWidget);
   });
 
   testWidgets('v2 조회 실패를 구버전 추천 성공으로 숨기지 않는다', (tester) async {

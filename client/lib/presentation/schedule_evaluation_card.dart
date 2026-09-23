@@ -116,18 +116,31 @@ class ScheduleEvaluationCard extends StatefulWidget {
     required this.scheduleId,
     this.developerDiagnostics = false,
     this.headline,
+    this.departedAt,
     this.showActions = true,
+    this.onFirstReadyDisplayed,
+    this.refreshGeneration = 0,
   });
 
   /// 버튼 줄을 이 카드에 그릴지. 일정 상세는 같은 버튼을 AI 안내 카드에 두므로 끈다.
   /// 두 곳에 같이 두면 사용자가 서로 다른 단추로 오해한다.
   final bool showActions;
 
+  /// 최초 READY 카드가 프레임에 그려진 직후 한 번만 호출한다. 시연 타이머는 이 시점부터 센다.
+  final VoidCallback? onFirstReadyDisplayed;
+
+  /// 외부 시연 이벤트가 저장·재평가된 직후 30초 정기 조회를 기다리지 않고 최신 결과를 읽는다.
+  final int refreshGeneration;
+
   final ScheduleEvaluationRepository repository;
   final String scheduleId;
 
   /// 화면 위쪽 결론 한 줄에 같은 결과를 전달하는 통로. 없으면 카드만 그린다.
   final ValueNotifier<ScheduleEvaluationV2?>? headline;
+
+  /// 일정 상세가 서버에서 읽은 실제 출발 시각. 출발이 기록되면 정기 확인 시각을
+  /// 기다리지 않고 즉시 STOPPED/출발 기준 ETA를 다시 읽는다.
+  final DateTime? departedAt;
 
   /// 개발자 진단 패널 표시 여부. 디버그 빌드나 더보기 > 개발자 옵션에서만 켜진다.
   final bool developerDiagnostics;
@@ -166,7 +179,11 @@ class ScheduleEvaluationCard extends StatefulWidget {
 
 class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
     with WidgetsBindingObserver {
+  /// 화면에 마지막으로 표시할 수 있었던 평가. PENDING/RUNNING 조회로 덮지 않는다.
   ScheduleEvaluationV2? evaluation;
+
+  /// 서버의 실제 최신 상태. 다음 확인 간격과 계산 중 배지에는 이 상태를 쓴다.
+  ScheduleEvaluationV2? latestState;
   String? error;
   String? actionError;
   String? notice;
@@ -183,6 +200,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
   int requestGeneration = 0;
   int retryCount = 0;
   int fastPolls = 0;
+  bool firstReadyReported = false;
 
   /// 마지막 조회 실패 종류. 404(아직 결과 없음)만 "계산 중"으로 본다. 연결 실패는 30초 backoff 를 유지한다.
   EvaluationFailureKind? lastFailure;
@@ -204,6 +222,31 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
   }
 
   @override
+  void didUpdateWidget(covariant ScheduleEvaluationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scheduleId != widget.scheduleId) {
+      timer?.cancel();
+      requestGeneration++;
+      evaluation = null;
+      latestState = null;
+      firstReadyReported = false;
+      // 부모가 새 일정을 그리는 프레임 안에서 notifier를 갱신하면 빌드 중 재빌드가
+      // 겹친다. 새 프레임 직후 이전 결론을 비우고 해당 일정만 조회한다.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.headline?.value = null;
+        _load(force: true);
+      });
+    } else if (oldWidget.refreshGeneration != widget.refreshGeneration ||
+        oldWidget.departedAt == null && widget.departedAt != null) {
+      timer?.cancel();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load(force: true);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     requestGeneration++;
     timer?.cancel();
@@ -219,14 +262,18 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
     if (active) _load(force: true);
   }
 
-  bool get _shouldPoll => switch (evaluation?.state) {
-    EvaluationState.stopped || EvaluationState.departureRequired => false,
+  bool get _shouldPoll => switch (latestState?.state) {
+    EvaluationState.stopped =>
+      latestState?.actualDepartAt != null &&
+          latestState?.departureEstimateStatus == null &&
+          (latestState?.arriveBy?.isAfter(DateTime.now()) ?? false),
+    EvaluationState.departureRequired => false,
     _ => true,
   };
 
   /// 서버가 첫 결과를 계산 중인 상태: PENDING/RUNNING, 또는 결과가 아직 없어 404 를 받은 경우.
   /// 연결 실패나 다른 오류는 계산 중으로 보지 않는다(서버를 빠르게 재호출하지 않는다).
-  bool get _computing => switch (evaluation?.state) {
+  bool get _computing => switch (latestState?.state) {
     EvaluationState.pending || EvaluationState.running => true,
     null =>
       lastFailure == null || lastFailure == EvaluationFailureKind.notFound,
@@ -261,12 +308,32 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
       lastFailure = null;
       if (!_isOlderThanCurrent(latest)) {
         setState(() {
-          evaluation = latest;
+          latestState = latest;
+          // 정기 재평가는 계산 중 상태를 먼저 저장한다. 아직 새 소요시간이 없다는
+          // 뜻이지 이전 결과가 사라진 것은 아니므로, 완료되기 전까지 이전 카드를 유지한다.
+          if (evaluation == null ||
+              (latest.state != EvaluationState.pending &&
+                  latest.state != EvaluationState.running)) {
+            evaluation = latest;
+          }
           error = null;
           retryCount = 0;
         });
-        // 상단 결론 한 줄은 이 카드가 읽은 결과를 그대로 쓴다. 따로 조회하지 않는다.
-        widget.headline?.value = latest;
+        // 상단 결론도 실제로 보여주는 평가와 함께 교체한다.
+        if (widget.headline?.value != evaluation) {
+          widget.headline?.value = evaluation;
+        }
+        if (!firstReadyReported &&
+            evaluation?.state == EvaluationState.ready &&
+            evaluation?.selectedRouteId != null) {
+          firstReadyReported = true;
+          final displayedScheduleId = widget.scheduleId;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && widget.scheduleId == displayedScheduleId) {
+              widget.onFirstReadyDisplayed?.call();
+            }
+          });
+        }
       }
     } on ScheduleEvaluationFailure catch (failure) {
       failed = true;
@@ -298,7 +365,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
   }
 
   bool _isOlderThanCurrent(ScheduleEvaluationV2 next) {
-    final current = evaluation;
+    final current = latestState;
     if (current == null) return false;
     final currentInput = current.inputVersion;
     final nextInput = next.inputVersion;

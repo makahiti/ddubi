@@ -67,7 +67,7 @@ class _FakeScheduleRepository implements ScheduleRepository {
   Future<Schedule?> scheduleById(String id) async => null;
 
   @override
-  Future<void> addSchedule(Schedule schedule) async {}
+  Future<Schedule> addSchedule(Schedule schedule) async => schedule;
 
   @override
   Future<void> updateSchedule(Schedule schedule) async {}

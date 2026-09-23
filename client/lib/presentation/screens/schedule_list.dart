@@ -21,11 +21,16 @@ class ScheduleListScreen extends StatefulWidget {
 class _ScheduleListScreenState extends State<ScheduleListScreen> {
   DateTime selectedDate = DateTime.now();
   Future<void> _add(BuildContext context) async {
-    final saved = await context.push<bool>(
+    final created = await context.push<Schedule>(
       '/schedules/new',
       extra: selectedDate,
     );
-    if (saved == true && mounted) setState(() {});
+    if (created == null || !mounted || !context.mounted) return;
+    // 등록 직후에는 목록에 머무르면 계산 중 스켈레톤을 볼 수 없다. 서버가 준 실제 ID로
+    // 상세에 들어가 첫 경로 계산을 기다리고, 돌아왔을 때 목록을 새로 읽는다.
+    setState(() {});
+    await context.push('/schedules/${created.id}');
+    if (mounted) setState(() {});
   }
 
   Future<void> _addRepeat(BuildContext context) async {

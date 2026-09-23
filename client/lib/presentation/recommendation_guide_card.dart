@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
@@ -64,6 +66,9 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
   /// 마지막 조회가 "실패" 가 아니라 "아직" 이었는가 — 서버가 계산이 끝나지 않았다고(409) 답한 경우.
   /// 이때는 사용자가 할 일이 없다. 기다리면 새 평가와 함께 다시 부른다.
   bool _pending = false;
+  Timer? _pendingRetry;
+  int _pendingAttempts = 0;
+  String? _pendingVersion;
 
   /// 화면에 보이는 안내가 최신 계산의 것이 아닌가.
   ///
@@ -80,26 +85,50 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
 
   @override
   void dispose() {
+    _pendingRetry?.cancel();
     widget.headline.removeListener(_onEvaluation);
     super.dispose();
   }
 
   void _onEvaluation() {
-    final value = widget.headline.value;
+    final id = _versionFor(widget.headline.value);
+    if (id == null) return;
+    if (id != _pendingVersion) {
+      _pendingRetry?.cancel();
+      _pendingAttempts = 0;
+      _pendingVersion = id;
+    }
+    if (id == _loadedFor || _loading) return;
+    _load(id);
+  }
+
+  String? _versionFor(ScheduleEvaluationV2? value) {
     // 멈춘(출발한) 일정도 부른다. 서버가 마지막 계산의 안내를 그대로 돌려주므로(2026-09-22),
     // 출발한 뒤에도 출발할 때 본 AI 안내가 카드에 남는다. 앱을 다시 켜도 같다.
     if (value == null ||
         (value.state != EvaluationState.ready &&
             value.state != EvaluationState.stopped)) {
-      return;
+      return null;
     }
     final evaluationId = value.evaluationId;
-    if (evaluationId == null || evaluationId.isEmpty) return;
-    final id = value.state == EvaluationState.stopped
+    if (evaluationId == null || evaluationId.isEmpty) return null;
+    return value.state == EvaluationState.stopped
         ? '$evaluationId:departed:${value.computedAt?.toIso8601String()}'
         : evaluationId;
-    if (id == _loadedFor || _loading) return;
-    _load(id);
+  }
+
+  /// 첫 안내 조회가 409/404로 끝나도 같은 evaluationId를 다시 확인한다. 평가 값은
+  /// 그대로인 채 안내만 늦게 준비될 수 있으므로 새 평가 알림만 기다리면 영원히 빈 카드다.
+  void _retryPending(String id) {
+    _pendingRetry?.cancel();
+    if (_pendingAttempts >= 10) return;
+    _pendingAttempts++;
+    _pendingRetry = Timer(const Duration(seconds: 3), () {
+      if (!mounted || _pendingVersion != id || _loading || _loadedFor == id) {
+        return;
+      }
+      _load(id);
+    });
   }
 
   Future<void> _load(String evaluationId) async {
@@ -120,6 +149,7 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
       if (!mounted) return;
       setState(() {
         if (guide != null) {
+          _pendingRetry?.cancel();
           _guide = guide;
           _loadedFor = evaluationId;
           _retryFor = null;
@@ -130,6 +160,7 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
           // (2026-09-22 제보).
           _retryFor = evaluationId;
           _pending = true;
+          _retryPending(evaluationId);
         }
       });
     } on Object {
@@ -141,7 +172,13 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
         });
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+        // 조회 중 새 평가가 도착했다면 그 버전의 안내를 이어서 불러온다.
+        if (_versionFor(widget.headline.value) != evaluationId) {
+          _onEvaluation();
+        }
+      }
     }
   }
 
@@ -201,7 +238,11 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
                       child: Text(
                         // 끝난 일정에서는 과거형이다. 다녀온 일정에 "이 일정에 맞춰 … 제안해요" 가
                         // 현재형으로 남아 있으면 아직 할 일이 있는 것처럼 읽힌다.
-                        widget.pastTense ? '이 일정에 맞춰 안내했어요' : '이 일정에 맞춰',
+                        widget.pastTense
+                            ? '이 일정에 맞춰 안내했어요'
+                            : guide?.generatedBy?.startsWith('GMS:') == true
+                            ? 'AI 교통 안내'
+                            : '교통 상황 안내',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
@@ -216,7 +257,10 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
               ),
             ],
           ),
-          if (guide != null) ...[const SizedBox(height: 12), _detailBox(guide)],
+          if (guide != null && guide.delay.hasMessage) ...[
+            const SizedBox(height: 12),
+            _detailBox(guide),
+          ],
           if (widget.evaluationRepository != null) ...[
             const SizedBox(height: 12),
             const Divider(height: 1, color: Color(0xFFC7EEDC)),
@@ -241,11 +285,13 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     if (guide == null) {
       return [
         Text(
-          _loading
-              ? '추천 안내를 불러오고 있어요.'
+          widget.headline.value == null
+              ? '교통 상황과 변경 이유를 확인하고 있어요.'
+              : _loading
+              ? '교통 상황 안내를 불러오고 있어요.'
               : _pending
-              ? '계산이 끝나면 안내를 준비해요.'
-              : '추천 안내를 아직 불러오지 못했어요.',
+              ? '계산 결과를 확인해 안내를 준비하고 있어요.'
+              : '교통 상황 안내를 아직 불러오지 못했어요.',
           key: const Key('guideEmptyMessage'),
           style: const TextStyle(
             fontSize: 15,
@@ -328,10 +374,10 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
         _changeBadge(guide.changeType!),
         const SizedBox(height: 8),
       ],
-      // 사유가 없으면 지어내지 않는다. 서버가 준 결론(headline)을 대신 크게 쓰고,
-      // 아래 상자에서는 같은 문장을 되풀이하지 않는다.
+      // 구형 서버가 사유 없이 출발·도착 숫자만 주더라도 그것을 다시 읽어 주지 않는다.
+      // 현재 계산에서 실제로 확인된 변경 유형 또는 지연 사유만 설명한다.
       Text(
-        guide.recommendationReason ?? guide.headline ?? '최신 계산 결과예요.',
+        _reason(guide),
         key: guide.recommendationReason != null
             ? const Key('guideRecommendationReason')
             : const Key('guideFallbackLine'),
@@ -345,7 +391,41 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     ];
   }
 
-  /// 카드 안쪽 흰 상자. 경로·시각·요금·구간·지연을 담는다.
+  static String _reason(RecommendationGuide guide) {
+    if (guide.recommendationReason != null &&
+        !_looksLikeRouteNarration(guide.recommendationReason!)) {
+      return guide.recommendationReason!;
+    }
+    // 구형 서버 캐시나 GMS 응답이 경로를 화살표로 다시 나열해도, 바로 아래의
+    // 구간별 목록과 중복되지 않게 상황·변경 이유만 보여준다.
+    final impact = guide.delay.hasMessage;
+    return switch (guide.changeType) {
+      'ROUTE_CHANGED' =>
+        impact
+            ? '확인된 교통 영향을 반영해 다른 경로를 제안해요.'
+            : '새 계산에서 다른 경로를 제안해요. 변경 이유를 확인하고 있어요.',
+      'DEPARTURE_TIME_CHANGED' =>
+        impact
+            ? '확인된 교통 영향을 반영해 출발시각을 다시 제안해요.'
+            : '새 계산에서 출발시각이 바뀌었어요. 변경 이유를 확인하고 있어요.',
+      'ETA_UPDATED' =>
+        impact
+            ? '교통 영향을 반영하면서 도착 예상이 달라졌어요.'
+            : '새 계산에서 도착 예상이 바뀌었어요. 변경 이유를 확인하고 있어요.',
+      'NO_CHANGE' when impact => '교통 영향은 확인됐지만 현재 경로와 출발시각은 유지해요.',
+      _ =>
+        impact
+            ? '교통 영향 정보를 확인했어요. 자세한 내용은 아래에서 볼 수 있어요.'
+            : '확인된 교통 영향이나 추천 변경은 없어요. 새 정보가 들어오면 다시 살펴볼게요.',
+    };
+  }
+
+  static bool _looksLikeRouteNarration(String value) =>
+      value.contains('→') ||
+      (value.contains('탑승 후') && value.contains('하차') && value.contains('에서'));
+
+  /// 중복되는 경로·시각·요금은 아래 전용 카드에 맡긴다. 여기에는 확인된
+  /// 교통 영향과 변경 이유만 남겨 AI 안내의 목적을 분명히 한다.
   Widget _detailBox(RecommendationGuide guide) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
@@ -355,62 +435,11 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (guide.routeSummary != null)
-          Text(
-            guide.routeSummary!,
-            key: const Key('guideRouteSummary'),
-            style: const TextStyle(
-              fontSize: 13,
-              height: 1.45,
-              color: Color(0xFF344054),
-            ),
-          ),
-        if (guide.headline != null && guide.recommendationReason != null) ...[
-          const SizedBox(height: 10),
-          Text(
-            guide.headline!,
-            key: const Key('guideHeadline'),
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w900,
-              color: DdubiColors.navy,
-            ),
-          ),
-        ],
-        if (guide.minimumFareWon != null) ...[
-          const SizedBox(height: 8),
-          Row(
-            key: const Key('guideFare'),
-            children: [
-              const Icon(
-                Icons.payments_outlined,
-                size: 16,
-                color: Color(0xFF5C6B7F),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '예상 요금 ${_fare(guide.minimumFareWon!, guide.maximumFareWon)}',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: DdubiColors.navy,
-                ),
-              ),
-            ],
-          ),
-        ],
-        if (guide.steps.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          for (final step in guide.steps) _stepRow(step),
-        ],
-        if (guide.delay.hasMessage) ...[
-          const SizedBox(height: 10),
-          _delayRow(guide.delay),
-        ],
+        _delayRow(guide.delay),
         if (guide.dataAsOf != null) ...[
           const SizedBox(height: 10),
           Text(
-            '실시간 정보 기준 ${_clock(guide.dataAsOf!)}',
+            '확인한 자료 기준 ${_clock(guide.dataAsOf!)}',
             key: const Key('guideDataAsOf'),
             style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A8C)),
           ),
@@ -462,28 +491,6 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     );
   }
 
-  Widget _stepRow(GuideStep step) => Padding(
-    padding: const EdgeInsets.only(bottom: 6),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(_stepIcon(step.mode), size: 17, color: _stepTone(step.mode)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            _stepText(step),
-            style: const TextStyle(fontSize: 13, color: DdubiColors.navy),
-          ),
-        ),
-        if (step.durationSeconds != null)
-          Text(
-            '약 ${(step.durationSeconds! / 60).ceil()}분',
-            style: const TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
-          ),
-      ],
-    ),
-  );
-
   /// 지연 안내. 확인된 이유가 있을 때만 그린다 — 분 단위 숫자가 없으면 만들어내지 않는다.
   Widget _delayRow(GuideDelay delay) {
     final tone = _delayTone(delay.status);
@@ -527,38 +534,6 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     );
   }
 
-  static String _stepText(GuideStep step) {
-    if (step.instruction != null) return step.instruction!;
-    final label = _modeLabel(step.mode);
-    final route = step.routeLabel == null ? label : '$label ${step.routeLabel}';
-    final from = step.fromName ?? '';
-    final to = step.toName ?? '';
-    if (from.isEmpty && to.isEmpty) return route;
-    return '$route  $from → $to';
-  }
-
-  static String _modeLabel(String mode) => switch (mode) {
-    'WALK' => '도보',
-    'BUS' => '버스',
-    'SUBWAY' => '지하철',
-    'TAXI' => '택시',
-    _ => mode,
-  };
-
-  static IconData _stepIcon(String mode) => switch (mode) {
-    'WALK' => Icons.directions_walk_rounded,
-    'BUS' => Icons.directions_bus_rounded,
-    'SUBWAY' => Icons.directions_subway_rounded,
-    _ => Icons.place_outlined,
-  };
-
-  static Color _stepTone(String mode) => switch (mode) {
-    'WALK' => const Color(0xFF7F91A2),
-    'BUS' => DdubiColors.green,
-    'SUBWAY' => DdubiColors.blue,
-    _ => DdubiColors.navy,
-  };
-
   static Color _delayTone(String status) => switch (status) {
     'POSSIBLE' => const Color(0xFFE0A100),
     'DELAYED' => const Color(0xFFFF6B35),
@@ -571,19 +546,6 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     return '${local.hour.toString().padLeft(2, '0')}:'
         '${local.minute.toString().padLeft(2, '0')}';
   }
-
-  /// 단일 요금과 범위 요금을 구분한다. 최대값이 없으면 확인된 최소값만 표시한다.
-  static String _fare(int minimum, int? maximum) {
-    final value = maximum == null || maximum == minimum
-        ? _number(minimum)
-        : '${_number(minimum)}~${_number(maximum)}';
-    return '$value원';
-  }
-
-  static String _number(int value) => value.toString().replaceAllMapped(
-    RegExp(r'\B(?=(\d{3})+(?!\d))'),
-    (_) => ',',
-  );
 }
 
 /// 안내 카드 아래쪽 버튼 줄.

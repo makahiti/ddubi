@@ -20,6 +20,7 @@ Map<String, dynamic> _guideJson({
   String? changeType,
   String? reason,
   String headline = '08:00 출발 · 08:46 도착 예정',
+  String? generatedBy,
 }) => {
   'schemaVersion': 'recommendation-guide-v1',
   'evaluationId': evaluationId,
@@ -28,6 +29,7 @@ Map<String, dynamic> _guideJson({
   'durationSeconds': 2760,
   'fare': {'minimumWon': 1650, 'maximumWon': 1650},
   'headline': headline,
+  'generatedBy': ?generatedBy,
   'changeType': ?changeType,
   'recommendationReason': ?reason,
   'routeSummary': '도보로 역까지 이동한 뒤 지하철을 이용하세요.',
@@ -122,6 +124,7 @@ void main() {
       _guideJson(
         changeType: 'ROUTE_CHANGED',
         reason: '도로 통제 영향 구간을 피해 다른 경로를 제안해요.',
+        generatedBy: 'GMS:gpt-5.4-nano',
       ),
     ]);
 
@@ -131,6 +134,30 @@ void main() {
     expect(find.text('도로 통제 영향 구간을 피해 다른 경로를 제안해요.'), findsOneWidget);
     expect(find.byKey(const Key('guideChangeType')), findsOneWidget);
     expect(find.text('다른 경로 제안'), findsOneWidget);
+    expect(find.text('AI 교통 안내'), findsOneWidget);
+    expect(find.byKey(const Key('guideRouteSummary')), findsNothing);
+    expect(find.byKey(const Key('guideFare')), findsNothing);
+    expect(find.text('도보로 역까지 이동한 뒤 지하철을 이용하세요.'), findsNothing);
+  });
+
+  testWidgets('구형 AI의 경로 나열은 숨기고 교통 영향과 경로 변경만 설명한다', (tester) async {
+    final response = _guideJson(
+      changeType: 'ROUTE_CHANGED',
+      reason: '출발지에서 서울역까지 도보 이동 → 1호선 탑승 후 노량진 하차 → 버스 탑승',
+      generatedBy: 'GMS:gpt-5.4-nano',
+    );
+    response['delay'] = {
+      'status': 'DISRUPTED',
+      'reason': '[시연용] 선택한 버스 경로에 가짜 도로 통제를 적용했어요.',
+      'source': 'DEMO_TOPIS',
+      'confirmed': true,
+    };
+
+    await pumpCard(tester, _dio([response]));
+
+    expect(find.textContaining('서울역까지 도보 이동 →'), findsNothing);
+    expect(find.text('확인된 교통 영향을 반영해 다른 경로를 제안해요.'), findsOneWidget);
+    expect(find.textContaining('[시연용] 선택한 버스 경로'), findsOneWidget);
   });
 
   testWidgets('모르는 변경 유형은 영어 코드를 그대로 보여주지 않는다', (tester) async {
@@ -146,15 +173,17 @@ void main() {
     expect(find.text('설명입니다.'), findsOneWidget);
   });
 
-  testWidgets('사유가 없으면 그 자리를 비운다 — 지어내지 않는다', (tester) async {
+  testWidgets('구형 응답에 사유가 없어도 시각을 반복하지 않고 안전한 상태 문장을 보여준다', (tester) async {
     final dio = _dio([_guideJson()]);
 
     await pumpCard(tester, dio);
 
-    // 사유가 없으면 사유 자리를 만들지 않는다. 서버가 준 결론만 크게 보여준다.
+    // 출발·도착 시각은 상단 카드에 있으므로 구형 서버의 숫자 headline을 다시 읽지 않는다.
     expect(find.byKey(const Key('guideRecommendationReason')), findsNothing);
     expect(find.byKey(const Key('guideChangeType')), findsNothing);
     expect(find.byKey(const Key('guideFallbackLine')), findsOneWidget);
+    expect(find.text('08:00 출발 · 08:46 도착 예정'), findsNothing);
+    expect(find.textContaining('확인된 교통 영향이나 추천 변경은 없어요'), findsOneWidget);
     // 같은 문장을 아래 상자에서 되풀이하지 않는다.
     expect(find.byKey(const Key('guideHeadline')), findsNothing);
   });
@@ -170,19 +199,19 @@ void main() {
   /// 오해하게 하지 않는다는 원래 목적은 그 문구가 지킨다.
   testWidgets('계산이 바뀌고 조회가 실패하면 지난 안내를 남기되 이전 계산 기준이라고 알린다', (tester) async {
     final dio = _dio([
-      _guideJson(headline: '08:00 출발 · 08:46 도착 예정'), // 첫 계산은 성공
+      _guideJson(reason: '선택한 경로를 유지해도 돼요.'), // 첫 계산은 성공
       null, // 두 번째 계산은 실패
     ]);
 
     final headline = await pumpCard(tester, dio);
-    expect(find.text('08:00 출발 · 08:46 도착 예정'), findsOneWidget);
+    expect(find.text('선택한 경로를 유지해도 돼요.'), findsOneWidget);
 
     // 새 계산이 도착한다.
     headline.value = _evaluation('eval-2');
     await tester.pumpAndSettle();
 
     // 읽던 내용은 그대로 있다 — 1분마다 빈 카드가 되지 않는다.
-    expect(find.text('08:00 출발 · 08:46 도착 예정'), findsOneWidget);
+    expect(find.text('선택한 경로를 유지해도 돼요.'), findsOneWidget);
     // 대신 최신이 아니라고 적는다.
     expect(find.byKey(const Key('guideStaleNotice')), findsOneWidget);
     expect(find.text('아래는 이전 계산 기준이에요.'), findsOneWidget);
@@ -199,11 +228,24 @@ void main() {
 
     await pumpCard(tester, dio);
 
-    expect(find.text('계산이 끝나면 안내를 준비해요.'), findsOneWidget);
+    expect(find.text('계산 결과를 확인해 안내를 준비하고 있어요.'), findsOneWidget);
     expect(find.byKey(const Key('guidePendingHint')), findsOneWidget);
-    expect(find.text('추천 안내를 아직 불러오지 못했어요.'), findsNothing);
+    expect(find.text('교통 상황 안내를 아직 불러오지 못했어요.'), findsNothing);
     // 눌러도 또 409 라 다시 불러오기 버튼은 두지 않는다. 새 평가가 오면 스스로 부른다.
     expect(find.byKey(const Key('guideRetryButton')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('같은 평가가 409 뒤 준비되면 자동 재조회해 안내를 보여준다', (tester) async {
+    final dio = _dio([notReady, _guideJson(reason: '도로 상황을 반영해 출발시각을 앞당겨요.')]);
+
+    await pumpCard(tester, dio);
+    expect(find.byKey(const Key('guidePendingHint')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+
+    expect(find.text('도로 상황을 반영해 출발시각을 앞당겨요.'), findsOneWidget);
+    expect(find.byKey(const Key('guidePendingHint')), findsNothing);
   });
 
   testWidgets('연결·서버 오류는 실패로 말하고 다시 불러오기를 둔다', (tester) async {
@@ -211,7 +253,7 @@ void main() {
 
     await pumpCard(tester, dio);
 
-    expect(find.text('추천 안내를 아직 불러오지 못했어요.'), findsOneWidget);
+    expect(find.text('교통 상황 안내를 아직 불러오지 못했어요.'), findsOneWidget);
     expect(find.byKey(const Key('guideRetryButton')), findsOneWidget);
   });
 

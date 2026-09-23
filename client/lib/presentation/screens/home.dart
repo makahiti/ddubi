@@ -44,6 +44,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late Future<_HomeData> _data;
+  _HomeData? _lastData;
+  Timer? _departureRefreshTimer;
 
   /// 다른 날 목록을 다시 읽으라고 아래쪽에 알리는 값. 늘릴 때마다 새로 읽는다.
   int _browseGeneration = 0;
@@ -52,6 +54,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _data = _load();
+  }
+
+  @override
+  void dispose() {
+    _departureRefreshTimer?.cancel();
+    super.dispose();
   }
 
   /// 홈을 처음부터 다시 읽는다. 다른 날 목록도 같이 버린다.
@@ -98,11 +106,24 @@ class _HomeScreenState extends State<HomeScreen> {
         recommendation = null;
       }
     }
-    return _HomeData(
+    final data = _HomeData(
       summary: summary,
       recommendation: recommendation,
       evaluation: evaluation,
     );
+    if (mounted) {
+      _lastData = data;
+      _departureRefreshTimer?.cancel();
+      // 출발 기록이 먼저 저장되고 실제 시각 기준 ETA가 조금 뒤에 기록될 수 있다.
+      // 일정 마감 전까지만 다시 확인하고, 출발 전 ETA로 빈칸을 채우지는 않는다.
+      if (schedule?.hasDeparted == true &&
+          schedule!.arriveBy.isAfter(DateTime.now()) &&
+          evaluation?.state == EvaluationState.stopped &&
+          evaluation?.departureEstimateStatus == null) {
+        _departureRefreshTimer = Timer(const Duration(seconds: 15), _reload);
+      }
+    }
+    return data;
   }
 
   @override
@@ -128,7 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
     child: FutureBuilder<_HomeData>(
       future: _data,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
+        if (snapshot.hasError && _lastData == null) {
           // 실패해도 다시 읽을 길을 남긴다. 예전에는 문구만 있어 앱을 껐다 켜야 했다.
           return RefreshIndicator(
             onRefresh: _reload,
@@ -141,10 +162,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         }
-        if (!snapshot.hasData) {
+        if (!snapshot.hasData && _lastData == null) {
           return const Center(child: CircularProgressIndicator());
         }
-        final data = snapshot.data!;
+        // 갱신 중에도 직전 홈 카드와 출발 시각을 유지한다.
+        final data = snapshot.data ?? _lastData!;
         final schedule = data.summary.nextSchedule;
         final routes = schedule != null && data.evaluation != null
             ? [?routeFromEvaluation(data.evaluation!, schedule)]
@@ -172,6 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 routes: routes,
                 evaluation: data.evaluation,
                 scheduleId: schedule?.id,
+                departedAt: schedule?.actualDepartAt,
                 openSchedule: (location, {extra}) =>
                     _openAndRefresh(context, location, extra: extra),
               ),
@@ -233,6 +256,7 @@ class _MobileHomeContent extends StatefulWidget {
     this.scheduleRepository,
     this.evaluation,
     this.scheduleId,
+    this.departedAt,
   });
 
   /// 일정 화면을 열고 돌아오면 홈을 다시 읽는 통로.
@@ -245,6 +269,7 @@ class _MobileHomeContent extends StatefulWidget {
   final ScheduleRepository? scheduleRepository;
   final List<RouteOption> routes;
   final ScheduleEvaluationV2? evaluation;
+  final DateTime? departedAt;
 
   /// 결론 한 줄을 누르면 열 일정. 다음 일정이 없으면 누를 수 없다.
   final String? scheduleId;
@@ -371,7 +396,7 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
             },
           ),
           const SizedBox(height: 16),
-          if (widget.evaluation != null) ...[
+          if (widget.evaluation != null || widget.departedAt != null) ...[
             // 어느 일정의 결론인지 이름을 붙인다. 일정이 여럿이면 이름 없는 결론은 헷갈린다.
             for (final labeled
                 in (_browsed ?? widget.schedules)
@@ -382,7 +407,8 @@ class _MobileHomeContentState extends State<_MobileHomeContent> {
             ],
             // 홈은 결론 한 줄만 보여주고, 자세한 근거는 일정 상세에서 본다.
             DepartureHeadline(
-              evaluation: widget.evaluation!,
+              evaluation: widget.evaluation,
+              departedAt: widget.departedAt,
               compact: true,
               onTap: widget.scheduleId == null
                   ? null
@@ -780,7 +806,7 @@ class _WebHomeContent extends StatelessWidget {
         ],
       ),
       const SizedBox(height: 20),
-      if (evaluation != null) ...[
+      if (evaluation != null || summary.nextSchedule?.hasDeparted == true) ...[
         // 어느 일정의 결론인지 적는다. 일정이 여럿이면 가장 가까운 것 하나의 결론만 보여주는데,
         // 이름이 없으면 어느 일정 이야기인지 알 수 없다(2026-09-22 제보).
         if (summary.nextSchedule != null) ...[
@@ -789,6 +815,7 @@ class _WebHomeContent extends StatelessWidget {
         ],
         DepartureHeadline(
           evaluation: evaluation,
+          departedAt: summary.nextSchedule?.actualDepartAt,
           compact: true,
           onTap: summary.nextSchedule == null
               ? null

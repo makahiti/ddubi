@@ -41,6 +41,10 @@ class ApiPaths {
   static String latestRecommendation(String scheduleId) =>
       '${scheduleRecommendations(scheduleId)}/latest';
 
+  /// 서버 설정을 켠 발표 환경에서만 존재한다. 일반 사용자 API에는 영향이 없다.
+  static String roadClosureDemo(String scheduleId) =>
+      '/dev/road-closure-demo/schedules/$scheduleId/activate';
+
   /// 추천 카드 전용. 계산 결과를 짧은 한국어 안내로 바꿔 준다(표현 계층).
   static String latestRecommendationGuide(String scheduleId) =>
       '${latestRecommendation(scheduleId)}/guide';

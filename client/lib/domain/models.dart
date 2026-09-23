@@ -721,7 +721,9 @@ class ScheduleCommandFailure implements Exception {
 abstract interface class ScheduleRepository {
   Future<List<Schedule>> schedules();
   Future<Schedule?> scheduleById(String id);
-  Future<void> addSchedule(Schedule schedule);
+
+  /// 저장된 서버 일정(ID 포함)을 돌려준다. 등록 직후 계산 대기 화면을 열 때 임시 ID를 쓰지 않는다.
+  Future<Schedule> addSchedule(Schedule schedule);
   Future<void> updateSchedule(Schedule schedule);
   Future<void> cancelSchedule(String id);
   Future<List<ScheduleConflict>> conflicts(DateTime from, DateTime to);

@@ -29,6 +29,7 @@ public class ScheduleEvaluationWorkflow {
     private final com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking;
     private final com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher;
     private final Budget budget;
+    private final RoadClosureDemoSupport roadClosureDemo;
 
     /**
      * 트리거별 계산 예산(ms). 최초 등록은 화면이 "최대 30초" 안내와 함께 기다리고, 자동 갱신은 백그라운드, 사용자 수동 갱신은 "최대 10초" 안내다. 상한이며
@@ -93,7 +94,8 @@ public class ScheduleEvaluationWorkflow {
             @Value("${ddubi.recommendation.budget.auto-refresh-millis:15000}")
                     long autoRefreshBudgetMillis,
             @Value("${ddubi.recommendation.budget.manual-refresh-millis:10000}")
-                    long manualRefreshBudgetMillis) {
+                    long manualRefreshBudgetMillis,
+            RoadClosureDemoSupport roadClosureDemo) {
         this(
                 store,
                 routes,
@@ -102,8 +104,8 @@ public class ScheduleEvaluationWorkflow {
                 notifications,
                 walking,
                 mappingRefresher,
-                new Budget(
-                        initialBudgetMillis, autoRefreshBudgetMillis, manualRefreshBudgetMillis));
+                new Budget(initialBudgetMillis, autoRefreshBudgetMillis, manualRefreshBudgetMillis),
+                roadClosureDemo);
     }
 
     public ScheduleEvaluationWorkflow(
@@ -115,6 +117,28 @@ public class ScheduleEvaluationWorkflow {
             com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking,
             com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher,
             Budget budget) {
+        this(
+                store,
+                routes,
+                evidence,
+                conditional,
+                notifications,
+                walking,
+                mappingRefresher,
+                budget,
+                null);
+    }
+
+    public ScheduleEvaluationWorkflow(
+            ScheduleEvaluationStore store,
+            PublicTransitRouteClient routes,
+            RouteEvidenceAssembler evidence,
+            ConditionalDepartureEvaluator conditional,
+            EvaluationNotificationPlanner notifications,
+            com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService walking,
+            com.ssafy.ddubi.domain.route.service.RouteMappingRefresher mappingRefresher,
+            Budget budget,
+            RoadClosureDemoSupport roadClosureDemo) {
         this.store = store;
         this.routes = routes;
         this.evidence = evidence;
@@ -122,6 +146,7 @@ public class ScheduleEvaluationWorkflow {
         this.notifications = notifications;
         this.walking = walking;
         this.budget = Objects.requireNonNull(budget);
+        this.roadClosureDemo = roadClosureDemo;
         this.mappingRefresher = mappingRefresher;
         // 초기 실험 주기이며 검증된 도착 보장 임계값이 아니다. 여유시간으로 가산하지 않는다.
         monitoring =
@@ -379,7 +404,16 @@ public class ScheduleEvaluationWorkflow {
             candidatesChanged |= !expanded.equals(search);
             search = expanded;
 
+            // 발표용 통제는 일정별 Redis 스냅샷으로만 결합한다. 공용 구간 상태를 바꾸지 않는다.
             var snapshot = evidence.read(search.candidates(), now);
+            if (roadClosureDemo != null)
+                snapshot =
+                        roadClosureDemo.overlay(
+                                scheduleId,
+                                job.inputRevision(),
+                                snapshot,
+                                search.candidates(),
+                                now);
             com.ssafy.ddubi.domain.route.client.WalkingEnrichmentService.Prepared enriched;
             if (cache != null && cache.walkingEvidence() != null) {
                 // 캐시에 저장된 후보에는 이미 도보시간이 반영돼 있다. 근거까지 함께 복원하여
@@ -427,6 +461,16 @@ public class ScheduleEvaluationWorkflow {
             if (job.cache() == null && calculation.original() != null) {
                 selectedKey = calculation.original().journeyKey();
                 selected = calculation.original();
+                if (roadClosureDemo != null && roadClosureDemo.eligible(job)) {
+                    // 시연 제목·서울 좌표·서울 공식 버스 edge·우회 후보가 모두 있어야만 최초 선택을 바꾼다.
+                    var bus =
+                            RoadClosureDemoSupport.initialBusChoice(
+                                    search.candidates(), suggestion.originalCandidates());
+                    if (bus.isPresent()) {
+                        selected = bus.get();
+                        selectedKey = selected.journeyKey();
+                    }
+                }
             }
             // 몇 초 빠른 다른 경로를 "다른 경로 제안" 으로 띄우지 않는다. 지금 선택을 제안으로 둔다.
             var steady = keepSelectedWhenGainIsSmall(calculation, selected);

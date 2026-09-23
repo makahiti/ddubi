@@ -21,7 +21,7 @@ class ApiDdubiRepository implements DdubiRepository {
   Future<Schedule?> scheduleById(String id) => _schedules.scheduleById(id);
 
   @override
-  Future<void> addSchedule(Schedule schedule) =>
+  Future<Schedule> addSchedule(Schedule schedule) =>
       _schedules.addSchedule(schedule);
 
   @override

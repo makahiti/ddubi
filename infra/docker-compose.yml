@@ -453,6 +453,9 @@ services:
       # 개발용 테스트 알림 발송(POST /api/v1/dev/notifications/test). 프론트 연동 확인용이다.
       # 기본 false — 켜면 로그인한 본인에게 알림을 임의로 만들 수 있다. 발표 전에 되돌린다.
       DDUBI_DEV_ENDPOINTS_ENABLED: ${DDUBI_DEV_ENDPOINTS_ENABLED:-false}
+      # 발표용 TOPIS 통제는 [시연] 서울 일정 하나의 전용 Redis 키에만 기록한다.
+      # 기본 false: 실제 수집·공용 구간 상태와 운영 사용자에게 영향을 주지 않는다.
+      DDUBI_DEMO_ROAD_CLOSURE_ENABLED: ${DDUBI_DEMO_ROAD_CLOSURE_ENABLED:-false}
       # 평가 결과로 자동 FCM 발송. .env 에 값이 있어도 여기서 넘기지 않으면 컨테이너에
       # 닿지 않아 backend 가 기본값(false)을 쓴다 — 2026-09-18 알림이 0건이던 원인이다.
       #

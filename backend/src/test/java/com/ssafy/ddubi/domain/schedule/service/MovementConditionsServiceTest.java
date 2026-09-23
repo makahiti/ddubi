@@ -177,6 +177,87 @@ class MovementConditionsServiceTest {
         assertThat(refused.congestion().reason()).isEqualTo("CONGESTION_UNAVAILABLE_OR_STALE");
     }
 
+    /**
+     * 발표용 가짜 통제가 걸리면 도로 칸에도 시연이라고 밝혀 보여준다. 추천은 그 통제로 경로를 바꾸는데 도로 칸만 "확인된 통제 없음" 이면 화면이 어긋난다. 기능이 꺼져
+     * 있거나, 일정을 고쳐 입력 버전이 바뀌었거나, 지금 경로의 버스 구간이 아니면 보여주지 않는다.
+     */
+    @Test
+    void 시연통제는기능이켜지고같은일정같은입력버전의버스구간일때만시연으로표시한다() {
+        ScheduleRepository schedules = mock(ScheduleRepository.class);
+        SavedRouteRepository routes = mock(SavedRouteRepository.class);
+        MovementConditionsRedisReader redis = mock(MovementConditionsRedisReader.class);
+        Schedule schedule = mock(Schedule.class);
+        when(schedules.findById(3L)).thenReturn(Optional.of(schedule));
+        when(schedule.getId()).thenReturn(3L);
+        when(schedule.getInputRevision()).thenReturn(2L);
+        when(schedule.isOwnedBy(7L)).thenReturn(true);
+        when(schedule.getDestination())
+                .thenReturn(
+                        new LocationSnapshot(
+                                "서울시청",
+                                new BigDecimal("37.5665000"),
+                                new BigDecimal("126.9780000")));
+        SavedRoute route = SavedRoute.builder().baseDurationMin(30).selected(true).build();
+        SavedRouteSegment bus =
+                SavedRouteSegment.builder()
+                        .seq(1)
+                        .mode(TransportMode.BUS)
+                        .fromName("A")
+                        .toName("B")
+                        .baseDurationMin(10)
+                        .build();
+        bus.addEdge(
+                SavedRouteSegmentEdge.builder()
+                        .edgeSeq(1)
+                        .segmentId("BUS:100:A:B")
+                        .mappingVersion("master-v1")
+                        .policyVersion("policy-v1")
+                        .build());
+        route.addSegment(bus);
+        when(routes.findSelectedWithSegments(3L)).thenReturn(Optional.of(route));
+        String event =
+                """
+                {"source":"DEMO_TOPIS","demo":true,"scheduleId":3,"inputRevision":%d,
+                 "eventId":"DEMO-TOPIS-3-2","roadLinkId":"DEMO-%s","segmentId":"%s",
+                 "status":"blocked","computedAt":"2026-09-21T16:50:00Z",
+                 "validUntil":"2026-09-21T19:00:00Z"}
+                """;
+        when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
+                .thenReturn(event.formatted(2, "BUS:100:A:B", "BUS:100:A:B"));
+        Instant now = Instant.parse("2026-09-21T17:00:00Z");
+
+        var shown =
+                new MovementConditionsService(
+                                schedules, routes, redis, new ObjectMapper(), false, 12, true)
+                        .get(7L, 3L, now)
+                        .roadBlock();
+        assertThat(shown.available()).isTrue();
+        assertThat(shown.source()).isEqualTo("DEMO_TOPIS");
+        assertThat(shown.summary()).startsWith("[시연]");
+
+        // 기능이 꺼져 있으면 키가 남아 있어도 보여주지 않는다.
+        assertThat(
+                        new MovementConditionsService(
+                                        schedules, routes, redis, new ObjectMapper(), false, 12)
+                                .get(7L, 3L, now)
+                                .roadBlock()
+                                .source())
+                .isNotEqualTo("DEMO_TOPIS");
+
+        // 일정을 고쳐 입력 버전이 바뀌면 지난 시연 통제는 쓰지 않는다.
+        when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
+                .thenReturn(event.formatted(1, "BUS:100:A:B", "BUS:100:A:B"));
+        var service =
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 12, true);
+        assertThat(service.get(7L, 3L, now).roadBlock().source()).isNotEqualTo("DEMO_TOPIS");
+
+        // 지금 경로에 없는 구간의 통제는 이 경로의 통제가 아니다.
+        when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
+                .thenReturn(event.formatted(2, "BUS:999:X:Y", "BUS:999:X:Y"));
+        assertThat(service.get(7L, 3L, now).roadBlock().source()).isNotEqualTo("DEMO_TOPIS");
+    }
+
     @Test
     void 선택경로의구간과호선에연결된혼잡통제공지값만반환한다() {
         ScheduleRepository schedules = mock(ScheduleRepository.class);

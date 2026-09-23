@@ -516,10 +516,11 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
     }
 
     /**
-     * 출발을 확인해 감시가 멈춘 뒤에도 앱은 마지막 결과를 보여줄 수 있어야 한다(2026-09-22 제보).
+     * 출발을 확인해 감시가 멈춘 뒤에도 마지막 평가의 경로와 제안은 기록으로 남긴다(2026-09-22 제보).
      *
      * <p>출발 확인은 입력 버전을 올리므로, 평소 규칙대로면 저장된 결과는 "오래된 것" 으로 거절된다. 멈춘 일정에서는 그 검사를 풀어 마지막 결과를 그대로 돌려준다.
-     * 상태는 STOPPED 로 남겨 앱이 "더 갱신되지 않는 결과" 임을 알 수 있게 한다.
+     * 상태는 STOPPED 로 남긴다. 다만 실제 출발 기준 재계산이 끝나기 전에는 앱 응답의 도착 예정값을 비워, 출발 전 제안 ETA를 새 ETA처럼 표시하지 못하게
+     * 한다.
      */
     @Test
     void stoppedScheduleKeepsLastOutcomeForTheApp() {
@@ -539,9 +540,8 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(v2.get("frozen")).isEqualTo(true);
         assertThat(v2.get("evaluationId")).isEqualTo(first.evaluationId());
         assertThat(v2.get("proposedDepartAt")).as("출발할 때 본 제안 시각이 남아야 한다").isNotNull();
-        // 도착 예정은 일부러 비운다(2026-09-23 S15P21E202-83). 출발 전에 제안한 도착 시각을 실제 출발과 섞으면
-        // 과거 값이 최신 도착 예정처럼 보인다. 실제 출발 시각 기준 재계산이 끝나야 다시 채워진다.
-        assertThat(v2.get("estimatedArrivalAt")).as("재계산 전에는 출발 전 도착 예정을 보여주지 않는다").isNull();
+        assertThat(v2.get("actualDepartAt")).as("실제 출발 시각은 표시한다").isNotNull();
+        assertThat(v2.get("estimatedArrivalAt")).as("출발 전 ETA를 실제 출발 ETA로 재사용하지 않는다").isNull();
 
         var outcome = store.latestOutcomeV2(scheduleId, owner);
         assertThat(outcome.frozen()).isTrue();
