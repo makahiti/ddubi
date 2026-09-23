@@ -3,3 +3,7 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 *.png binary
+
+# 재현 가능한 도로 매핑 원본·대형 산출물은 GitLab LFS로 보관한다.
+data/road-impact-current/*.csv filter=lfs diff=lfs merge=lfs -text
+data/road-impact-current/mapping-*.jsonl filter=lfs diff=lfs merge=lfs -text

@@ -30,8 +30,9 @@ evaluate에서 미래/만료/버전 불일치/미확정 통제를 제외한다. 
 
 ## 확보한 실제 자료
 
-`data/road-impact-20260911/sources.json`에 다운로드 URL·시각·바이트·SHA가 있다.
-원본 약 165 MB와 전체 후보 JSONL은 git 제외인 data 폴더에 보존한다.
+`data/road-impact-current/sources.json`에 현재 감사 입력의 다운로드 URL·시각·바이트·SHA가 있다.
+재현 원본과 전체 후보 JSONL은 `data/road-impact-current/`만 선택적으로 Git 추적하며,
+대형 CSV·XLSX·JSONL은 Git LFS로 보존한다. 다른 runtime `data/`는 계속 제외한다.
 
 - [BIS 구간링크](https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=62)
 - [BIS 노선별 경유노드](https://t-data.seoul.go.kr/dataprovide/trafficdataviewfile.do?data_id=58)

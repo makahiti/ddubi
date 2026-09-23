@@ -41,7 +41,18 @@ client/build/
 client/.metadata
 
 # Runtime data
-data/
+data/*
+# 도로 연결 감사의 재현 입력·결과만 예외로 공유한다. 다른 runtime data는 계속 제외한다.
+!data/road-impact-current/
+!data/road-impact-current/README.md
+!data/road-impact-current/sources.json
+!data/road-impact-current/tdata-58-10251.csv
+!data/road-impact-current/tdata-62-10255.csv
+!data/road-impact-current/tdata-63.csv
+!data/road-impact-current/tdata-7.csv
+!data/road-impact-current/mapping-audit.json
+!data/road-impact-current/mapping-candidates.jsonl
+!data/road-impact-current/mapping-rejected.jsonl
 /artifacts/ml-serving/
 infra/transit-master/
 # 서버2에만 두는 운영 자료. PM 이 서버에서 만든 버스 참고 자료 묶음(약 270MB, 조각 JSON 수백 개)과

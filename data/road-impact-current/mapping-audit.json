@@ -1,0 +1,34 @@
+{
+  "masterVersion": "METRO-BUS-20260917-SEOUL-0902",
+  "busCrosswalkSha256": "8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246",
+  "seoulEdgeCount": 40959,
+  "counts": {
+    "BIS_DIRECTIONAL_PATH": 24377,
+    "TOPIS_PATH_COMPLETE": 13824,
+    "ROAD_LINK_MISSING_OR_AMBIGUOUS": 11105,
+    "DIRECTIONAL_LINK_CHAIN_DISCONNECTED": 4233,
+    "TOPIS_PATH_PARTIAL": 10553,
+    "STOP_OCCURRENCE_UNRESOLVED": 1244
+  },
+  "bisPathRate": 0.5951561317414976,
+  "operationalMappings": 0,
+  "note": "공식 연결 후보. 자료 유효기간 및 AccInfo 링크 동일성 확인 전 운영 활성화 금지.",
+  "sourceFiles": [
+    {
+      "datasetId": 62,
+      "sha256": "c16952660396556123f807c53128a8e448e3d7e4b33a75751ba259dd848ba3c3"
+    },
+    {
+      "datasetId": 58,
+      "sha256": "9560f790cf37011d442a24511cba72e1a219c01f0609a029487fcbfe3f8e3c8a"
+    },
+    {
+      "datasetId": 63,
+      "sha256": "aaf290d0b5710fc1fa3890e8d6a7c8bf3b955740af5accf7be70a5e68933561f"
+    },
+    {
+      "datasetId": 7,
+      "sha256": "16dea98b52433dbfc55618e86b3d21fcd9db3d8b4c7d823d1883e16c7e194729"
+    }
+  ]
+}
