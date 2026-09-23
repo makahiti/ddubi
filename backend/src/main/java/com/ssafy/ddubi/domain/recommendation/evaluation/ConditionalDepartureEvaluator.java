@@ -370,7 +370,7 @@ public class ConditionalDepartureEvaluator {
                 p.bufferSeconds(),
                 p.departureMissed(),
                 p.best(),
-                proposed,
+                chosen.proposal(proposed, p.target()),
                 original,
                 chosen,
                 new Search(
