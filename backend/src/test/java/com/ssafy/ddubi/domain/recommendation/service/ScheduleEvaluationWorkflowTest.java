@@ -369,4 +369,103 @@ class ScheduleEvaluationWorkflowTest {
         assertThat(workflow.evaluate(1, 2L, TriggerType.REFRESH, now).selectedKey())
                 .isEqualTo("previous-unavailable");
     }
+
+    /** 테스트용 결과 하나. 출발·도착과 판정·사유만 다르게 만든다. */
+    private static RouteTimelineEvaluator.Result timed(
+            String key,
+            String depart,
+            String arrive,
+            RouteTimelineEvaluator.Assessment assessment,
+            List<String> reasons) {
+        return new RouteTimelineEvaluator.Result(
+                key,
+                Instant.parse(depart),
+                Instant.parse(arrive),
+                assessment,
+                true,
+                List.of(),
+                reasons,
+                "p");
+    }
+
+    private static ConditionalDepartureEvaluator.Evaluation proposing(
+            RouteTimelineEvaluator.Result proposed) {
+        return new ConditionalDepartureEvaluator.Evaluation(
+                ConditionalDeparturePolicy.Decision.KEEP_DEPARTURE,
+                null,
+                Instant.parse("2026-09-24T05:30:00Z"),
+                0,
+                false,
+                proposed,
+                proposed,
+                null,
+                null,
+                new ConditionalDepartureEvaluator.Search(
+                        "FIXTURE", 1, true, 60, 256, 5000, List.of()),
+                null);
+    }
+
+    /**
+     * 몇 초 빠른 다른 경로를 제안으로 띄우지 않는다(2026-09-24: 3초 빠른 경로가 "다른 경로 제안" 으로 떴다). 의미 있게 빠르거나, 지금 선택이 늦거나,
+     * 지금 선택에 도로 사고가 걸렸거나, 출발 시각이 다르면 제안을 그대로 둔다.
+     */
+    @Test
+    void smallGainKeepsTheSelectedRouteAsTheProposal() {
+        var on = RouteTimelineEvaluator.Assessment.ON_TIME_ESTIMATE;
+        var selected =
+                timed("selected", "2026-09-24T03:30:00Z", "2026-09-24T03:43:32Z", on, List.of());
+        var threeSeconds =
+                timed("fast", "2026-09-24T03:30:00Z", "2026-09-24T03:43:29Z", on, List.of());
+        var threeMinutes =
+                timed("fast", "2026-09-24T03:30:00Z", "2026-09-24T03:40:32Z", on, List.of());
+        var earlierStart =
+                timed("fast", "2026-09-24T03:20:00Z", "2026-09-24T03:43:29Z", on, List.of());
+
+        assertThat(
+                        ScheduleEvaluationWorkflow.keepSelectedWhenGainIsSmall(
+                                        proposing(threeSeconds), selected)
+                                .proposed()
+                                .journeyKey())
+                .isEqualTo("selected");
+        assertThat(
+                        ScheduleEvaluationWorkflow.keepSelectedWhenGainIsSmall(
+                                        proposing(threeMinutes), selected)
+                                .proposed()
+                                .journeyKey())
+                .isEqualTo("fast");
+        assertThat(
+                        ScheduleEvaluationWorkflow.keepSelectedWhenGainIsSmall(
+                                        proposing(earlierStart), selected)
+                                .proposed()
+                                .journeyKey())
+                .isEqualTo("fast");
+
+        var late =
+                timed(
+                        "selected",
+                        "2026-09-24T03:30:00Z",
+                        "2026-09-24T03:43:32Z",
+                        RouteTimelineEvaluator.Assessment.LATE_ESTIMATE,
+                        List.of());
+        assertThat(
+                        ScheduleEvaluationWorkflow.keepSelectedWhenGainIsSmall(
+                                        proposing(threeSeconds), late)
+                                .proposed()
+                                .journeyKey())
+                .isEqualTo("fast");
+
+        var withIncident =
+                timed(
+                        "selected",
+                        "2026-09-24T03:30:00Z",
+                        "2026-09-24T03:43:32Z",
+                        on,
+                        List.of("ROAD_POTENTIAL_IMPACT:e"));
+        assertThat(
+                        ScheduleEvaluationWorkflow.keepSelectedWhenGainIsSmall(
+                                        proposing(threeSeconds), withIncident)
+                                .proposed()
+                                .journeyKey())
+                .isEqualTo("fast");
+    }
 }

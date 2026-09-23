@@ -428,6 +428,12 @@ public class ScheduleEvaluationWorkflow {
                 selectedKey = calculation.original().journeyKey();
                 selected = calculation.original();
             }
+            // 몇 초 빠른 다른 경로를 "다른 경로 제안" 으로 띄우지 않는다. 지금 선택을 제안으로 둔다.
+            var steady = keepSelectedWhenGainIsSmall(calculation, selected);
+            if (steady != calculation) {
+                calculation = steady;
+                suggestion = steady.suggestion();
+            }
             for (RouteCandidate c : search.candidates())
                 info.add(
                         new CandidateInfo(
@@ -488,6 +494,35 @@ public class ScheduleEvaluationWorkflow {
             store.fail(job, reason, now);
             throw failure;
         }
+    }
+
+    /** 경로를 바꾸자고 할 만한 도착 이득. 2026-09-24 에 3초 빠른 경로로 "다른 경로 제안" 이 떴다. */
+    static final java.time.Duration PROPOSE_ROUTE_GAIN = java.time.Duration.ofMinutes(2);
+
+    /**
+     * 제안 경로가 지금 선택보다 {@link #PROPOSE_ROUTE_GAIN} 넘게 빠르지 않으면 지금 선택을 제안으로 둔다.
+     *
+     * <p>바꾸지 않는 경우: 지금 선택이 늦을 것 같을 때(조금이라도 빠른 길이 중요하다), 지금 선택에 도로 사고가 걸렸을 때(사고 없는 대안을 권하는 것이 목적이다),
+     * 출발 시각이 서로 다를 때(경로가 아니라 출발 시각을 권하는 경우다).
+     */
+    static ConditionalDepartureEvaluator.Evaluation keepSelectedWhenGainIsSmall(
+            ConditionalDepartureEvaluator.Evaluation calculation, Result selected) {
+        Result proposed = calculation.proposed();
+        if (selected == null
+                || proposed == null
+                || selected.journeyKey().equals(proposed.journeyKey())
+                || selected.assessment() != Assessment.ON_TIME_ESTIMATE
+                || selected.estimatedArrivalAt() == null
+                || proposed.estimatedArrivalAt() == null
+                || !java.util.Objects.equals(selected.departureAt(), proposed.departureAt())
+                || selected.reasons().stream()
+                        .anyMatch(r -> r.startsWith("ROAD_POTENTIAL_IMPACT:"))) return calculation;
+        var gain =
+                java.time.Duration.between(
+                        proposed.estimatedArrivalAt(), selected.estimatedArrivalAt());
+        return gain.compareTo(PROPOSE_ROUTE_GAIN) < 0
+                ? calculation.withProposed(selected)
+                : calculation;
     }
 
     private Result selected(DepartureSuggestionService.Suggestion suggestion, String key) {

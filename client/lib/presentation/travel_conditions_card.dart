@@ -146,7 +146,9 @@ class _TravelConditionsCardState extends State<TravelConditionsCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                item.text ?? TravelConditionsCard.unavailableText,
+                item.text ??
+                    item.checkedEmpty ??
+                    TravelConditionsCard.unavailableText,
                 style: TextStyle(
                   fontSize: 13,
                   // 값이 없는 칸은 흐리게. 있는 값과 없는 값이 같은 무게로 보이면

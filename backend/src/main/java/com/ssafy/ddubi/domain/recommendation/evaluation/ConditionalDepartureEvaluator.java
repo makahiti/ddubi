@@ -77,6 +77,22 @@ public class ConditionalDepartureEvaluator {
                     value);
         }
 
+        /** 제안 경로만 바꾼 사본. 출발 판단과 비교 근거는 그대로 둔다. */
+        public Evaluation withProposed(Result value) {
+            return new Evaluation(
+                    decision,
+                    bestKnownDecision,
+                    targetArriveAt,
+                    appliedBufferSeconds,
+                    departureMissed,
+                    original,
+                    value,
+                    originalComparison,
+                    proposedComparison,
+                    search,
+                    walking);
+        }
+
         public DepartureSuggestionService.Suggestion suggestion() {
             return new DepartureSuggestionService.Suggestion(
                     originalComparison.candidates().stream()

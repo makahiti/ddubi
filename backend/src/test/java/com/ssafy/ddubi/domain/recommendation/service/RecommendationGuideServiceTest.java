@@ -191,6 +191,79 @@ class RecommendationGuideServiceTest {
                 ScheduleEvaluationV2.class);
     }
 
+    /** 출발만 몇 초 달라진 계산. 출발 직전엔 제안 출발이 "지금(초 단위)" 이라 1분마다 이렇게 된다. */
+    private static ScheduleEvaluationV2 departureShift(
+            ObjectMapper json, String id, String proposedDepartAt) throws Exception {
+        return json.readValue(
+                """
+                {
+                  "schemaVersion":"schedule-evaluation-v2",
+                  "evaluationId":"%s",
+                  "selectedRouteId":1,
+                  "proposedRouteId":1,
+                  "plannedDepartAt":"2026-09-21T08:10:00",
+                  "proposedDepartAt":"%s",
+                  "originalEstimatedArrivalAt":"2026-09-21T08:52:00",
+                  "estimatedArrivalAt":"2026-09-21T08:52:00",
+                  "durationSeconds":2520,
+                  "asOf":"2026-09-20T23:00:00Z",
+                  "validUntil":"2026-09-20T23:10:00Z",
+                  "causes":[],
+                  "segments":[],
+                  "candidateEstimates":[]
+                }
+                """
+                        .formatted(id, proposedDepartAt),
+                ScheduleEvaluationV2.class);
+    }
+
+    /** 13초 차이로 "출발 시각이 13초 변경" 같은 안내를 내지 않는다(2026-09-24 제보). 1분이 넘을 때만 변경이다. */
+    @Test
+    void secondsLevelDepartureShiftIsNotAChange() throws Exception {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+
+        assertThat(
+                        RecommendationGuideService.change(
+                                        departureShift(json, "e1", "2026-09-21T08:10:13"))
+                                .type())
+                .isEqualTo("NO_CHANGE");
+        assertThat(
+                        RecommendationGuideService.change(
+                                        departureShift(json, "e2", "2026-09-21T08:11:30"))
+                                .type())
+                .isEqualTo("DEPARTURE_TIME_CHANGED");
+    }
+
+    /**
+     * 같은 상황이면 계산 번호가 바뀌어도 AI 를 다시 부르지 않는다. 출발 직전엔 1분마다 새 계산 번호가 생겨, 계산 번호만 보던 장치로는 매번 새로 불렀다
+     * (2026-09-24 일정 하나에 25분 동안 4번).
+     */
+    @Test
+    void sameSituationReusesTheCopyAcrossEvaluations() throws Exception {
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        var first = rig(json, changed(json, "2026-09-20T23:10:00Z"), false);
+        java.util.Map<String, String> store = new java.util.HashMap<>();
+        when(first.values().get(anyString()))
+                .thenAnswer(call -> store.get(call.<String>getArgument(0)));
+        org.mockito.Mockito.doAnswer(
+                        call -> {
+                            store.put(call.getArgument(0), call.getArgument(1));
+                            return null;
+                        })
+                .when(first.values())
+                .set(anyString(), anyString(), any(Duration.class));
+
+        var firstResult = first.service().guide(7L, 3L, Instant.parse("2026-09-20T23:01:00Z"));
+        assertThat(firstResult.generatedBy()).isEqualTo("GMS:gpt-5.4-nano");
+        // 캐시를 비워 "다음 계산" 처럼 만든다. 상황 문장만 남는다.
+        store.keySet().removeIf(key -> !key.contains(":copy:"));
+        var second = first.service().guide(7L, 3L, Instant.parse("2026-09-20T23:02:00Z"));
+
+        assertThat(second.generatedBy()).isEqualTo("GMS:gpt-5.4-nano");
+        assertThat(second.routeSummary()).isEqualTo(firstResult.routeSummary());
+        verify(first.gms(), org.mockito.Mockito.times(1)).generate(any());
+    }
+
     private record Rig(
             RecommendationGuideService service,
             GmsRecommendationGuideClient gms,
@@ -440,15 +513,15 @@ class RecommendationGuideServiceTest {
         ScheduleEvaluationV2 evaluation =
                 json.readValue(
                         """
-                {
-                  "schemaVersion":"schedule-evaluation-v2",
-                  "evaluationId":"same-id",
-                  "proposedDepartAt":"2026-09-23T08:10:00",
-                  "estimatedArrivalAt":"2026-09-23T08:52:00",
-                  "durationSeconds":2520,
-                  "causes":[],"segments":[],"candidateEstimates":[]
-                }
-                """,
+                        {
+                          "schemaVersion":"schedule-evaluation-v2",
+                          "evaluationId":"same-id",
+                          "proposedDepartAt":"2026-09-23T08:10:00",
+                          "estimatedArrivalAt":"2026-09-23T08:52:00",
+                          "durationSeconds":2520,
+                          "causes":[],"segments":[],"candidateEstimates":[]
+                        }
+                        """,
                         ScheduleEvaluationV2.class);
         var departure =
                 new DepartureEstimate(

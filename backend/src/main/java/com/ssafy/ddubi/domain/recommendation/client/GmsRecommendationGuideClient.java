@@ -135,7 +135,10 @@ public class GmsRecommendationGuideClient {
                                                 + " confirmed=true만 확정 표현을 쓰고 false면 반드시 '가능성' 또는"
                                                 + " '확인 중'이라는 보수적 표현을 쓴다. reason이 없으면"
                                                 + " delayExplanation은 null이다. 출발·도착 시각, 소요시간, 요금은"
-                                                + " 별도 구조화 필드로 표시되므로 임의로 바꾸지 않는다.",
+                                                + " 별도 구조화 필드로 표시되므로 임의로 바꾸지 않는다. 문장에 몇 시 몇 분 같은"
+                                                + " 시각이나 초 단위 숫자를 쓰지 않는다. change.type,"
+                                                + " NO_CONFIRMED_DELAY 같은 영문 코드명이나 필드 이름을 문장에 그대로"
+                                                + " 쓰지 않고 사용자의 말로 풀어 쓴다.",
                                             "input",
                                             input,
                                             "max_output_tokens",
@@ -157,12 +160,12 @@ public class GmsRecommendationGuideClient {
             String content = outputText(response);
             if (content == null) return Optional.empty();
             JsonNode generated = json.readTree(content);
-            String route = text(generated, "routeSummary", 500);
-            String recommendation = text(generated, "recommendationReason", 300);
+            String route = userFacing(text(generated, "routeSummary", 500));
+            String recommendation = userFacing(text(generated, "recommendationReason", 300));
             String delay =
                     facts.delay().reason() == null
                             ? null
-                            : text(generated, "delayExplanation", 300);
+                            : userFacing(text(generated, "delayExplanation", 300));
             if (route == null || recommendation == null) return Optional.empty();
             return Optional.of(new GeneratedCopy(route, recommendation, delay));
         } catch (org.springframework.web.client.RestClientResponseException failure) {
@@ -197,6 +200,25 @@ public class GmsRecommendationGuideClient {
             }
         }
         return null;
+    }
+
+    /** 내부 코드명(ROUTE_CHANGED 처럼 대문자와 밑줄)이 섞인 문장. 노선명(N15, 750A)은 밑줄이 없어 걸리지 않는다. */
+    private static final java.util.regex.Pattern INTERNAL_CODE =
+            java.util.regex.Pattern.compile("\\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\\b");
+
+    /** 시각(12:30)이나 초 단위 숫자. 시각은 따로 표시되고, 문장을 다시 쓰는 동안 틀린 값이 된다. */
+    private static final java.util.regex.Pattern CLOCK_OR_SECONDS =
+            java.util.regex.Pattern.compile("\\d{1,2}:\\d{2}|\\d+\\s*초");
+
+    /**
+     * 사용자에게 그대로 보여도 되는 문장인가. 2026-09-24 에 모델이 "ROUTE_CHANGED로, …" 처럼 입력 코드명을 그대로 옮기고, "출발 시각이 13초
+     * 변경되어" 처럼 초 단위 숫자를 썼다. 걸리면 버리고 서버 기본 문장을 쓴다.
+     */
+    static String userFacing(String value) {
+        if (value == null) return null;
+        if (INTERNAL_CODE.matcher(value).find() || CLOCK_OR_SECONDS.matcher(value).find())
+            return null;
+        return value;
     }
 
     private static String text(JsonNode node, String field, int maxLength) {

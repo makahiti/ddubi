@@ -116,4 +116,20 @@ class GmsRecommendationGuideClientTest {
                         "TOPIS",
                         confirmed));
     }
+
+    /** 모델이 입력 코드명이나 시각·초를 문장에 그대로 옮기면 버린다. 노선명은 통과시킨다. */
+    @org.junit.jupiter.api.Test
+    void internalCodesAndClockTimesAreNotShownToUsers() {
+        assertThat(
+                        GmsRecommendationGuideClient.userFacing(
+                                "ROUTE_CHANGED로, 서버가 확인한 대로 다른 경로를 제안합니다."))
+                .isNull();
+        assertThat(GmsRecommendationGuideClient.userFacing("출발 시각이 13초 변경되어 같은 경로로 출발하면 됩니다."))
+                .isNull();
+        assertThat(GmsRecommendationGuideClient.userFacing("12:30에 나가면 12:43에 도착해요.")).isNull();
+        assertThat(GmsRecommendationGuideClient.userFacing("N15번과 750A번 버스를 타고 2호선으로 갈아타세요."))
+                .isEqualTo("N15번과 750A번 버스를 타고 2호선으로 갈아타세요.");
+        assertThat(GmsRecommendationGuideClient.userFacing("약 6분 걸어서 262번 버스를 타세요."))
+                .isEqualTo("약 6분 걸어서 262번 버스를 타세요.");
+    }
 }

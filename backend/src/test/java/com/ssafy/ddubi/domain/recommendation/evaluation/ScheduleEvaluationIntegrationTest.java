@@ -133,7 +133,7 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT COUNT(*) FROM route WHERE schedule_id=? AND"
-                                    + " is_selected=true",
+                                        + " is_selected=true",
                                 Integer.class,
                                 scheduleId))
                 .isEqualTo(1);
@@ -183,7 +183,7 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT notification_json FROM schedule_evaluation WHERE"
-                                    + " schedule_id=?",
+                                        + " schedule_id=?",
                                 String.class,
                                 scheduleId))
                 .isNull();
@@ -409,7 +409,7 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT event_revision FROM schedule_evaluation WHERE"
-                                    + " schedule_id=?",
+                                        + " schedule_id=?",
                                 Long.class,
                                 scheduleId))
                 .isZero();
@@ -417,7 +417,7 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT event_revision FROM schedule_evaluation WHERE"
-                                    + " schedule_id=?",
+                                        + " schedule_id=?",
                                 Long.class,
                                 scheduleId))
                 .isEqualTo(1);
@@ -539,7 +539,9 @@ class ScheduleEvaluationIntegrationTest extends IntegrationTestSupport {
         assertThat(v2.get("frozen")).isEqualTo(true);
         assertThat(v2.get("evaluationId")).isEqualTo(first.evaluationId());
         assertThat(v2.get("proposedDepartAt")).as("출발할 때 본 제안 시각이 남아야 한다").isNotNull();
-        assertThat(v2.get("estimatedArrivalAt")).as("도착 예정도 남아야 한다").isNotNull();
+        // 도착 예정은 일부러 비운다(2026-09-23 S15P21E202-83). 출발 전에 제안한 도착 시각을 실제 출발과 섞으면
+        // 과거 값이 최신 도착 예정처럼 보인다. 실제 출발 시각 기준 재계산이 끝나야 다시 채워진다.
+        assertThat(v2.get("estimatedArrivalAt")).as("재계산 전에는 출발 전 도착 예정을 보여주지 않는다").isNull();
 
         var outcome = store.latestOutcomeV2(scheduleId, owner);
         assertThat(outcome.frozen()).isTrue();

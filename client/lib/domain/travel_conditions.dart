@@ -55,6 +55,13 @@ class TravelConditions {
       value is String ? DateTime.tryParse(value)?.toLocal() : null;
 
   /// 항목이 쓸 수 있는 상태인지. `available` 이 참이어야만 값을 읽는다.
+  /// 값이 없을 때 서버가 준 사유 코드. 화면에 코드를 그대로 쓰지 않고 말을 고르는 데만 쓴다.
+  static String? _reason(Object? value) {
+    if (value is! Map) return null;
+    final reason = value['reason'];
+    return reason is String ? reason : null;
+  }
+
   static Map<String, Object?>? _usable(Object? value) {
     if (value is! Map) return null;
     if (value['available'] != true) return null;
@@ -91,7 +98,12 @@ class TravelConditions {
   /// 예: `시청 일대 붐빔`
   static TravelConditionItem _congestion(Object? value) {
     final data = _usable(value);
-    if (data == null) return const TravelConditionItem.unavailable();
+    if (data == null) {
+      // 혼잡도는 버스가 지나는 곳 기준으로만 계산한다. 지하철만 타는 경로면 확인 범위 밖이다.
+      return _reason(value) == 'NO_BUS_SEGMENT'
+          ? const TravelConditionItem.checked('해당 없음', note: '버스 구간 기준으로만 확인해요')
+          : const TravelConditionItem.unavailable();
+    }
     final area = data['areaName'];
     final level = congestionLabel(data['level']);
     if (area is! String || area.isEmpty || level == null) {
@@ -126,7 +138,19 @@ class TravelConditions {
 
   static TravelConditionItem _roadBlock(Object? value) {
     final data = _usable(value);
-    if (data == null) return const TravelConditionItem.unavailable();
+    if (data == null) {
+      return switch (_reason(value)) {
+        // 이 경로의 도로를 살펴봤고 걸린 통제가 없다.
+        'NO_ACTIVE_ROAD_CONTROL' => const TravelConditionItem.checked(
+          '확인된 통제 없음',
+        ),
+        'NO_BUS_SEGMENT' => const TravelConditionItem.checked(
+          '해당 없음',
+          note: '버스로 가는 구간이 없어요',
+        ),
+        _ => const TravelConditionItem.unavailable(),
+      };
+    }
     final summary = data['summary'];
     if (summary is! String || summary.isEmpty) {
       return const TravelConditionItem.unavailable();
@@ -143,7 +167,19 @@ class TravelConditions {
 
   static TravelConditionItem _subwayDelay(Object? value) {
     final data = _usable(value);
-    if (data == null) return const TravelConditionItem.unavailable();
+    if (data == null) {
+      return switch (_reason(value)) {
+        // 탈 호선의 공지를 살펴봤고 걸린 공지가 없다. "지연 없음" 이라고 단정하지는 않는다.
+        'NO_MATCHING_ACTIVE_ALERT' => const TravelConditionItem.checked(
+          '확인된 공지 없음',
+        ),
+        'NO_SUBWAY_SEGMENT' => const TravelConditionItem.checked(
+          '해당 없음',
+          note: '지하철로 가는 구간이 없어요',
+        ),
+        _ => const TravelConditionItem.unavailable(),
+      };
+    }
     final summary = data['summary'];
     if (summary is String && summary.isNotEmpty) {
       return TravelConditionItem.value(summary);
@@ -169,15 +205,30 @@ class TravelConditions {
 /// [text] 가 null 이면 "확인 안 됨"이다. 빈 문자열도 값 없음으로 본다 — 서버가 실수로
 /// 빈 문자열을 보냈을 때 화면에 빈칸이 덩그러니 남는 것보다 낫다.
 class TravelConditionItem {
-  const TravelConditionItem.value(String this.text, {this.note});
+  const TravelConditionItem.value(String this.text, {this.note})
+    : checkedEmpty = null;
 
-  const TravelConditionItem.unavailable() : text = null, note = null;
+  const TravelConditionItem.unavailable()
+    : text = null,
+      note = null,
+      checkedEmpty = null;
+
+  /// 확인은 했는데 보여줄 값이 없는 칸. "확인된 통제 없음", "해당 없음" 처럼 적는다.
+  ///
+  /// "확인 안 됨" 과 섞으면 안 된다(2026-09-24 제보). 경로의 도로를 다 살펴봤는데 통제가 없는 것과,
+  /// 자료가 없어 살펴보지 못한 것은 사용자에게 다른 말이다. 다만 "정상", "지연 없음" 처럼 단정하지는 않는다 —
+  /// 수집되지 않은 사건이 있을 수 있다.
+  const TravelConditionItem.checked(String this.checkedEmpty, {this.note})
+    : text = null;
 
   /// 사용자에게 보여줄 값. 예: `20.9℃ · 비 안 옴`
   final String? text;
 
   /// 값 아래 작게 붙는 덧말. 예: 어느 지역 기준인지
   final String? note;
+
+  /// 확인했지만 값이 없을 때 칸에 적는 말. 값도 이것도 없으면 "확인 안 됨" 이다.
+  final String? checkedEmpty;
 
   bool get available => text != null && text!.isNotEmpty;
 }

@@ -48,6 +48,16 @@ public class RecommendationGuideService {
     private static final String CACHE_PREFIX = "recommendation:guide:";
     private static final String CALLS_PREFIX = CACHE_PREFIX + "gms-calls:";
     private static final String ASKED_PREFIX = CACHE_PREFIX + "asked:";
+    private static final String COPY_PREFIX = CACHE_PREFIX + "copy:";
+
+    /**
+     * 같은 상황의 AI 문장을 다시 쓰는 시간. 문장에는 시각이 들어가지 않으므로(지시문·검사로 막는다) 몇 시간 뒤에 써도 틀리지 않는다. 경로나 지연 원인이 바뀌면 상황
+     * 지문이 달라져 새로 묻는다.
+     */
+    static final Duration COPY_TTL = Duration.ofHours(6);
+
+    /** 출발·도착이 이보다 적게 바뀌면 "바뀌었다" 로 보지 않는다. 출발 직전엔 제안 출발이 "지금(초 단위)" 이라 매번 몇 초씩 달라졌다. */
+    static final long CHANGE_THRESHOLD_SECONDS = 60;
 
     /** "이 계산 번호는 이미 물어봤다" 표시를 남기는 시간. 계산 번호는 재계산마다 새로 생기니 하루면 충분히 길다. */
     static final Duration ASKED_TTL = Duration.ofDays(1);
@@ -132,10 +142,19 @@ public class RecommendationGuideService {
                                 delay.status(), delay.reason(), delay.source(), delay.confirmed()));
         GmsRecommendationGuideClient.GeneratedCopy generated = null;
         boolean owner = false;
+        String copyKey = COPY_PREFIX + scheduleId + ":" + situation(facts, properties.model());
         try {
-            if (worthAsking(change, delay)
-                    && (owner = generating.add(cacheKey))
-                    && firstAsk(askedKey, now)) generated = gms.generate(facts).orElse(null);
+            if (worthAsking(change, delay)) {
+                // 같은 상황(경로·변경 종류·지연 원인)을 이미 AI 에게 물었으면 그 문장을 다시 쓴다.
+                // 출발 직전엔 1분마다 새 계산 번호가 생겨, 계산 번호만으로는 같은 문장을 매번 새로 받았다.
+                generated = reusedCopy(copyKey);
+                if (generated == null
+                        && (owner = generating.add(cacheKey))
+                        && firstAsk(askedKey, now)) {
+                    generated = gms.generate(facts).orElse(null);
+                    if (generated != null) rememberCopy(copyKey, generated);
+                }
+            }
         } finally {
             if (owner) generating.remove(cacheKey);
         }
@@ -270,11 +289,9 @@ public class RecommendationGuideService {
         String type =
                 routeChanged
                         ? "ROUTE_CHANGED"
-                        : departureDelta != null && departureDelta != 0
+                        : meaningful(departureDelta)
                                 ? "DEPARTURE_TIME_CHANGED"
-                                : arrivalDelta != null && arrivalDelta != 0
-                                        ? "ETA_UPDATED"
-                                        : "NO_CHANGE";
+                                : meaningful(arrivalDelta) ? "ETA_UPDATED" : "NO_CHANGE";
         return new GmsRecommendationGuideClient.ChangeFact(
                 type,
                 value(evaluation.plannedDepartAt()),
@@ -282,6 +299,70 @@ public class RecommendationGuideService {
                 departureDelta,
                 arrivalDelta,
                 routeChanged);
+    }
+
+    /** 사용자가 느낄 만한 변화인가. 몇 초 차이로 "출발 시각이 13초 변경" 같은 안내를 내지 않는다(2026-09-24 제보). */
+    private static boolean meaningful(Long deltaSeconds) {
+        return deltaSeconds != null && Math.abs(deltaSeconds) >= CHANGE_THRESHOLD_SECONDS;
+    }
+
+    /**
+     * AI 문장이 기대는 사실만으로 만든 상황 지문. 시각·소요시간·요금처럼 계산마다 조금씩 흔들리는 값은 넣지 않는다 — 넣으면 1분마다 지문이 달라져 다시 묻게 된다.
+     * 모델을 바꾸면 지문도 바뀌어 새 모델로 다시 쓴다.
+     */
+    static String situation(GmsRecommendationGuideClient.Facts facts, String model) {
+        StringBuilder text = new StringBuilder();
+        text.append(model).append('|').append(facts.change().type());
+        for (var step : facts.routeSteps())
+            text.append('|')
+                    .append(step.mode())
+                    .append('/')
+                    .append(step.routeLabel())
+                    .append('/')
+                    .append(step.fromName())
+                    .append('/')
+                    .append(step.toName());
+        var delay = facts.delay();
+        text.append('|')
+                .append(delay.status())
+                .append('/')
+                .append(delay.reason())
+                .append('/')
+                .append(delay.source())
+                .append('/')
+                .append(delay.confirmed());
+        try {
+            return java.util.HexFormat.of()
+                    .formatHex(
+                            java.security.MessageDigest.getInstance("SHA-256")
+                                    .digest(
+                                            text.toString()
+                                                    .getBytes(
+                                                            java.nio.charset.StandardCharsets
+                                                                    .UTF_8)))
+                    .substring(0, 32);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
+
+    private GmsRecommendationGuideClient.GeneratedCopy reusedCopy(String key) {
+        try {
+            String value = redis.opsForValue().get(key);
+            return value == null
+                    ? null
+                    : json.readValue(value, GmsRecommendationGuideClient.GeneratedCopy.class);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void rememberCopy(String key, GmsRecommendationGuideClient.GeneratedCopy copy) {
+        try {
+            redis.opsForValue().set(key, json.writeValueAsString(copy), COPY_TTL);
+        } catch (Exception ignored) {
+            // 재사용은 비용을 줄이는 장치일 뿐이다. 실패해도 이번 안내는 그대로 나간다.
+        }
     }
 
     private static Long delta(LocalDateTime before, LocalDateTime after) {

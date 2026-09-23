@@ -210,6 +210,53 @@ void main() {
 
     /// 도시데이터는 6시간마다 모이고 관측 유효시간은 15분이라, 값이 있는 시간이 하루의 일부뿐이다.
     /// 서버가 stale 로 표시해 보내면 값을 감추지 않고 "언제 기준" 인지 함께 보여 준다.
+    /// 살펴봤는데 없는 것과 살펴보지 못한 것은 다른 말이다(2026-09-24 제보).
+    /// 경로 도로를 다 확인했는데 통제가 없으면 "확인 안 됨" 이 아니라 "확인된 통제 없음" 이다.
+    test('확인했지만 값이 없는 칸은 확인 못 한 칸과 다르게 적는다', () {
+      final parsed = TravelConditions.fromJson({
+        'roadBlock': {'available': false, 'reason': 'NO_ACTIVE_ROAD_CONTROL'},
+        'subwayDelay': {'available': false, 'reason': 'NO_SUBWAY_SEGMENT'},
+        'congestion': {'available': false, 'reason': 'NO_BUS_SEGMENT'},
+      });
+
+      expect(parsed.roadBlock.checkedEmpty, '확인된 통제 없음');
+      expect(parsed.subwayDelay.checkedEmpty, '해당 없음');
+      expect(parsed.subwayDelay.note, '지하철로 가는 구간이 없어요');
+      expect(parsed.congestion.checkedEmpty, '해당 없음');
+      // 값이 있는 것처럼 세지 않는다. 기준 시각·강조 표시는 실제 값에만 붙는다.
+      expect(parsed.roadBlock.available, isFalse);
+    });
+
+    test('자료가 없거나 도로를 잇지 못했으면 그대로 "확인 안 됨" 이다', () {
+      final parsed = TravelConditions.fromJson({
+        'roadBlock': {'available': false, 'reason': 'ROAD_PATH_UNMAPPED'},
+        'subwayDelay': {
+          'available': false,
+          'reason': 'SUBWAY_ALERT_READ_FAILED',
+        },
+        'congestion': {
+          'available': false,
+          'reason': 'CONGESTION_UNAVAILABLE_OR_STALE',
+        },
+      });
+
+      expect(parsed.roadBlock.checkedEmpty, isNull);
+      expect(parsed.subwayDelay.checkedEmpty, isNull);
+      expect(parsed.congestion.checkedEmpty, isNull);
+    });
+
+    test('확인된 공지가 없으면 "지연 없음" 이라고 단정하지 않는다', () {
+      final parsed = TravelConditions.fromJson({
+        'subwayDelay': {
+          'available': false,
+          'reason': 'NO_MATCHING_ACTIVE_ALERT',
+        },
+      });
+
+      expect(parsed.subwayDelay.checkedEmpty, '확인된 공지 없음');
+      expect(parsed.subwayDelay.checkedEmpty, isNot(contains('지연 없음')));
+    });
+
     test('유효시각 지난 혼잡도는 기준 시각을 덧붙여 보여 준다', () {
       final parsed = TravelConditions.fromJson({
         'congestion': {
