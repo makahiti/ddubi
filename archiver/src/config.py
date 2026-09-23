@@ -42,9 +42,7 @@ class Settings:
 
         topics = tuple(
             t.strip()
-            for t in (_env("ARCHIVE_TOPICS", "transport.raw,city.raw,source.poll-status,segment.status") or "").split(
-                ","
-            )
+            for t in (_env("ARCHIVE_TOPICS", "transport.raw,city.raw,source.poll-status") or "").split(",")
             if t.strip()
         )
         if not topics:

@@ -29,7 +29,7 @@ class GmsRecommendationGuideClientTest {
                         "https://gms.ssafy.io/gmsapi",
                         "/api.openai.com/v1/responses",
                         "synthetic-key",
-                        "gpt-5.5-pro",
+                        "gpt-5.4-nano",
                         1000);
         String content =
                 json.writeValueAsString(
@@ -58,7 +58,7 @@ class GmsRecommendationGuideClientTest {
         server.expect(requestTo("https://gms.ssafy.io/gmsapi/api.openai.com/v1/responses"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer synthetic-key"))
-                .andExpect(jsonPath("$.model").value("gpt-5.5-pro"))
+                .andExpect(jsonPath("$.model").value("gpt-5.4-nano"))
                 .andExpect(jsonPath("$.input").isString())
                 .andExpect(jsonPath("$.messages").doesNotExist())
                 .andExpect(jsonPath("$.text.format.type").value("json_schema"))
@@ -84,7 +84,7 @@ class GmsRecommendationGuideClientTest {
                         "https://gms.ssafy.io/gmsapi",
                         "/api.openai.com/v1/responses",
                         "",
-                        "gpt-5.5-pro",
+                        "gpt-5.4-nano",
                         1000);
         assertThat(
                         new GmsRecommendationGuideClient(

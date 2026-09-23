@@ -22,8 +22,8 @@ case "$target" in
       "*/5 * * * * bash $REPO/infra/scripts/check-server2.sh >> $HOME_DIR/check-server2.log 2>&1"
       # HDFS 네임노드 메타데이터(목차) 일일 백업, 04:20 KST
       "20 19 * * * bash $REPO/infra/scripts/backup-namenode.sh >> $HOME_DIR/backups/hdfs-name/backup.log 2>&1"
-      # 도커 빌드 캐시·태그 없는 이미지 주간 정리, 일요일 04:40 KST (볼륨은 건드리지 않음)
-      "40 19 * * 6 bash $REPO/infra/scripts/docker-prune.sh >> $HOME_DIR/docker-prune.log 2>&1"
+      # 도커 빌드 캐시·태그 없는 이미지 정리, 매일 04:40 KST (볼륨은 건드리지 않음). 2026-09-23 주 1회에서 매일로.
+      "40 19 * * * bash $REPO/infra/scripts/docker-prune.sh >> $HOME_DIR/docker-prune.log 2>&1"
     )
     mkdir -p "$HOME_DIR/backups/hdfs-name"
     ;;
@@ -34,8 +34,8 @@ case "$target" in
       # 인프라 브리핑을 Mattermost 로, 09:30 과 17:00 KST
       "30 0 * * * python3 $REPO/infra/scripts/daily-brief.py >> $HOME_DIR/brief.log 2>&1"
       "0 8 * * * python3 $REPO/infra/scripts/daily-brief.py >> $HOME_DIR/brief.log 2>&1"
-      # 도커 빌드 캐시·태그 없는 이미지 주간 정리, 일요일 04:40 KST (볼륨은 건드리지 않음). 서버2는 backend·ml-serving 빌드로 캐시가 빨리 쌓인다
-      "40 19 * * 6 bash $REPO/infra/scripts/docker-prune.sh >> $HOME_DIR/docker-prune.log 2>&1"
+      # 도커 빌드 캐시·태그 없는 이미지 정리, 매일 04:40 KST (볼륨은 건드리지 않음). 2026-09-23 주 1회에서 매일로. 서버2는 backend·ml-serving 을 배포마다 다시 빌드해 캐시가 하루 10GB 넘게 쌓인다
+      "40 19 * * * bash $REPO/infra/scripts/docker-prune.sh >> $HOME_DIR/docker-prune.log 2>&1"
       # 지하철 시각표를 그날치로 교체하고 백엔드를 다시 띄운다, 03:30 KST.
       # 시각표는 하루치라 다음 날 06:00 에 만료된다. 만료되면 백엔드가 조용히 시각표를 쓰지
       # 않고 예전 추정값으로 돌아간다. 재시작에 1~2분 걸리므로 사람이 가장 적은 시간에 둔다.

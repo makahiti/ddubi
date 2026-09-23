@@ -234,7 +234,7 @@ ddubi:
     # GMS는 계산기가 아니라 최신 추천 사실을 짧은 한국어 안내로 바꾸는 표현 계층이다.
     enabled: ${DDUBI_RECOMMENDATION_GUIDE_ENABLED:true}
     base-url: ${GMS_BASE_URL:https://gms.ssafy.io/gmsapi}
-    # gpt-5.5-pro는 Chat Completions가 아니라 Responses API 계약을 사용한다.
+    # 추천 안내문은 gpt-5.4-nano를 기본으로 쓰며 Responses API 계약을 사용한다.
     path: /api.openai.com/v1/responses
     api-key: ${GMS_API_KEY:}
     # 기본은 가벼운 모델이다. pro 모델은 문장 하나에 크레딧 약 1,700 을 쓰고 20 초를 넘겨 시간 초과로

@@ -151,16 +151,27 @@ archiver-test:
 
 sparkjobs-test:
   stage: test
-  image: python:3.8-slim   # 클러스터(apache/spark:3.5.3-python3)와 같은 파이썬 버전
-  cache:
-    key: sparkjobs-pip
-    paths: [.cache/pip]
-    unprotect: true
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends default-jre-headless > /dev/null
+  # 운영 클러스터와 같은 이미지(Python 3.8 + Java 11 + pyspark 3.5.3 내장). 전에는 python:3.8-slim 에 JRE 를 apt 로 깔고
+  # pyspark 300MB 를 pip 로 매번 내려받아 설치만 2~3분이 걸렸다(2026-09-23 정리). 이미지의 기본 사용자가 spark(비루트)라
+  # pip 은 --user 로 HOME 아래에 설치하고, pyspark 는 이미지 안 경로를 PYTHONPATH 로 잡는다.
+  image:
+    name: apache/spark:3.5.3-python3
+    entrypoint: [""]
+  # pip 캐시는 두지 않는다. 러너가 캐시 폴더를 root 소유로 풀어 놓아 비루트 사용자인 pip 이 쓰지 못하고
+  # "캐시 끔" 경고만 내기 때문이다. 남는 내려받기는 pytest·fakeredis·pyarrow 등 약 60MB 라 30초 안이다.
+  variables:
+    HOME: /tmp
+    PYTHONPATH: /opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
   script:
-    - pip install -r sparkjobs/requirements-dev.txt
-    - cd sparkjobs && python -m pytest -q
+    # requirements-dev 의 pyspark 핀이 이미지 안 pyspark 와 같은지 먼저 확인한다. 아래에서 핀 줄을 걸러 내고
+    # 이미지 것을 쓰기 때문에, 누가 핀만 올리면 CI 가 조용히 옛 버전으로 시험하게 되는 것을 여기서 막는다.
+    - PIN=$(grep -oE '^pyspark==[0-9.]+' sparkjobs/requirements-dev.txt | cut -d= -f3)
+    - python3 -c "import pyspark, sys; want='$PIN'; have=pyspark.__version__; print('pyspark 핀', want, '/ 이미지', have); sys.exit(want != have)"
+    # dev 목록에서 pyspark 줄과 "-r requirements.txt" 줄을 빼고, 런타임 목록(requirements.txt)은 원래 자리에서 따로 넘긴다.
+    # 걸러낸 파일을 /tmp 에 두면 그 안의 "-r" 상대 경로가 /tmp 기준으로 풀려 실패하기 때문이다(2026-09-23 MR !184 에서 확인).
+    - grep -viE '^(pyspark==|-r )' sparkjobs/requirements-dev.txt > /tmp/req-ci.txt
+    - python3 -m pip install --quiet --user -r sparkjobs/requirements.txt -r /tmp/req-ci.txt
+    - cd sparkjobs && python3 -m pytest -q
   rules:
     - changes:
         - sparkjobs/**/*
@@ -343,7 +354,8 @@ client-build-web:
     - flutter build web --release
   artifacts:
     paths: [client/build/web]
-    expire_in: 1 day
+    # 심사·재심사 기간에 같은 빌드를 다시 받을 수 있게 일주일 둔다(2026-09-23, PM 요청). 웹 빌드는 약 30MB.
+    expire_in: 1 week
 
 client-build-android:
   extends: .flutter-build

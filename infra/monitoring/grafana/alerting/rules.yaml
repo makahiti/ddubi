@@ -157,7 +157,7 @@ groups:
         for: 5m
         labels: { severity: critical, layer: data }
         annotations:
-          summary: master 가 보는 실행 중 앱이 3 미만. weather_latest·realtime_latest·city_realtime_silver 중 하나가 죽어 재시작 반복 중일 수 있다 (기준 3 은 2026-09-21, city-realtime 이 기본 프로필에 들어온 뒤)
+          summary: master 가 보는 실행 중 앱이 5 미만. weather·realtime·city_realtime·topis·traffic_incident 중 하나가 죽어 재시작 반복 중일 수 있다 (기준 5 는 2026-09-23, dt 확인으로 상시 잡 5개 고정)
           runbook: docs/runbooks/spark-streaming-crash.md
         noDataState: Alerting
         execErrState: Error
@@ -168,7 +168,7 @@ groups:
             model: { refId: A, instant: true, expr: 'metrics_master_apps_Value{type="gauges"}' }
           - refId: C
             datasourceUid: __expr__
-            model: { refId: C, type: math, expression: "$A < 3" }
+            model: { refId: C, type: math, expression: "$A < 5" }
 
       - uid: ddubi-hdfs-datanode-down
         title: HDFS 데이터노드 1대
@@ -269,26 +269,6 @@ groups:
           - refId: C
             datasourceUid: __expr__
             model: { refId: C, type: math, expression: "$A < 1" }
-
-      # 실측 생산자가 활성화된 뒤 판정 잡만 멈춘 경우를 잡는다. 실측 자체가 아직 없는 환경에서는 경고하지 않는다.
-      - uid: ddubi-segment-status-stalled
-        title: 구간 판정 생성 중단
-        condition: C
-        for: 5m
-        labels: { severity: warning, layer: data }
-        annotations:
-          summary: segment.observation은 30분 동안 들어왔지만 segment.status가 한 건도 생성되지 않았다. recommendation-data 프로필과 segment status 잡 로그를 확인
-          runbook: docs/contracts/recommendation-data-readiness.md
-        noDataState: OK
-        execErrState: Error
-        data:
-          - refId: A
-            relativeTimeRange: { from: 1800, to: 0 }
-            datasourceUid: prometheus
-            model: { refId: A, instant: true, expr: '((sum(increase(kafka_topic_partition_current_offset{topic="segment.observation"}[30m])) or vector(0)) > bool 0) * ((sum(increase(kafka_topic_partition_current_offset{topic="segment.status"}[30m])) or vector(0)) < bool 1)' }
-          - refId: C
-            datasourceUid: __expr__
-            model: { refId: C, type: math, expression: "$A > 0" }
 
       # Spark 스트리밍 한 배치의 처리 시간(ms). 평소 3ms~13초인데, 9/11 대응표 OOM 사고 때는 32~52초로 늘다가 멈췄다.
       # 5분(트리거 간격)을 넘으면 배치가 밀리기 시작한 것이라 미리 알린다. 잡이 죽어 지표가 사라지는 경우는 "Spark 스트리밍 잡 부족" 이 잡는다 (2026-09-15)

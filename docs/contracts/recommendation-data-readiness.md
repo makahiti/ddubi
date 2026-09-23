@@ -1,3 +1,5 @@
+> **폐기(2026-09-23)**: 2026-09-23 dt 결정으로 segment-observations·segment-status 잡을 폐기했다(앞으로도 쓸 계획 없음). 이 문서는 기록으로만 남긴다. compose·환경변수·알림·브리핑·토픽 계약에서 관련 항목을 뺐다.
+
 # 추천 데이터 파이프라인 준비 상태
 
 기준 문서는 `docs/MVP_plan/recommendation-correction-work-plan.md`의 DT 항목 17~23이다.

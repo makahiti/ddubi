@@ -38,7 +38,6 @@
 | `hdfs2` | hdfs-datanode2, hdfs-secondarynamenode | 서버2 전용. 세컨더리 네임노드는 매시간 네임노드 메타데이터 사본을 서버2 볼륨에 만든다(2026-09-14). 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
 | `hdfs-standby` | hdfs-namenode-standby | 서버2 전용, **평소 켜지 않는다**. 서버1 네임노드 메타데이터를 잃었을 때 `scripts/failover-namenode.sh` 가 켠다. [절차서](../docs/runbooks/hdfs-namenode-metadata-loss.md) |
 | `spark` | spark-master, spark-worker-1/2, spark-streaming-weather, spark-streaming-realtime | |
-| `recommendation-data` | spark-streaming-segment-observations, spark-streaming-segment-status | 검증된 실제 구간 통과 생산자와 registry/baseline이 준비된 뒤에만 켠다. 상태 잡은 두 경로가 비어 있으면 기동을 거부한다. |
 | `topis-ai` | spark-streaming-topis | GMS·Kakao 키를 설정한 뒤 명시적으로 켜는 TOPIS 공지 전처리 잡 |
 | `road-silver` | spark-streaming-traffic-incident | 서버1에서 TOPIS 교통 돌발 전체 회차를 Redis 최신 Snapshot으로 정리 |
 | `road-feature` | ml-incident-feature-refresh | 서버2에서 새 돌발 회차를 감지해 버스 구간별 Redis feature를 자동 갱신 |
@@ -177,6 +176,20 @@ SPARK_CHECKPOINT_DIR=/opt/ddubi/checkpoints
 - **브리핑**: `scripts/daily-brief.py` 가 서버2 크론으로 매일 09:30·17:00(KST) 서버 상황(수집 대상·알림·서비스·데이터·HDFS·자원·컨테이너 재시작·백업)을 같은 Mattermost 채널에 한 메시지로 보냅니다. 판정하지 않고 숫자만 정리하며, 알림 문턱 아래에서 나빠지는 것을 사람이 보게 하는 용도입니다. `--dry-run` 으로 화면 확인.
 - **반영 시점**: Prometheus 설정과 Grafana 알림 규칙·수신처는 배포 잡의 post-deploy 가 재적재합니다(알림 파일은 Grafana 가 기동 때만 읽으므로 관리자 API 로 다시 읽게 함, 2026-09-10). Grafana 대시보드 파일은 10초마다 자동으로 다시 읽습니다. Spark 지표 설정(`spark/conf/metrics.properties`)만 Spark 프로세스 재시작이 필요합니다.
 - 파일로 프로비저닝한 대시보드·알림은 화면에서 고쳐도 저장되지 않습니다. 저장소 파일을 고쳐 MR 로 올리는 것이 기준입니다.
+
+## 웹 정적 파일 배포 (Flutter 웹, 2026-09-23)
+
+- nginx 는 서버2 `~/S15P21E202/infra/nginx/web/` 를 `/` 로 서빙합니다. 이 폴더는 **git 이 추적하지 않습니다**(.gitignore).
+  배포(git pull)가 건드리지 않으므로 여기에 올린 빌드는 배포 뒤에도 그대로 남습니다.
+- 웹을 올리는 법: CI `client-build-web` 아티팩트(`client/build/web`, 일주일 보관)를 받아 폴더 내용을 통째로 이 폴더에 넣습니다.
+  nginx 는 파일을 바로 읽으므로 재시작이 필요 없습니다.
+  ```
+  # 예: 아티팩트를 풀어 PC 에서 서버2 의 web/ 로 올리기
+  scp -r client/build/web/* ubuntu@j15e202.p.ssafy.io:~/S15P21E202/infra/nginx/web/
+  ```
+- 안드로이드 앱 링크 검증 파일 `.well-known/assetlinks.json` 도 이 폴더 아래에 둡니다(같은 root 로 서빙).
+- `infra/nginx/html/index.html` 은 저장소에 남는 안내 페이지일 뿐 서빙되지 않습니다. 새 서버를 만들 때는 `web/` 폴더를 먼저 만들고 빌드를 넣은 뒤 serving 프로필을 올립니다.
+  폴더가 없으면 도커가 빈 폴더를 만들어 `/` 가 403 으로 응답합니다.
 
 ## HTTPS (Let's Encrypt)
 

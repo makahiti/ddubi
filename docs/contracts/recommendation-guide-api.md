@@ -40,7 +40,7 @@
     "source": "TOPIS",
     "confirmed": true
   },
-  "generatedBy": "GMS:gpt-5.5-pro"
+  "generatedBy": "GMS:gpt-5.4-nano"
 }
 ```
 

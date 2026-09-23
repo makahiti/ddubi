@@ -8,7 +8,6 @@
 |---|---|---|---|---|
 | 수집 원본(raw 이벤트) | **Kafka** 토픽 `city.raw`, `transport.raw` | **21일** 또는 파티션당 용량 상한(city.raw 1GiB, transport.raw **4GiB**, 2026-09-09 상향) 중 먼저 오는 것 | Kafka 가 자동 | `docs/contracts/topics.yaml` → `infra/scripts/create-topics.sh` |
 | 수집 원본 아카이브 | **HDFS** `/ddubi/archive/<토픽>/date=/hour=/*.parquet` | **영구** (지우지 않음) | 없음 | `ARCHIVE_URI`, `ARCHIVE_TOPICS`, `ARCHIVE_FLUSH_MINUTES=60`, `ARCHIVE_MAX_BYTES=128MB` |
-| 구간 판정 이력 | Kafka `segment.status` + HDFS 아카이브 | Kafka 24시간, HDFS 영구 | Kafka 자동 + 아카이버 | topics.yaml, 5절 |
 | Spark 체크포인트 | HDFS `/ddubi/checkpoints/<잡>` | 잡이 사는 동안. 잡을 새로 시작하려면 폴더를 지운다 | 인프라 | `SPARK_CHECKPOINT_DIR` |
 | 기준선 파일(weather) | HDFS `/ddubi/baseline/weather` | 마지막 배치 결과 1개(덮어씀) | 배치가 덮어씀 | `BASELINE_OUTPUT_URI` |
 | 최신값 | **Redis** (`weather:latest:*`, `transit:*`) | 키마다 TTL(수 분~수 시간). 메모리 384MB, 넘치면 TTL 있는 키부터 퇴출 | Redis 자동 | `docs/contracts/redis-keys.yaml` |
@@ -71,8 +70,6 @@ docker exec hdfs-namenode hdfs dfs -du -s -h /ddubi/archive/transport.raw/date=$
 | `/ddubi/silver/bus/backfill-v1` | 버스 Silver(과거 백필) | bus_silver 배치(일회용) | 9-10~9-16, 약 182M. 읽을 때 realtime-v1 과 합쳐 씀 |
 | `/ddubi/archive/source.poll-status` | 수집 사이클 상태(정상 빈 응답·실패·제한·생략) | 아카이버 | 토픽 504h·1GiB, archive:true (2026-09-17 추가) |
 | `/ddubi/silver/city/realtime-v1` | 도시 실시간 Silver(인구·도로) | city-realtime 스트림 | `CITY_SILVER_OUTPUT_URI` 를 채운 서버에서만 쓴다. 지금 서버1은 비어 있어 Redis 만 갱신 |
-| `/ddubi/silver/segment-observation/v1` | 실측 구간 통과 이력 | segment-observations 스트림(recommendation-data 프로필) | 실측 생산자가 없어 **꺼져 있음**. 켤 때 아카이버·토픽과 함께 |
-| `/ddubi/derived/segment-status/v1` | 구간 판정 이력 | segment-status 스트림(recommendation-data 프로필) | 꺼져 있음. Kafka `segment.status` 는 24시간 보존이라 이 경로와 아카이버가 이력의 유일한 보관처 |
 | `TOPIS_SILVER_OUTPUT_URI` · `TRAFFIC_INCIDENT_SILVER_OUTPUT_URI` | TOPIS 공지·교통 돌발 Silver | topis · traffic-incident 스트림 | 경로를 채울 때만 쓴다. 지금은 둘 다 Redis 만 |
 | `/ddubi/master/<대응표>/version=…` | 버스 구간 대응표(날씨 격자·도로·도시 영역·구간) | export_bus_*_mapping 배치 | 버전 폴더가 쌓인다. 옛 버전 정리 규칙은 아래 문단 |
 
@@ -102,7 +99,7 @@ Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니�
 4. 아카이브 압축률 개선(snappy → zstd) 또는 오래된 월을 별도 저장소로 옮기기. 프로젝트 기간에는 필요하지 않을 것으로 봅니다.
 5. 디스크 증설. 마지막 수단입니다.
 
-## 5. 새 토픽을 추가할 때 (예: segment.status)
+## 5. 새 토픽을 추가할 때 (예: source.poll-status)
 
 토픽 추가는 "만들기"만이 아니라 아카이브·감시까지 이어져야 원본 보존 원칙이 지켜집니다.
 
@@ -112,9 +109,7 @@ Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니�
 4. 확인: 첫 시간 정각 뒤 `hdfs dfs -ls /ddubi/archive/<토픽>/date=오늘` 에 파일이 생기고, Grafana "토픽별 유입"·"누적 메시지" 패널의 정규식에 토픽 이름이 들어 있는지 봅니다(`infra/monitoring/grafana/dashboards/json/ddubi-pipeline.json`).
 5. 재처리(replay)도 그 토픽 폴더를 읽을 수 있는지 `--dry-run` 으로 한 번 확인합니다.
 
-`segment.status`는 `archive: true`이며 기본 `ARCHIVE_TOPICS`에도 포함된다. 운영 반영 시 아카이버를
-재생성하고 첫 시간 정각 뒤 HDFS 행 수와 Kafka offset을 대조한다. Kafka 자체 보존은 24시간이므로
-아카이버가 빠진 채 판정 잡만 켜지 않도록 한다.
+`segment.status` 는 2026-09-23 dt 결정으로 segment-observations·segment-status 잡을 폐기했다(앞으로도 쓸 계획 없음). 토픽·아카이브 목록·판정 잡을 모두 뺐다. 이 절의 절차는 2026-09-17 `source.poll-status` 추가 때 실제로 밟은 순서다.
 
 ## 6. 원본이 온전한지 확인하는 법
 

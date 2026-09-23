@@ -129,7 +129,7 @@ class RecommendationGuideServiceTest {
                         "https://gms.ssafy.io/gmsapi",
                         "/api.openai.com/v1/responses",
                         "synthetic",
-                        "gpt-5.5-pro",
+                        "gpt-5.4-nano",
                         1000);
         var service = new RecommendationGuideService(store, gms, properties, redis, json);
 
@@ -146,7 +146,7 @@ class RecommendationGuideServiceTest {
         assertThat(result.changeType()).isEqualTo("ROUTE_CHANGED");
         assertThat(result.recommendationReason()).contains("유지");
         assertThat(result.delay().status()).isEqualTo("NO_CONFIRMED_DELAY");
-        assertThat(result.generatedBy()).isEqualTo("GMS:gpt-5.5-pro");
+        assertThat(result.generatedBy()).isEqualTo("GMS:gpt-5.4-nano");
     }
 
     // ------------------------------------------------------------------
@@ -360,7 +360,7 @@ class RecommendationGuideServiceTest {
                         "https://gms.ssafy.io/gmsapi",
                         "/api.openai.com/v1/responses",
                         "synthetic",
-                        "gpt-5.5-pro",
+                        "gpt-5.4-nano",
                         1000);
         var service = new RecommendationGuideService(store, gms, properties, redis, json);
 
@@ -413,7 +413,7 @@ class RecommendationGuideServiceTest {
                         "https://gms.ssafy.io/gmsapi",
                         "/api.openai.com/v1/responses",
                         "synthetic",
-                        "gpt-5.5-pro",
+                        "gpt-5.4-nano",
                         1000);
         var service = new RecommendationGuideService(store, gms, properties, redis, json);
 
