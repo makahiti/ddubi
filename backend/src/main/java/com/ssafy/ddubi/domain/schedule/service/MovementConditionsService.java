@@ -12,6 +12,7 @@ import com.ssafy.ddubi.domain.schedule.entity.Schedule;
 import com.ssafy.ddubi.domain.schedule.repository.ScheduleRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ public class MovementConditionsService {
     private final MovementConditionsRedisReader redis;
     private final ObjectMapper json;
     private final boolean provisionalRoadMappingEnabled;
+    private final Duration congestionMaxAge;
 
     public MovementConditionsService(
             ScheduleRepository schedules,
@@ -58,12 +60,17 @@ public class MovementConditionsService {
             MovementConditionsRedisReader redis,
             ObjectMapper json,
             @Value("${ddubi.road.provisional-mapping-enabled:false}")
-                    boolean provisionalRoadMappingEnabled) {
+                    boolean provisionalRoadMappingEnabled,
+            @Value("${ddubi.movement-conditions.congestion-max-age-hours:12}")
+                    int congestionMaxAgeHours) {
         this.schedules = schedules;
         this.routes = routes;
         this.redis = redis;
         this.json = json;
         this.provisionalRoadMappingEnabled = provisionalRoadMappingEnabled;
+        if (congestionMaxAgeHours < 1 || congestionMaxAgeHours > 48)
+            throw new IllegalArgumentException("congestion max age out of range");
+        this.congestionMaxAge = Duration.ofHours(congestionMaxAgeHours);
     }
 
     /**
@@ -146,7 +153,9 @@ public class MovementConditionsService {
     private MovementConditionsResponse.Congestion congestion(List<EdgeRef> edges, Instant now) {
         if (edges.isEmpty()) return unavailableCongestion("NO_BUS_SEGMENT");
         Map<String, String> activeKeys = new HashMap<>();
-        Map<String, JsonNode> areas = new LinkedHashMap<>();
+        // 최신값이 있으면 그것만 쓴다. 하나도 없을 때만 유효시각이 지난 관측으로 내려간다.
+        Map<String, JsonNode> current = new LinkedHashMap<>();
+        Map<String, JsonNode> aged = new LinkedHashMap<>();
         for (EdgeRef edge : edges) {
             String mappingKey =
                     activeKeys.computeIfAbsent(
@@ -161,12 +170,12 @@ public class MovementConditionsService {
             String areaId = mapping.path("primaryProviderAreaId").asText("");
             if (!safeKeyPart(areaId)) continue;
             JsonNode area = parse(redis.value("city:latest:area:" + areaId));
-            if (area != null
-                    && fresh(area, now)
-                    && "VALID".equals(area.path("processingStatus").asText())) {
-                areas.putIfAbsent(areaId, area);
-            }
+            if (area == null || !"VALID".equals(area.path("processingStatus").asText())) continue;
+            if (fresh(area, now)) current.putIfAbsent(areaId, area);
+            else if (withinMaxAge(area, now)) aged.putIfAbsent(areaId, area);
         }
+        boolean stale = current.isEmpty();
+        Map<String, JsonNode> areas = stale ? aged : current;
         if (areas.isEmpty()) return unavailableCongestion("CONGESTION_UNAVAILABLE_OR_STALE");
 
         Map.Entry<String, JsonNode> worst =
@@ -186,7 +195,20 @@ public class MovementConditionsService {
                         : congestionScore(node),
                 firstInstant(node, "observedAt", "occurredAt"),
                 instant(node.path("validUntil").asText(null)),
-                text(node, "source", "seoul.citydata"));
+                text(node, "source", "seoul.citydata"),
+                stale);
+    }
+
+    /**
+     * 유효시각이 지났어도 쓸 수 있는 관측인지 본다. 도시데이터는 6시간마다 모으는데 관측 유효시간은 15분이라, 이 문을 두지 않으면 하루 대부분 혼잡도가 비어
+     * 있다(2026-09-23 확인). 관측 시각을 함께 내보내 앱이 언제 기준인지 밝히므로 옛 값을 지금 값처럼 보여 주지는 않는다. 미래 시각이거나 상한보다 오래된 값은
+     * 쓰지 않는다.
+     */
+    private boolean withinMaxAge(JsonNode node, Instant now) {
+        Instant observed = firstInstant(node, "observedAt", "occurredAt", "collectedAt");
+        return observed != null
+                && !observed.isAfter(now)
+                && observed.isAfter(now.minus(congestionMaxAge));
     }
 
     private MovementConditionsResponse.RoadBlock roadBlock(List<EdgeRef> edges, Instant now) {
@@ -489,7 +511,7 @@ public class MovementConditionsService {
 
     private static MovementConditionsResponse.Congestion unavailableCongestion(String reason) {
         return new MovementConditionsResponse.Congestion(
-                false, reason, null, null, null, null, null, null, null, null);
+                false, reason, null, null, null, null, null, null, null, null, false);
     }
 
     private static MovementConditionsResponse.RoadBlock unavailableRoad(String reason) {

@@ -98,11 +98,21 @@ class TravelConditions {
       return const TravelConditionItem.unavailable();
     }
     final message = data['message'];
-    return TravelConditionItem.value(
-      '$area 일대 $level',
-      note: message is String && message.isNotEmpty ? message : null,
-    );
+    final note = message is String && message.isNotEmpty ? message : null;
+    // 서버가 stale 을 주면 유효시각이 지난 관측이다. 값을 감추지 않고 언제 기준인지 밝힌다.
+    final observedAt = _parseTime(data['observedAt']);
+    if (data['stale'] == true && observedAt != null) {
+      final basis =
+          '${_two(observedAt.hour)}:${_two(observedAt.minute)} 기준 · 최신 아님';
+      return TravelConditionItem.value(
+        '$area 일대 $level',
+        note: note == null ? basis : '$note · $basis',
+      );
+    }
+    return TravelConditionItem.value('$area 일대 $level', note: note);
   }
+
+  static String _two(int value) => value.toString().padLeft(2, '0');
 
   /// 서울시 생활인구 혼잡도 등급. 모르는 등급이면 영어 코드를 그대로 내보내지 않는다.
   @visibleForTesting

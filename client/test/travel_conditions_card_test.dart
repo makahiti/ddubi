@@ -208,6 +208,38 @@ void main() {
       expect(parsed.weather.available, isFalse);
     });
 
+    /// 도시데이터는 6시간마다 모이고 관측 유효시간은 15분이라, 값이 있는 시간이 하루의 일부뿐이다.
+    /// 서버가 stale 로 표시해 보내면 값을 감추지 않고 "언제 기준" 인지 함께 보여 준다.
+    test('유효시각 지난 혼잡도는 기준 시각을 덧붙여 보여 준다', () {
+      final parsed = TravelConditions.fromJson({
+        'congestion': {
+          'available': true,
+          'areaName': '시청',
+          'level': 'BUSY',
+          'stale': true,
+          'observedAt': '2026-09-23T06:32:00+09:00',
+        },
+      });
+
+      expect(parsed.congestion.text, '시청 일대 붐빔');
+      expect(parsed.congestion.note, contains('기준'));
+      expect(parsed.congestion.note, contains('최신 아님'));
+    });
+
+    test('최신 혼잡도에는 기준 시각 덧말을 붙이지 않는다', () {
+      final parsed = TravelConditions.fromJson({
+        'congestion': {
+          'available': true,
+          'areaName': '시청',
+          'level': 'BUSY',
+          'stale': false,
+          'observedAt': '2026-09-23T06:32:00+09:00',
+        },
+      });
+
+      expect(parsed.congestion.note, isNull);
+    });
+
     test('모르는 혼잡도 등급은 영어 코드를 그대로 쓰지 않는다', () {
       expect(TravelConditions.congestionLabel('SOMETHING_NEW'), isNull);
       final parsed = TravelConditions.fromJson(const {

@@ -57,7 +57,8 @@ class MovementConditionsServiceTest {
 }
 """);
         var service =
-                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), false);
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 12);
 
         var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
 
@@ -93,13 +94,87 @@ class MovementConditionsServiceTest {
                          "validUntil":"2026-09-22T01:30:00+09:00"}
                         """);
         var service =
-                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), false);
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 12);
 
         var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
 
         assertThat(result.weather().available()).isFalse();
         assertThat(result.weather().reason()).isEqualTo("WEATHER_STALE");
         assertThat(result.weather().precipitationMm()).isNull();
+    }
+
+    /**
+     * 도시데이터는 6시간마다 모으는데 관측 유효시간은 15분이라, 유효시각만 보면 하루 대부분 혼잡도가 비어 있다. 상한 안이면 값을 주되 stale 로 표시해 앱이 "○시
+     * 기준" 을 붙인다.
+     */
+    @Test
+    void 유효시각이지난혼잡도는상한안이면기준시각과함께준다() {
+        ScheduleRepository schedules = mock(ScheduleRepository.class);
+        SavedRouteRepository routes = mock(SavedRouteRepository.class);
+        MovementConditionsRedisReader redis = mock(MovementConditionsRedisReader.class);
+        Schedule schedule = mock(Schedule.class);
+        when(schedules.findById(3L)).thenReturn(Optional.of(schedule));
+        when(schedule.isOwnedBy(7L)).thenReturn(true);
+        when(schedule.getDestination())
+                .thenReturn(
+                        new LocationSnapshot(
+                                "서울시청",
+                                new BigDecimal("37.5665000"),
+                                new BigDecimal("126.9780000")));
+        SavedRoute route = SavedRoute.builder().baseDurationMin(30).selected(true).build();
+        SavedRouteSegment bus =
+                SavedRouteSegment.builder()
+                        .seq(1)
+                        .mode(TransportMode.BUS)
+                        .fromName("A")
+                        .toName("B")
+                        .baseDurationMin(10)
+                        .build();
+        bus.addEdge(
+                SavedRouteSegmentEdge.builder()
+                        .edgeSeq(1)
+                        .segmentId("BUS:100:A:B")
+                        .mappingVersion("master-v1")
+                        .policyVersion("policy-v1")
+                        .build());
+        route.addSegment(bus);
+        when(routes.findSelectedWithSegments(3L)).thenReturn(Optional.of(route));
+        when(redis.value("ml:mapping:bus-city:active:master-v1"))
+                .thenReturn("ml:mapping:bus-city:v1:master-v1:sha");
+        when(redis.hashValue("ml:mapping:bus-city:v1:master-v1:sha", "BUS:100:A:B"))
+                .thenReturn(
+                        """
+                        {"masterVersion":"master-v1","mappingStatus":"RESOLVED",
+                         "primaryProviderAreaId":"POI001"}
+                        """);
+        // 관측 6시간 전, 유효시각은 5시간 45분 전에 이미 지났다.
+        when(redis.value("city:latest:area:POI001"))
+                .thenReturn(
+                        """
+                        {"areaName":"시청","processingStatus":"VALID","congestionLevel":"BUSY",
+                         "congestionScore":3,"observedAt":"2026-09-21T11:00:00Z",
+                         "validUntil":"2026-09-21T11:15:00Z"}
+                        """);
+        var service =
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 12);
+
+        var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
+
+        assertThat(result.congestion().available()).isTrue();
+        assertThat(result.congestion().stale()).isTrue();
+        assertThat(result.congestion().level()).isEqualTo("BUSY");
+        assertThat(result.congestion().observedAt())
+                .isEqualTo(Instant.parse("2026-09-21T11:00:00Z"));
+
+        // 상한(1시간)을 넘기면 쓰지 않는다.
+        var strict =
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 1);
+        var refused = strict.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
+        assertThat(refused.congestion().available()).isFalse();
+        assertThat(refused.congestion().reason()).isEqualTo("CONGESTION_UNAVAILABLE_OR_STALE");
     }
 
     @Test
@@ -198,7 +273,8 @@ class MovementConditionsServiceTest {
                                          "validUntil":"2026-09-22T03:00:00+09:00"}
                                         """)));
         var service =
-                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), false);
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 12);
 
         var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
 
@@ -228,7 +304,8 @@ class MovementConditionsServiceTest {
                          "roadPathValidUntil":"2026-10-01T00:00:00+09:00"}
                         """);
         var provisionalService =
-                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), true);
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), true, 12);
         var provisional = provisionalService.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
         assertThat(provisional.roadBlock().available()).isTrue();
         assertThat(provisional.roadBlock().mappingStatus()).isEqualTo("PROVISIONAL");

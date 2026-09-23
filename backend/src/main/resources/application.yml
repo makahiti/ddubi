@@ -139,6 +139,10 @@ ddubi:
     timetable-path: ${DDUBI_SUBWAY_TIMING_TIMETABLE_PATH:}
     # 카카오 총시간의 대기 포함 여부를 실측하기 전에는 계산 결과를 전체 ETA에 합치지 않는다.
     decomposition-verified: ${DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED:false}
+  movement-conditions:
+    # 혼잡도 관측이 유효시각을 넘겼어도 이 시간 안이면 "○시 기준" 으로 보여 준다.
+    # 도시데이터 수집은 6시간 주기인데 관측 유효시간은 15분이라, 이 문이 없으면 하루 대부분 혼잡도가 비어 있다.
+    congestion-max-age-hours: ${DDUBI_CONGESTION_MAX_AGE_HOURS:12}
   schedule:
     # 반복 일정 인스턴스 선생성 지평선. 연장은 Phase 4 일일 잡이 맡는다.
     repeat-horizon-days: 14

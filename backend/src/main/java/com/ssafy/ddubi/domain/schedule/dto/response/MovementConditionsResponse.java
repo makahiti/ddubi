@@ -44,7 +44,12 @@ public record MovementConditionsResponse(
             Integer score,
             Instant observedAt,
             Instant validUntil,
-            String source) {}
+            String source,
+            /**
+             * 유효시각이 지난 관측을 쓴 경우 true. 도시데이터 수집은 6시간 주기인데 관측 유효시간은 15분이라, 하루 대부분은 최신값이 없다. 값을 감추는 대신
+             * 언제 기준인지 함께 보내고 앱이 "○시 기준" 으로 표시한다.
+             */
+            boolean stale) {}
 
     public record RoadBlock(
             boolean available,

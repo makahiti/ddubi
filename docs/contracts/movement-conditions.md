@@ -76,4 +76,15 @@ Authorization: Bearer <access-token>
 }
 ```
 
+
+## 혼잡도의 유효시각 예외 (2026-09-23)
+
+도시데이터 수집은 6시간 주기인데 관측 유효시간은 15분이라, `validUntil` 만 보면 하루 대부분
+혼잡도가 비어 있다. 그래서 혼잡도만 예외를 둔다 — 최신값이 하나라도 있으면 그것만 쓰고, 하나도
+없을 때만 `ddubi.movement-conditions.congestion-max-age-hours`(기본 12시간) 안의 관측을 쓰되
+응답에 `stale: true` 와 `observedAt` 을 함께 준다. 앱은 "HH:MM 기준 · 최신 아님" 을 덧붙인다.
+
+옛 값을 지금 값처럼 보여 주지 않는다는 원칙은 표기로 지킨다. 상한을 넘거나 관측 시각이 미래면
+쓰지 않고 `CONGESTION_UNAVAILABLE_OR_STALE` 로 남긴다. 날씨·도로·지하철에는 이 예외가 없다.
+
 `NO_MATCHING_ACTIVE_ALERT`는 “지연 없음”을 뜻하지 않는다. 현재 선택 호선에 연결할 수 있는 유효한 공지를 확인하지 못했다는 뜻이다.
