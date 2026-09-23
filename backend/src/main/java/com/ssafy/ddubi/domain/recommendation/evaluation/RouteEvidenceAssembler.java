@@ -21,17 +21,27 @@ public class RouteEvidenceAssembler {
     private final StringRedisTemplate redis;
     private final ObjectMapper json;
     private final RoadImpactEvidence road;
+    private final ProvisionalRoadEvidence provisionalRoad;
 
     public RouteEvidenceAssembler(StringRedisTemplate redis, ObjectMapper json) {
-        this(redis, json, null);
+        this(redis, json, null, null);
+    }
+
+    public RouteEvidenceAssembler(
+            StringRedisTemplate redis, ObjectMapper json, RoadImpactEvidence road) {
+        this(redis, json, road, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public RouteEvidenceAssembler(
-            StringRedisTemplate redis, ObjectMapper json, RoadImpactEvidence road) {
+            StringRedisTemplate redis,
+            ObjectMapper json,
+            RoadImpactEvidence road,
+            ProvisionalRoadEvidence provisionalRoad) {
         this.redis = redis;
         this.json = json;
         this.road = road;
+        this.provisionalRoad = provisionalRoad;
     }
 
     /** 외부 원본을 노출하지 않는 고정 스냅샷. 검증된 상태 JSON과 오류 이유로 Replay할 수 있다. */
@@ -111,7 +121,19 @@ public class RouteEvidenceAssembler {
                 reasons.add(id + ":INVALID_PAYLOAD");
             }
         }
-        return new Snapshot(states, reasons, road == null ? Map.of() : road.read(candidates, asOf));
+        return new Snapshot(states, reasons, roads(candidates, asOf));
+    }
+
+    /**
+     * 승인된 도로 근거가 있으면 그것만 쓴다. 없을 때만 후보 대응표로 만든 근거를 쓴다 — 사고 자료를 받아 두고도 검토가 끝나기 전까지 아무것도 못 쓰는 것을 막기
+     * 위해서다. 후보 근거로 나오는 원인은 "가능성" 이며 경로를 막거나 예상 시각을 바꾸지 않는다.
+     */
+    private Map<String, JsonNode> roads(List<RouteCandidate> candidates, Instant asOf) {
+        if (road != null) {
+            var approved = road.read(candidates, asOf);
+            if (!approved.isEmpty()) return approved;
+        }
+        return provisionalRoad == null ? Map.of() : provisionalRoad.read(candidates, asOf);
     }
 
     /**

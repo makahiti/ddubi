@@ -103,3 +103,20 @@ ML_REDIS_LATEST_FEATURES_ENABLED=true
 `PROVISIONAL` 사건은 일정 상세의 설명과 경로 위험 신호로 사용한다. 후보 매핑만으로 경로를
 통행 불가 처리하지 않는다. 경로의 강제 제외는 정식 `RESOLVED` 매핑과 전체 통제 근거가 모두
 확인된 별도 상태에서만 적용한다.
+
+## 추천 계산에서 후보 근거 쓰기 (2026-09-23)
+
+정식 도로 근거(`ddubi.road-impact.path`)는 사람이 버스 진행 방향을 확인한 승인 파일을 요구한다. 그
+검토가 끝나기 전까지 사고 정보를 받아 두고도 추천에 전혀 닿지 못했다. ML 예측을 미승인 상태로 쓰되
+결과에 표시하는 것과 같은 방식으로, 후보 대응표로도 근거를 만들 수 있게 한다.
+
+```env
+ROAD_PROVISIONAL_EVIDENCE_ENABLED=true   # 기본 false
+```
+
+- 근거는 Redis 후보 포인터 `ml:mapping:bus-road-provisional:active:{masterVersion}` 와 이미 15분마다
+  갱신되는 `traffic:latest:incident-snapshot:all-current` 로만 만든다. Spark 잡을 새로 띄우지 않는다.
+- 만들어지는 원인은 `POTENTIAL_IMPACT`·`confirmed=false` 다. 경로를 막지 않고 예상 시각도 바꾸지 않는다.
+  AI 안내가 "선택 경로 주변에 교통 영향 가능성이 있어요" 로 표현한다.
+- 승인 근거 파일이 설정돼 있고 결과를 내면 **그쪽이 언제나 이긴다**. 후보 근거는 그때 쓰이지 않는다.
+- 스냅샷이 부분 수집이거나 만료됐으면 근거 자체를 비운다. "사고 없음" 으로 바꾸지 않는다.
