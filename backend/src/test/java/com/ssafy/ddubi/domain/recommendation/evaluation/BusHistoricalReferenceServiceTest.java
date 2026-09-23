@@ -146,6 +146,67 @@ class BusHistoricalReferenceServiceTest {
         assertEquals("GTFS_SCHEDULE_FORMULA", result.sampleKind());
     }
 
+    @Test
+    void formulaInputIsRecalculatedByBackendInsteadOfTrustingCachedMean() {
+        var s = service();
+        when(publicReferences.lookup(eq("v1"), any()))
+                .thenAnswer(
+                        call -> {
+                            var q = (BusReferenceService.Query) call.getArgument(1);
+                            var formula =
+                                    new BusTravelTimeFormula.Input(
+                                            BusTravelTimeFormula.METROPOLITAN_GTFS,
+                                            null,
+                                            null,
+                                            null,
+                                            0L,
+                                            80.00032,
+                                            1.25,
+                                            null);
+                            var row =
+                                    new BusReferenceService.Row(
+                                            q.masterVersion(),
+                                            q.namespace(),
+                                            q.routeId(),
+                                            q.fromStopId(),
+                                            q.toStopId(),
+                                            q.fromOrder(),
+                                            q.toOrder(),
+                                            q.dow(),
+                                            q.hourSlot(),
+                                            "GTFS_SCHEDULE_FORMULA",
+                                            100.0,
+                                            5,
+                                            0,
+                                            LocalDate.of(2025, 3, 1),
+                                            LocalDate.of(2030, 12, 31),
+                                            "b".repeat(64),
+                                            formula);
+                            return Map.of(
+                                    "status",
+                                    "STAGED_REFERENCE_NOT_APPROVED",
+                                    "rows",
+                                    List.of(row),
+                                    "truncated",
+                                    false);
+                        });
+
+        var result =
+                s.estimate(
+                        gbisEdges(),
+                        "master",
+                        now,
+                        0,
+                        now,
+                        new BusHistoricalReferenceService.Session(),
+                        System.nanoTime() + Duration.ofSeconds(20).toNanos());
+
+        // 계약상 진단용 meanSeconds와 수식 결과의 차이는 0.001초 이내여야 한다.
+        // 수식값 100.0004초와 저장값 100.0초는 유효하지만 올림 결과가 달라 재계산 여부를 검증한다.
+        assertEquals(101, result.seconds());
+        assertEquals("GTFS_FORMULA_APPLIED", result.reason());
+    }
+
     BusHistoricalReferenceService.Estimate estimate(
             BusHistoricalReferenceService s, Instant entered, int count, long uncertainty) {
         return s.estimate(

@@ -1,6 +1,7 @@
 package com.ssafy.ddubi.domain.pipeline.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ssafy.ddubi.domain.recommendation.evaluation.BusTravelTimeFormula;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
 import java.nio.charset.StandardCharsets;
@@ -36,7 +37,46 @@ public class BusReferenceService {
             int observedDates,
             LocalDate observationStart,
             LocalDate observationEnd,
-            String sourceSha256) {}
+            String sourceSha256,
+            BusTravelTimeFormula.Input formulaInput) {
+        /** 기존 계산 완료값 청크를 읽기 위한 하위 호환 생성자다. 새 수식 데이터는 formulaInput을 반드시 함께 보낸다. */
+        public Row(
+                String masterVersion,
+                String namespace,
+                String routeId,
+                String fromStopId,
+                String toStopId,
+                int fromOrder,
+                int toOrder,
+                int dow,
+                int hourSlot,
+                String sampleKind,
+                double meanSeconds,
+                long sampleCount,
+                int observedDates,
+                LocalDate observationStart,
+                LocalDate observationEnd,
+                String sourceSha256) {
+            this(
+                    masterVersion,
+                    namespace,
+                    routeId,
+                    fromStopId,
+                    toStopId,
+                    fromOrder,
+                    toOrder,
+                    dow,
+                    hourSlot,
+                    sampleKind,
+                    meanSeconds,
+                    sampleCount,
+                    observedDates,
+                    observationStart,
+                    observationEnd,
+                    sourceSha256,
+                    null);
+        }
+    }
 
     public record Upload(List<Row> rows) {}
 
@@ -104,6 +144,17 @@ public class BusReferenceService {
                                     + 1);
         }
         require(row.sourceSha256() != null && row.sourceSha256().matches("[a-f0-9]{64}"));
+        if (row.formulaInput() != null) {
+            double calculated;
+            try {
+                calculated = BusTravelTimeFormula.seconds(row.namespace(), row.formulaInput());
+            } catch (IllegalArgumentException invalid) {
+                throw new BusinessException(ErrorCode.INVALID_REQUEST, "버스 수식 입력이 올바르지 않습니다.");
+            }
+            // 업로드 행의 meanSeconds는 진단·호환용 캐시다. 수식 입력과 다른 값을 함께 저장하면
+            // 조회 시점마다 서로 다른 결과를 만들 수 있으므로 밀리초 수준 오차만 허용한다.
+            require(Math.abs(calculated - row.meanSeconds()) <= 0.001);
+        }
     }
 
     public static void validate(Query q) {
