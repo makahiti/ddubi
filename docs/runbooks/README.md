@@ -10,7 +10,7 @@
 | [backend-down-and-nginx-502.md](backend-down-and-nginx-502.md) | backend 가 죽었다 / 배포 뒤 API 가 502 | 검증됨 (9/7) |
 | [hdfs-datanode-down.md](hdfs-datanode-down.md) | HDFS 데이터노드 한 대가 죽었다 | 검증됨 (9/7, 읽기 약점 발견) |
 | [hdfs-namenode-metadata-loss.md](hdfs-namenode-metadata-loss.md) | 서버1 네임노드 메타데이터를 잃었다(서버1 사망·볼륨 손실) → 서버2 예비 네임노드로 이어받기 | 격리 시험 검증 (9/14), 운영 연습 예정 |
-| [server-reboot.md](server-reboot.md) | 커널 업데이트 등으로 서버를 재부팅해야 한다 | 미검증 (9/15 작성) |
+| [server-reboot.md](server-reboot.md) | 커널 업데이트 등으로 서버를 재부팅해야 한다 | 검증됨 (9/18, 두 서버 실측) |
 | [tls-cert-renewal.md](tls-cert-renewal.md) | 인증서 만료 알림이 왔다 / 자동 갱신을 확인·손으로 갱신 | 미검증 (9/15 작성, 첫 갱신 11월) |
 | [ml-bundle-swap.md](ml-bundle-swap.md) | ml-serving 모델 묶음을 새 버전으로 바꾼다 | 검증됨 (9/15, 첫 교체) |
 | [kafka-restart.md](kafka-restart.md) | Kafka 가 죽었거나 재시작해야 한다 | 검증됨 (9/7) |
@@ -66,6 +66,22 @@ tail -n 5 ~/check-server2.log; cat ~/.check-server2.last          # .last 가 10
 ```
 
 서버2가 통째로 죽으면 서버2에 있는 Grafana 알림도 함께 죽습니다. 그때는 서버1의 `check-server2.sh` 가 10분 안에 Mattermost 로 "서버2 응답 없음" 을 보내는 것이 유일한 알림입니다(2026-09-15 도입).
+
+## 서버에서 자동으로 도는 것(크론): 무엇이 언제 도는가
+
+서버 시계는 UTC 라 crontab 에는 UTC 로 적혀 있고, 아래 표는 한국 시각으로 옮겼습니다. 등록·갱신은 `infra/scripts/install-cron.sh` 가 합니다(`bash install-cron.sh server1` 또는 `server2`). 로그는 각 서버 홈에 남습니다.
+
+| 서버 | 한국 시각 | 무엇 | 로그 | 실패하면 어떻게 보이나 |
+|---|---|---|---|---|
+| 서버1 | 5분마다 | `check-server2.sh`: 서버2 `/api/health` 감시, 실패·복구만 Mattermost 로 | `~/check-server2.log`, `~/.check-server2.last` | `.last` 가 10분 넘게 오래됨 |
+| 서버1 | 04:20 | `backup-namenode.sh`: 네임노드 메타데이터 tar 사본 | `~/backups/hdfs-name/backup.log` | 브리핑 "네임노드 백업" 26시간 넘음 WARN |
+| 서버1 | 토 04:40 | `docker-prune.sh`: 태그 없는 이미지·빌드 캐시 정리 | `~/docker-prune.log` | 디스크 알림 |
+| 서버2 | 03:30 | `refresh-subway-timetable.sh`: 그날치 지하철 시각표 생성·교체 뒤 **backend 재기동(1~2분 끊김)** | `~/subway-timetable.log` | 로그에 "만들지 않는다"·오류. 이미 그날치가 있으면 아무것도 안 함 |
+| 서버2 | 04:10 | `backup-db.sh`: MySQL 덤프 7일 보관 + 서버1 사본 | `~/backups/mysql/backup.log` | 브리핑 운영 행 WARN |
+| 서버2 | 09:30 · 17:00 | `daily-brief.py`: 인프라 브리핑 Mattermost 발송 | `~/brief.log` | 브리핑이 안 오거나 🔴 "브리핑 실패" |
+| 서버2 | 토 04:40 | `docker-prune.sh` | `~/docker-prune.log` | 디스크 알림 |
+
+03:30 시각표 교체 뒤 backend 가 다시 뜨는 1~2분 동안 서버1 감시가 🔴 "서버2 응답 없음" 을 보낼 수 있습니다. 03:35 안에 🟢 복구가 따라오면 정상입니다.
 
 ## 배포 뒤, 또는 전체를 한 번에 볼 때
 

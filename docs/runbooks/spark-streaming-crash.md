@@ -1,6 +1,12 @@
 # Spark 스트리밍 잡이 죽었다
 
-대상: `spark-streaming-weather`(날씨 최신값), `spark-streaming-realtime`(비기상 최신값), `spark-streaming-city-realtime`(도시 실시간 정규화, 2026-09-18 추가). 셋 다 서버1. 아래 명령은 weather 로 적었지만 잡 이름만 바꾸면 같다.
+대상(서버1, 상시 4개): `spark-streaming-weather`(날씨 최신값), `spark-streaming-realtime`(버스·지하철 최신값과 지하철 Snapshot, 버스 Silver), `spark-streaming-city-realtime`(도시 실시간 정규화, 2026-09-18 추가), `spark-streaming-topis`(TOPIS 공지 GMS 구조화, 2026-09-21 추가, topis-ai 프로필). 아래 명령은 weather 로 적었지만 잡 이름만 바꾸면 같다.
+
+정의만 있고 평소 꺼져 있는 잡 3개는 켜져 있을 때만 이 절차의 대상이다: `spark-streaming-traffic-incident`(road-silver 프로필), `spark-streaming-segment-observations`·`spark-streaming-segment-status`(recommendation-data 프로필). 이 셋은 켜는 조건(승인 링크 마스터, registry·baseline 경로)이 비어 있으면 기동 자체를 거부하므로, "죽었다" 가 아니라 "켜지지 않는다" 이면 먼저 서버1 `.env` 의 해당 변수를 본다.
+
+topis 잡만 다른 점: GMS·카카오 API 키(`GMS_API_KEY`, `KAKAO_REST_API_KEY`)가 비어 있으면 기동 때 바로 죽고 재시작을 반복한다. 로그에 `ValueError` 와 키 이름이 찍힌다. 또 처리할 새 공지가 없으면 `topisRows=0` 이 정상이다(수집기가 같은 공지를 다시 보내지 않으므로).
+
+executor 가 죽는 경우(2026-09-22): 드라이버 컨테이너는 멀쩡한데 워커 컨테이너(`spark-worker-1`·`2`) 안의 executor 가 메모리 상한에 걸려 exit 137 로 죽고 Spark 가 새 executor 를 띄운다. 이때는 이 절차가 아니라 워커의 `mem_limit` 과 그 안에 올라간 executor 수를 본다. 확인은 `docker top spark-worker-2 -eo pid,rss,args | grep CoarseGrainedExecutorBackend`(executor 별 RSS) 와 `sudo journalctl -k | grep -i "killed process"`.
 
 ## 증상
 

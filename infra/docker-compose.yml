@@ -610,7 +610,12 @@ services:
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-worker-1
     profiles: ["spark", "experiment"]
-    mem_limit: 3g   # 광고 메모리 2560m + JVM 부대비용. 장부(SPARK_WORKER_MEMORY)보다 실제 상한이 커야 OOM 이 안 난다
+    # 워커 컨테이너의 실제 상한. Spark 장부(SPARK_WORKER_MEMORY 2560m)는 executor 의 힙만 세지만, 커널은 힙 밖
+    # 부대비용(스레드·GC 관리표·네트워크 버퍼, executor 당 약 400MB)과 워커 프로세스 자체(약 340MB)까지 센다.
+    # 계산: 칸 3개 × (힙 768m + 부대 약 400m) + 워커 340m ≈ 3.8GB. 그래서 4g. 3g 였을 때 2026-09-22 17:34 버스 유입
+    # 순간 worker-2 안의 executor 3개 합이 3GB 를 넘어 realtime executor 가 exit 137 로 죽었다(자동 재기동, 서비스 2분 공백).
+    # 칸 수(SPARK_WORKER_CORES)나 executor 힙을 올리면 이 값도 같은 식으로 다시 센다.
+    mem_limit: 4g
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
       TZ: ${TZ:-Asia/Seoul}
@@ -628,7 +633,12 @@ services:
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-worker-2
     profiles: ["spark"]
-    mem_limit: 3g   # 광고 메모리 2560m + JVM 부대비용. 장부(SPARK_WORKER_MEMORY)보다 실제 상한이 커야 OOM 이 안 난다
+    # 워커 컨테이너의 실제 상한. Spark 장부(SPARK_WORKER_MEMORY 2560m)는 executor 의 힙만 세지만, 커널은 힙 밖
+    # 부대비용(스레드·GC 관리표·네트워크 버퍼, executor 당 약 400MB)과 워커 프로세스 자체(약 340MB)까지 센다.
+    # 계산: 칸 3개 × (힙 768m + 부대 약 400m) + 워커 340m ≈ 3.8GB. 그래서 4g. 3g 였을 때 2026-09-22 17:34 버스 유입
+    # 순간 worker-2 안의 executor 3개 합이 3GB 를 넘어 realtime executor 가 exit 137 로 죽었다(자동 재기동, 서비스 2분 공백).
+    # 칸 수(SPARK_WORKER_CORES)나 executor 힙을 올리면 이 값도 같은 식으로 다시 센다.
+    mem_limit: 4g
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
       TZ: ${TZ:-Asia/Seoul}
@@ -647,7 +657,12 @@ services:
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-worker-3
     profiles: ["experiment"]
-    mem_limit: 3g   # 광고 메모리 2560m + JVM 부대비용. 장부(SPARK_WORKER_MEMORY)보다 실제 상한이 커야 OOM 이 안 난다
+    # 워커 컨테이너의 실제 상한. Spark 장부(SPARK_WORKER_MEMORY 2560m)는 executor 의 힙만 세지만, 커널은 힙 밖
+    # 부대비용(스레드·GC 관리표·네트워크 버퍼, executor 당 약 400MB)과 워커 프로세스 자체(약 340MB)까지 센다.
+    # 계산: 칸 3개 × (힙 768m + 부대 약 400m) + 워커 340m ≈ 3.8GB. 그래서 4g. 3g 였을 때 2026-09-22 17:34 버스 유입
+    # 순간 worker-2 안의 executor 3개 합이 3GB 를 넘어 realtime executor 가 exit 137 로 죽었다(자동 재기동, 서비스 2분 공백).
+    # 칸 수(SPARK_WORKER_CORES)나 executor 힙을 올리면 이 값도 같은 식으로 다시 센다.
+    mem_limit: 4g
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
       TZ: ${TZ:-Asia/Seoul}
@@ -679,7 +694,9 @@ services:
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
       # 10분에 14건 처리하는 잡. executor 를 768m·코어 1 로 낮춰 worker 에 실시간·배치 잡 자리를 남긴다 (2026-09-07)
-      SPARK_EXECUTOR_MEMORY: ${STREAMING_EXECUTOR_MEMORY:-768m}
+      # weather 는 계산을 드라이버에서 하므로 executor 힙 실사용이 약 180MB 다. 768m 이면 자바가 힙을 그만큼 붙들어
+      # RSS 가 650MB 를 넘으므로 512m 으로 묶는다(2026-09-23). realtime 은 실제로 힙을 쓰니 768m 을 유지한다.
+      SPARK_EXECUTOR_MEMORY: ${STREAMING_EXECUTOR_MEMORY:-512m}
       SPARK_CORES_MAX: ${STREAMING_CORES_MAX:-1}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
       REDIS_HOST: ${REDIS_HOST}
@@ -765,7 +782,8 @@ services:
       SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
-      SPARK_EXECUTOR_MEMORY: ${CITY_STREAMING_EXECUTOR_MEMORY:-768m}
+      # 배치를 collect() 로 드라이버에 모아 처리하는 구조라 executor 힙은 작아도 된다(2026-09-23, 위 weather 와 같은 이유).
+      SPARK_EXECUTOR_MEMORY: ${CITY_STREAMING_EXECUTOR_MEMORY:-512m}
       SPARK_CORES_MAX: ${CITY_STREAMING_CORES_MAX:-1}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
       REDIS_HOST: ${REDIS_HOST}
@@ -900,7 +918,8 @@ services:
       SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
-      SPARK_EXECUTOR_MEMORY: ${TOPIS_EXECUTOR_MEMORY:-768m}
+      # 공지 구조화는 드라이버에서 GMS·카카오를 부르며 하므로 executor 힙은 작아도 된다(2026-09-23).
+      SPARK_EXECUTOR_MEMORY: ${TOPIS_EXECUTOR_MEMORY:-512m}
       SPARK_CORES_MAX: ${TOPIS_CORES_MAX:-1}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
       REDIS_HOST: ${REDIS_HOST}

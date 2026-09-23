@@ -27,14 +27,16 @@
 
 ## 3. 용량 — 지금 얼마나 쓰고, 언제 차나
 
-**2026-09-09 실측 (weather 수집기만 가동)**
+**2026-09-23 실측 (수집기 9종·Spark 스트리밍 4개 가동)**
 
 | 항목 | 값 |
 |---|---|
-| HDFS 아카이브 | 4.2MB (9/1~9/9), 하루 약 0.5MB. 시간당 파일 1개(약 7~14KB) |
-| HDFS 전체 용량 | 663GB(두 서버 디스크 합), 사용 20MB |
-| 서버 디스크(/) | 서버1 309GB 중 16GB 사용(6%), 서버2 비슷 |
-| Kafka 데이터 | 61MB |
+| Kafka 유입 | 하루 약 85만 건(transport.raw 가 대부분), 저장 3.1GB. 21일 보존·transport.raw 파티션당 4GiB 상한 안 |
+| HDFS 사용 | 7.4GB(아카이브 + Silver + 체크포인트, 복제 2 포함) / 309GB. 9/18 2.2GB 에서 닷새에 5GB 늘었다(버스 백필 182MB·Silver 스트림·아카이브 누적) |
+| 서버 디스크(/) | 서버1 26GB(9%), 서버2 97GB(32%, 도커 이미지·CI 캐시·MySQL 8GB 포함) |
+| MySQL | 8.2GB(버스 참고자료 표 하나가 8GB), 백업 파일 약 210MB/일 |
+
+**2026-09-09 실측 (weather 수집기만 가동, 참고)**: HDFS 아카이브 4.2MB(하루 0.5MB), Kafka 61MB, 디스크 6%.
 
 **실시간 수집기가 켜지면** 유입이 크게 늘어납니다. 추정식은 `건/사이클 × 사이클/일 × 건당 크기`입니다. 예를 들어 지하철 열차 위치를 30초마다 300건(건당 약 400B) 받으면 하루 약 350MB 가 Kafka 에 들어오고, Parquet(snappy)로는 대략 1/5~1/10 인 35~70MB/일이 HDFS 에 쌓입니다. 이 추정은 **켜진 뒤 일주일 실측으로 반드시 갱신**합니다. 확인 명령:
 ```
@@ -68,6 +70,17 @@ docker exec hdfs-namenode hdfs dfs -du -s -h /ddubi/archive/transport.raw/date=$
 | `/ddubi/silver/bus/realtime-v1` | 버스 Silver(실시간, 앞으로) | realtime 스트림 | 배포 이후분, 계속 쌓임 |
 | `/ddubi/silver/bus/backfill-v1` | 버스 Silver(과거 백필) | bus_silver 배치(일회용) | 9-10~9-16, 약 182M. 읽을 때 realtime-v1 과 합쳐 씀 |
 | `/ddubi/archive/source.poll-status` | 수집 사이클 상태(정상 빈 응답·실패·제한·생략) | 아카이버 | 토픽 504h·1GiB, archive:true (2026-09-17 추가) |
+| `/ddubi/silver/city/realtime-v1` | 도시 실시간 Silver(인구·도로) | city-realtime 스트림 | `CITY_SILVER_OUTPUT_URI` 를 채운 서버에서만 쓴다. 지금 서버1은 비어 있어 Redis 만 갱신 |
+| `/ddubi/silver/segment-observation/v1` | 실측 구간 통과 이력 | segment-observations 스트림(recommendation-data 프로필) | 실측 생산자가 없어 **꺼져 있음**. 켤 때 아카이버·토픽과 함께 |
+| `/ddubi/derived/segment-status/v1` | 구간 판정 이력 | segment-status 스트림(recommendation-data 프로필) | 꺼져 있음. Kafka `segment.status` 는 24시간 보존이라 이 경로와 아카이버가 이력의 유일한 보관처 |
+| `TOPIS_SILVER_OUTPUT_URI` · `TRAFFIC_INCIDENT_SILVER_OUTPUT_URI` | TOPIS 공지·교통 돌발 Silver | topis · traffic-incident 스트림 | 경로를 채울 때만 쓴다. 지금은 둘 다 Redis 만 |
+| `/ddubi/master/<대응표>/version=…` | 버스 구간 대응표(날씨 격자·도로·도시 영역·구간) | export_bus_*_mapping 배치 | 버전 폴더가 쌓인다. 옛 버전 정리 규칙은 아래 문단 |
+
+**Silver 경로의 용량 계획(2026-09-23).** 위 경로는 전부 "지우지 않는" 쪽으로 쌓입니다. 원본 아카이브와 달리 계약에 보존 기간이 없고, 다시 만들 수 있는 파생 자료입니다. 그래서 규칙을 이렇게 둡니다.
+- **원본(`/ddubi/archive`)만 영구**입니다. Silver·derived·master 는 파생 자료라 원본에서 다시 만들 수 있으므로, 디스크가 모자라면 이 경로를 먼저 정리합니다.
+- 지금은 정리하지 않습니다. HDFS 7.4GB/309GB 이고, Silver 가 하루 수백 MB 씩 늘어도 프로젝트 기간 안에 문제가 되지 않습니다.
+- 정리가 필요해지는 기준은 4절의 "HDFS 용량 사용률 70%" 알림입니다. 그때 가장 오래된 Silver 날짜 폴더나 옛 대응표 `version=` 폴더부터 `hdfs dfs -rm -r` 로 지웁니다(휴지통을 거치므로 24시간 안에 되살릴 수 있습니다, 7-1절).
+- 새 Silver 경로를 켤 때(프로필을 켤 때)는 이 표에 한 줄을 넣고, 하루에 얼마나 쌓이는지 첫 주에 한 번 잽니다.
 
 ## 4. 용량 감시 — 무엇을 보고 언제 움직이나
 

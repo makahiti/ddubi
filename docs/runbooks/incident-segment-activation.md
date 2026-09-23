@@ -68,6 +68,23 @@ python batch/export_bus_road_provisional_mapping.py \
   --output /data/provisional-bus-road.json
 ```
 
+### 공식 노선 링크 후보로 발행하기 (2026-09-23)
+
+`backend/tools/road-impact/audit.py` 가 BIS 구간링크·TOPIS 표준링크 공식 자료로 만든
+`mapping-candidates.jsonl`(구간 occurrence 24,052건)은 GTFS 형상 후보와 형식이 다르다. 이 파일은
+`export_bus_road_official_provisional_mapping.py` 로 발행한다. `topisServiceLinkIds` 를 도로 링크로
+쓰고, `unmappedBisLinkIds` 가 남은 occurrence(경로 일부 누락)는 버린다. 결과 키·활성 포인터·TTL 은
+위 발행기와 같다(PROVISIONAL 전용 포인터, 정식 RESOLVED 는 건드리지 않음).
+
+```sh
+python batch/export_bus_road_official_provisional_mapping.py   --candidates /data/mapping-candidates.jsonl   --candidates-sha <SHA256>   --master-version METRO-BUS-20260917-SEOUL-0902   --bus-crosswalk-sha <버스 crosswalk SHA256>   --as-of 2026-09-23T00:00:00+09:00   --valid-until 2026-10-23T00:00:00+09:00   --output /data/official-provisional-bus-road.json
+```
+
+2026-09-23 실측(Redis 미기록 dry-run): 발행 13,606구간, 보류 10,301(경로 일부 누락). 서버2 저장 경로의
+버스 구간 1,376개 중 452개(33%), 노선 121개 중 88개가 덮인다. 같은 날 서울 돌발 35건의 `LINK_ID` 중 21건이
+이 표의 링크와 일치했고 `bisLinkIds` 는 4건만 일치했다 — AccInfo 와 같은 체계는 `topisServiceLinkIds` 다.
+`--master-version` 은 저장 경로 edge 의 `mapping_version`(DB `route_segment_edge`)과 같아야 백엔드가 읽는다.
+
 발행 결과를 확인한 뒤 세 서비스에 같은 설정을 전달한다. 기본 배포는 후보 매핑과 최신
 Feature 읽기를 활성화하고, 서버1의 `road-silver`와 서버2의 `road-feature`를 상시 실행한다.
 후보 대응표가 없거나 만료되면 임의 링크로 대체하지 않고 `MAPPING_UNAVAILABLE`로 남는다.

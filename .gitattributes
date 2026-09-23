@@ -3,3 +3,8 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 *.png binary
+
+# 교통 원본 자료는 받은 그대로 둔다. text=auto 가 줄바꿈을 LF 로 바꾸면 파일 내용이
+# 달라져, 자동화가 쓰는 원본 지문(sha256)이 맞지 않는다. 실제로 이 CSV 가 매 배포마다
+# "42만 줄이 통째로 바뀐 것"으로 보여 stash 에 쌓였다 (2026-09-23).
+backend/transit-master/**/*.csv binary
