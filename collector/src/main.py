@@ -70,6 +70,16 @@ def _run_cycle(spec: SourceSpec, settings: Settings, client: httpx.Client, publi
     for record in records:
         event = build_event(spec, record, collected_at)
         publisher.publish(spec.topic, record.key, event)
+    if spec.name == "seoul.traffic_incident" and getattr(records, "snapshot", None) is not None:
+        from sources.base import Record
+
+        snapshot = Record(
+            key="traffic.incident.snapshot:all-current",
+            event_type="traffic.incident.snapshot",
+            occurred_at=collected_at,
+            payload=records.snapshot,
+        )
+        publisher.publish(spec.topic, snapshot.key, build_event(spec, snapshot, collected_at))
     return len(records), records
 
 

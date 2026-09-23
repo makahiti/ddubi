@@ -188,6 +188,19 @@ void main() {
       expect(parsed.roadBlock.available, isFalse);
     });
 
+    test('후보 도로 매핑은 추정 정보라고 표시한다', () {
+      final parsed = TravelConditions.fromJson(const {
+        'roadBlock': {
+          'available': true,
+          'count': 1,
+          'summary': '경로 주변 돌발정보',
+          'mappingStatus': 'PROVISIONAL',
+        },
+      });
+      expect(parsed.roadBlock.text, '경로 주변 돌발정보');
+      expect(parsed.roadBlock.note, '후보 매핑 · 추정 정보');
+    });
+
     test('기온이 없으면 강수량만으로 날씨를 만들지 않는다', () {
       final parsed = TravelConditions.fromJson(const {
         'weather': {'available': true, 'precipitationMm': 0.0},

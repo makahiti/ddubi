@@ -22,6 +22,7 @@ import httpx
 API_HOST = "http://openapi.seoul.go.kr:8088"
 SERVICE_NAME = "AccInfo"
 API_KEY_ENV_NAME = "TRAFFIC_INCIDENT_API_KEY"
+PORTAL_API_KEY_ENV_NAME = "SEOUL_OPEN_DATA_API_KEY"
 MAX_PAGE_SIZE = 1_000
 DEFAULT_PAGE_SIZE = 1_000
 MAX_FETCH_ALL_PAGES = 100
@@ -61,10 +62,10 @@ def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
 
 def require_api_key(env_path: Path = DEFAULT_ENV_PATH) -> str:
     load_env_file(env_path)
-    api_key = os.getenv(API_KEY_ENV_NAME, "").strip()
+    api_key = (os.getenv(API_KEY_ENV_NAME) or os.getenv(PORTAL_API_KEY_ENV_NAME, "")).strip()
     if not api_key:
         raise TrafficIncidentError(
-            f"{env_path}에 서울 열린데이터광장 일반 인증키를 {API_KEY_ENV_NAME}로 설정해야 합니다"
+            f"{env_path}에 서울 열린데이터광장 일반 인증키를 {API_KEY_ENV_NAME} 또는 {PORTAL_API_KEY_ENV_NAME}로 설정해야 합니다"
         )
     return api_key
 
@@ -135,7 +136,7 @@ def fetch_incident_page(
     _validate_range(start_index, end_index)
     key = api_key.strip()
     if not key:
-        raise TrafficIncidentError(f"{API_KEY_ENV_NAME}가 비어 있습니다")
+        raise TrafficIncidentError(f"{API_KEY_ENV_NAME} 또는 {PORTAL_API_KEY_ENV_NAME}가 비어 있습니다")
 
     url = f"{API_HOST}/{quote(key, safe='')}/xml/{SERVICE_NAME}/{start_index}/{end_index}/"
     owns_client = client is None

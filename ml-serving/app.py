@@ -133,6 +133,7 @@ def create_app(predictor=None, settings=None, today=None, online_feature_assembl
                     application.state.online_feature_redis,
                     online_settings.cache_ttl_seconds,
                     expected_crosswalk_sha=online_settings.crosswalk_sha,
+                    allow_provisional_road=online_settings.allow_provisional_road,
                 )
                 application.state.online_feature_store = OnlineFeatureStore(application.state.online_feature_redis)
             elif (

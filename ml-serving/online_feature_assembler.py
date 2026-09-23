@@ -8,7 +8,10 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-FEATURE_VERSION = "bus-segment-feature-v1"
+from incident_text_features import NAMES as INCIDENT_TEXT_NAMES
+from incident_text_features import aggregate_text_features
+
+FEATURE_VERSION = "bus-segment-feature-v3"
 SNAPSHOT_KIND = "CURRENT"
 FEATURE_NAMES = (
     "busCongestionCode",
@@ -18,6 +21,11 @@ FEATURE_NAMES = (
     "roadSpeedKph",
     "roadTravelSeconds",
     "roadCoverageRatio",
+    "verifiedIncidentCount",
+    "incidentUnmatchedCount",
+    "incidentDataAvailable",
+    "incidentMinAgeMinutes",
+    "incidentSnapshotAgeMinutes",
     "accidentCount",
     "closureCount",
     "assemblyCount",
@@ -31,7 +39,7 @@ FEATURE_NAMES = (
     "areaPopulationMin",
     "areaPopulationMax",
     "nearbyPopulation",
-)
+) + INCIDENT_TEXT_NAMES
 SEGMENT_PATTERN = re.compile(r"^BUS:[A-Za-z0-9._-]{1,50}(?::[A-Za-z0-9._-]{1,50}){2}$")
 SAFE_VERSION = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
@@ -121,6 +129,7 @@ class OnlineFeatureSettings:
     socket_timeout_seconds: float
     cache_ttl_seconds: int
     crosswalk_sha: str | None = None
+    allow_provisional_road: bool = False
 
     @classmethod
     def from_env(cls, env):
@@ -130,6 +139,11 @@ class OnlineFeatureSettings:
         if timeout <= 0 or ttl <= 0:
             raise ValueError("online feature Redis timeout and TTL must be positive")
         crosswalk_sha = str(env.get("ML_BUS_CROSSWALK_SHA256", "")).lower().strip()
+        allow_provisional_road = str(env.get("ROAD_PROVISIONAL_MAPPING_ENABLED", "false")).lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         if enabled and not re.fullmatch(r"[0-9a-f]{64}", crosswalk_sha):
             raise ValueError("ML_BUS_CROSSWALK_SHA256 must be set when online features are enabled")
         return cls(
@@ -140,6 +154,7 @@ class OnlineFeatureSettings:
             timeout,
             ttl,
             crosswalk_sha or None,
+            allow_provisional_road,
         )
 
 
@@ -210,47 +225,79 @@ def _source_times(value, as_of, passage_at):
 
 
 class OnlineFeatureAssembler:
-    def __init__(self, client, cache_ttl_seconds=900, now=lambda: datetime.now(UTC), expected_crosswalk_sha=None):
+    def __init__(
+        self,
+        client,
+        cache_ttl_seconds=900,
+        now=lambda: datetime.now(UTC),
+        expected_crosswalk_sha=None,
+        allow_provisional_road=False,
+    ):
         self.client = client
         self.cache_ttl_seconds = int(cache_ttl_seconds)
         self.now = now
         self.expected_crosswalk_sha = expected_crosswalk_sha
+        self.allow_provisional_road = bool(allow_provisional_road)
 
     def _mapping(self, kind, master_version, segment_id, as_of, passage_at):
-        active_key = f"ml:mapping:bus-{kind}:active:{master_version}"
-        mapping_key = _text(self.client.get(active_key))
-        if not mapping_key:
-            return None, {"status": "ACTIVE_MAPPING_MISSING", "activeKey": active_key}
-        if self.expected_crosswalk_sha:
-            metadata = _json(self.client.get(mapping_key + ":meta"))
-            if not metadata or metadata.get("crosswalkSha256") != self.expected_crosswalk_sha:
-                return None, {"status": "CROSSWALK_SHA_MISMATCH", "mappingKey": mapping_key}
-        value = _json(self.client.hget(mapping_key, segment_id))
-        if value is None:
-            return None, {"status": "SEGMENT_MAPPING_MISSING", "mappingKey": mapping_key}
-        if value.get("segmentId") != segment_id or value.get("masterVersion") != master_version:
-            return None, {"status": "MAPPING_IDENTITY_MISMATCH", "mappingKey": mapping_key}
-        if value.get("mappingStatus") != "RESOLVED":
-            return None, {
-                "status": value.get("mappingStatus") or "INVALID",
+        choices = [(f"ml:mapping:bus-{kind}:active:{master_version}", "RESOLVED")]
+        if kind == "road" and self.allow_provisional_road:
+            choices.append((f"ml:mapping:bus-road-provisional:active:{master_version}", "PROVISIONAL"))
+        first_failure = None
+        for active_key, accepted_status in choices:
+            mapping_key = _text(self.client.get(active_key))
+            if not mapping_key:
+                failure = {"status": "ACTIVE_MAPPING_MISSING", "activeKey": active_key}
+                first_failure = first_failure or failure
+                continue
+            if self.expected_crosswalk_sha:
+                metadata = _json(self.client.get(mapping_key + ":meta"))
+                if not metadata or metadata.get("crosswalkSha256") != self.expected_crosswalk_sha:
+                    failure = {"status": "CROSSWALK_SHA_MISMATCH", "mappingKey": mapping_key}
+                    first_failure = first_failure or failure
+                    continue
+            value = _json(self.client.hget(mapping_key, segment_id))
+            if value is None:
+                failure = {"status": "SEGMENT_MAPPING_MISSING", "mappingKey": mapping_key}
+                first_failure = first_failure or failure
+                continue
+            if value.get("segmentId") != segment_id or value.get("masterVersion") != master_version:
+                failure = {"status": "MAPPING_IDENTITY_MISMATCH", "mappingKey": mapping_key}
+                first_failure = first_failure or failure
+                continue
+            if value.get("mappingStatus") != accepted_status:
+                failure = {
+                    "status": value.get("mappingStatus") or "INVALID",
+                    "mappingKey": mapping_key,
+                    "reason": value.get("mappingReason"),
+                }
+                first_failure = first_failure or failure
+                continue
+            if kind == "road":
+                try:
+                    valid_from = _instant(value["roadPathValidFrom"])
+                    valid_until = _instant(value["roadPathValidUntil"])
+                    mapped_at = _instant(value["mappingAsOf"])
+                except (KeyError, TypeError, ValueError):
+                    failure = {"status": "MAPPING_TIME_MISSING", "mappingKey": mapping_key}
+                    first_failure = first_failure or failure
+                    continue
+                if (
+                    value.get("topisLinkNamespace") != "SEOUL_ACCINFO_LINK"
+                    or mapped_at > as_of
+                    or passage_at < valid_from
+                    or passage_at >= valid_until
+                ):
+                    failure = {"status": "MAPPING_NOT_VALID_AT_PASSAGE", "mappingKey": mapping_key}
+                    first_failure = first_failure or failure
+                    continue
+            return value, {
+                "status": accepted_status,
+                "estimated": accepted_status == "PROVISIONAL",
                 "mappingKey": mapping_key,
-                "reason": value.get("mappingReason"),
+                "mappingVersion": value.get("mappingVersion"),
             }
-        if kind == "road":
-            try:
-                valid_from = _instant(value["roadPathValidFrom"])
-                valid_until = _instant(value["roadPathValidUntil"])
-                mapped_at = _instant(value["mappingAsOf"])
-            except (KeyError, TypeError, ValueError):
-                return None, {"status": "MAPPING_TIME_MISSING", "mappingKey": mapping_key}
-            if (
-                value.get("topisLinkNamespace") != "SEOUL_ACCINFO_LINK"
-                or mapped_at > as_of
-                or passage_at < valid_from
-                or passage_at >= valid_until
-            ):
-                return None, {"status": "MAPPING_NOT_VALID_AT_PASSAGE", "mappingKey": mapping_key}
-        return value, {"status": "RESOLVED", "mappingKey": mapping_key, "mappingVersion": value.get("mappingVersion")}
+        return None, first_failure or {"status": "ACTIVE_MAPPING_MISSING", "activeKey": choices[0][0]}
 
     def assemble(self, request):
         segment_id, master_version = request.get("segmentId"), request.get("masterVersion")
@@ -281,6 +328,8 @@ class OnlineFeatureAssembler:
         if city and city.get("primaryProviderAreaId"):
             source_keys["city"] = ["city:latest:area:{}".format(city["primaryProviderAreaId"])]
         source_keys["bus"] = [f"ml:latest:bus-segment:{segment_id}"]
+        if road:
+            source_keys["incident"] = ["traffic:latest:incident-snapshot:all-current"]
 
         flat_keys = [key for values in source_keys.values() for key in values]
         raw_values = self.client.mget(flat_keys) if flat_keys else []
@@ -339,6 +388,59 @@ class OnlineFeatureAssembler:
                 "linkCount": total_road_links,
                 "validLinkCount": len(valid_roads),
             }
+
+        incident_key = source_keys.get("incident", [None])[0]
+        incident = decoded.get(incident_key) if incident_key else None
+        if incident and road:
+            try:
+                observed = _instant(incident["collectedAt"])
+                expires = _instant(incident["validUntil"])
+            except (KeyError, TypeError, ValueError):
+                observed = expires = None
+            if (
+                incident.get("snapshotVersion") == "traffic-incident-snapshot-v1"
+                and incident.get("completeSnapshot") is True
+                and incident.get("linkMasterAvailable") is True
+                and incident.get("linkNamespace") == "SEOUL_ACCINFO_LINK"
+                and incident.get("linkMasterVersion") == road.get("trafficLinkMasterVersion")
+                and observed is not None
+                and observed <= as_of < expires
+                and passage_at < expires
+                and isinstance(incident.get("incidents"), list)
+                and isinstance(road.get("topisLinkIds"), list)
+            ):
+                links = set(road["topisLinkIds"])
+                matched = {}
+                matched_rows = {}
+                for row in incident["incidents"]:
+                    if not isinstance(row, dict) or row.get("matchedLinkId") not in links:
+                        continue
+                    try:
+                        started = _instant(row["startedAt"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if started <= as_of and row.get("providerIncidentId"):
+                        matched[row["providerIncidentId"]] = started
+                        matched_rows[row["providerIncidentId"]] = row
+                features.update(aggregate_text_features(matched_rows.values(), as_of))
+                features["verifiedIncidentCount"] = len(matched)
+                features["incidentUnmatchedCount"] = _integer(incident.get("unmatchedIncidentCount"), 0)
+                features["incidentDataAvailable"] = True
+                features["incidentMinAgeMinutes"] = (
+                    min((as_of - started).total_seconds() for started in matched.values()) / 60 if matched else None
+                )
+                features["incidentSnapshotAgeMinutes"] = (as_of - observed).total_seconds() / 60
+                valid_until_values.append(expires)
+                provenance["incident"] = {
+                    "key": incident_key,
+                    "eventId": incident.get("eventId"),
+                    "collectedAt": incident["collectedAt"],
+                    "validUntil": incident["validUntil"],
+                    "linkMasterVersion": incident["linkMasterVersion"],
+                    "unmatchedIncidentCount": incident.get("unmatchedIncidentCount"),
+                }
+        if features["incidentDataAvailable"] is None:
+            features["incidentDataAvailable"] = False
 
         for key in source_keys.get("city", []):
             value = decoded.get(key)

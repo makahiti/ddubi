@@ -88,7 +88,7 @@ def fetch_bus_location(
 ) -> dict[str, Any]:
     """노선 하나에서 운행 중인 모든 버스 위치를 JSON으로 받아 반환한다."""
     if not api_key.strip():
-        raise BusLocationError("BUS_LOCATION_API_KEY API 키가 비어 있습니다")
+        raise BusLocationError("BUS_LOCATION_API_KEY 또는 DATA_GO_KR_API_KEY API 키가 비어 있습니다")
     route_id = bus_route_id.strip()
     if not _ROUTE_ID.fullmatch(route_id):
         raise BusLocationError("버스 노선 ID는 9자리 숫자여야 합니다")
@@ -251,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     load_env_file(args.env_file)
 
-    api_key = os.environ.get("BUS_LOCATION_API_KEY", "")
+    api_key = os.environ.get("BUS_LOCATION_API_KEY") or os.environ.get("DATA_GO_KR_API_KEY", "")
     if args.bus_route_id:
         route_id = args.bus_route_id.strip()
         response = fetch_bus_location(api_key, route_id)

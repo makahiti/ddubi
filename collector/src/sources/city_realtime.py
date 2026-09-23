@@ -131,7 +131,7 @@ def fetch_city_area(
     """공식 장소 하나의 통합 실시간 도시데이터를 JSON으로 조회한다."""
     key = api_key.strip()
     if not key:
-        raise CityRealtimeError("CITY_REALTIME_API_KEY가 비어 있습니다")
+        raise CityRealtimeError("CITY_REALTIME_API_KEY 또는 SEOUL_OPEN_DATA_API_KEY가 비어 있습니다")
 
     area_code = area["areaCode"].strip()
     area_name = area["areaName"].strip()
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     load_env_file(args.env_file)
     areas = select_city_areas(load_city_areas(args.city_areas_file), args.area)
     data = fetch_city_areas(
-        os.environ.get("CITY_REALTIME_API_KEY", ""),
+        os.environ.get("CITY_REALTIME_API_KEY") or os.environ.get("SEOUL_OPEN_DATA_API_KEY", ""),
         areas,
         requests_per_second=args.requests_per_second,
     )

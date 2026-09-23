@@ -53,7 +53,8 @@ public record MovementConditionsResponse(
             String summary,
             List<RoadIncident> incidents,
             Instant observedAt,
-            String source) {}
+            String source,
+            String mappingStatus) {}
 
     public record RoadIncident(
             String incidentId,

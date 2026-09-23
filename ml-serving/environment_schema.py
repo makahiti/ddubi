@@ -86,7 +86,7 @@ class OnlineFeatureBatchResponse(BaseModel):
     """입력 순서를 보존한 구간별 현재 Snapshot 조회 결과다."""
 
     requestId: StrictStr
-    featureVersion: Literal["bus-segment-feature-v1"]
+    featureVersion: Literal["bus-segment-feature-v3"]
     masterVersion: StrictStr
     asOf: AwareDatetime
     results: list[OnlineFeatureBatchItem]

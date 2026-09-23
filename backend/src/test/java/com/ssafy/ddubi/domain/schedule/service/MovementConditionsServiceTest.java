@@ -48,15 +48,16 @@ class MovementConditionsServiceTest {
         when(redis.value("weather:latest:60:127"))
                 .thenReturn(
                         """
-                        {
-                          "districts":["종로구","중구"],
-                          "features":{"temperatureC":20.9,"precipitationMm":0.0,"precipitationTypeCode":0},
-                          "observedAt":"2026-09-22T01:00:00+09:00",
-                          "validUntil":"2026-09-22T03:00:00+09:00",
-                          "source":"kma.ultra-srt-ncst"
-                        }
-                        """);
-        var service = new MovementConditionsService(schedules, routes, redis, new ObjectMapper());
+{
+  "districts":["종로구","중구"],
+  "features":{"temperatureC":20.9,"precipitationMm":0.0,"precipitationTypeCode":0},
+  "observedAt":"2026-09-22T01:00:00+09:00",
+  "validUntil":"2026-09-22T03:00:00+09:00",
+  "source":"kma.ultra-srt-ncst"
+}
+""");
+        var service =
+                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), false);
 
         var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
 
@@ -91,7 +92,8 @@ class MovementConditionsServiceTest {
                          "observedAt":"2026-09-22T01:00:00+09:00",
                          "validUntil":"2026-09-22T01:30:00+09:00"}
                         """);
-        var service = new MovementConditionsService(schedules, routes, redis, new ObjectMapper());
+        var service =
+                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), false);
 
         var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
 
@@ -195,7 +197,8 @@ class MovementConditionsServiceTest {
                                          "occurredAt":"2026-09-22T01:57:00+09:00",
                                          "validUntil":"2026-09-22T03:00:00+09:00"}
                                         """)));
-        var service = new MovementConditionsService(schedules, routes, redis, new ObjectMapper());
+        var service =
+                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), false);
 
         var result = service.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
 
@@ -203,8 +206,48 @@ class MovementConditionsServiceTest {
         assertThat(result.congestion().level()).isEqualTo("BUSY");
         assertThat(result.roadBlock().available()).isTrue();
         assertThat(result.roadBlock().summary()).contains("양방향 전면통제");
+        assertThat(result.roadBlock().mappingStatus()).isEqualTo("RESOLVED");
         assertThat(result.subwayDelay().available()).isTrue();
         assertThat(result.subwayDelay().routeLines()).containsExactly("2호선");
         assertThat(result.subwayDelay().summary()).contains("시설 점검");
+
+        when(redis.hashValue("ml:mapping:bus-road:v1:master-v1:sha", "BUS:100:A:B"))
+                .thenReturn(
+                        """
+                        {"masterVersion":"master-v1","mappingStatus":"UNMAPPED"}
+                        """);
+        when(redis.value("ml:mapping:bus-road-provisional:active:master-v1"))
+                .thenReturn("ml:mapping:bus-road-provisional:v1:master-v1:sha");
+        when(redis.hashValue("ml:mapping:bus-road-provisional:v1:master-v1:sha", "BUS:100:A:B"))
+                .thenReturn(
+                        """
+                        {"masterVersion":"master-v1","mappingStatus":"PROVISIONAL",
+                         "trafficLinkMasterVersion":"provisional-accinfo-input-v1",
+                         "topisLinkNamespace":"SEOUL_ACCINFO_LINK","topisLinkIds":["L1"],
+                         "roadPathValidFrom":"2026-09-01T00:00:00+09:00",
+                         "roadPathValidUntil":"2026-10-01T00:00:00+09:00"}
+                        """);
+        var provisionalService =
+                new MovementConditionsService(schedules, routes, redis, new ObjectMapper(), true);
+        var provisional = provisionalService.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
+        assertThat(provisional.roadBlock().available()).isTrue();
+        assertThat(provisional.roadBlock().mappingStatus()).isEqualTo("PROVISIONAL");
+
+        when(redis.hashEntries("road:incidents:SEOUL_ACCINFO_LINK:L1")).thenReturn(Map.of());
+        when(redis.value("traffic:latest:incident-snapshot:all-current"))
+                .thenReturn(
+                        """
+                        {"completeSnapshot":true,"linkMasterAvailable":true,
+                         "linkNamespace":"SEOUL_ACCINFO_LINK","linkMappingStatus":"PROVISIONAL",
+                         "linkMasterVersion":"provisional-accinfo-input-v1",
+                         "collectedAt":"2026-09-22T01:58:00+09:00",
+                         "validUntil":"2026-09-22T03:00:00+09:00",
+                         "incidents":[{"providerIncidentId":"I1","matchedLinkId":"L1",
+                           "startedAt":"2026-09-22T01:00:00+09:00"}]}
+                        """);
+        var snapshotFallback =
+                provisionalService.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
+        assertThat(snapshotFallback.roadBlock().available()).isTrue();
+        assertThat(snapshotFallback.roadBlock().mappingStatus()).isEqualTo("PROVISIONAL");
     }
 }

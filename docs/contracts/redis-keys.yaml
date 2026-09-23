@@ -37,7 +37,26 @@ keys:
       실제 모델 입력 단계에서 요청 시각으로 계산한다. TTL 900초는 보관 상한이며 validUntil이 지났으면
       TTL이 남아 있어도 사용하지 않는다. 과거 Replay·미래 passageAt 결과로 현재값을 덮어쓰지 않는다.
       세부 읽기 상태와 단위는 bus-segment-feature-snapshot.md를 따른다.
-    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","featureVersion":"bus-segment-feature-v1","snapshotKind":"CURRENT","asOf":"2026-09-14T08:10:00+09:00","computedAt":"2026-09-14T08:10:03+09:00","validUntil":"2026-09-14T08:15:00+09:00","features":{"busCongestionCode":null,"busOperationStateCode":null,"recentSegmentMedianSeconds":155.0,"recentSegmentSampleCount":31,"roadSpeedKph":24.0,"roadTravelSeconds":150.0,"roadCoverageRatio":0.92,"accidentCount":null,"closureCount":null,"assemblyCount":null,"protestCount":null,"temperatureC":18.0,"humidityPercent":72.0,"precipitationMm":3.0,"snowDepthCm":null,"windSpeedMps":2.1,"cityCongestionLevel":"CROWDED","areaPopulationMin":12000,"areaPopulationMax":14000,"nearbyPopulation":null},"missingFeatures":["accidentCount","assemblyCount","busCongestionCode","busOperationStateCode","closureCount","nearbyPopulation","protestCount","snowDepthCm"],"provenance":{}}'
+    valueExample: '{"segmentId":"BUS:100100609:123456:123789","masterVersion":"metropolitan-bus-v6","featureVersion":"bus-segment-feature-v3","snapshotKind":"CURRENT","asOf":"2026-09-14T08:10:00+09:00","computedAt":"2026-09-14T08:10:03+09:00","validUntil":"2026-09-14T08:15:00+09:00","features":{"busCongestionCode":null,"busOperationStateCode":null,"recentSegmentMedianSeconds":155.0,"recentSegmentSampleCount":31,"roadSpeedKph":24.0,"roadTravelSeconds":150.0,"roadCoverageRatio":0.92,"verifiedIncidentCount":null,"incidentUnmatchedCount":null,"incidentDataAvailable":false,"incidentMinAgeMinutes":null,"incidentSnapshotAgeMinutes":null,"accidentCount":null,"closureCount":null,"assemblyCount":null,"protestCount":null,"temperatureC":18.0,"humidityPercent":72.0,"precipitationMm":3.0,"snowDepthCm":null,"windSpeedMps":2.1,"cityCongestionLevel":"CROWDED","areaPopulationMin":12000,"areaPopulationMax":14000,"nearbyPopulation":null,"incidentAiCoverageRatio":null,"textAccidentCount":null,"textConstructionCount":null,"textBreakdownCount":null,"textFullClosureCount":null,"textPartialClosureCount":null,"maxExplicitClosedLaneCount":null,"busDetourMentionCount":null,"textPlannedIncidentCount":null,"textCompletedIncidentCount":null},"missingFeatures":["verifiedIncidentCount","incidentUnmatchedCount","incidentMinAgeMinutes","incidentSnapshotAgeMinutes","accidentCount","assemblyCount","busCongestionCode","busOperationStateCode","closureCount","nearbyPopulation","protestCount","snowDepthCm","incidentAiCoverageRatio","textAccidentCount","textConstructionCount","textBreakdownCount","textFullClosureCount","textPartialClosureCount","maxExplicitClosedLaneCount","busDetourMentionCount","textPlannedIncidentCount","textCompletedIncidentCount"],"provenance":{}}'
+
+  trafficIncidentSnapshot:
+    pattern: "traffic:latest:incident-snapshot:all-current"
+    type: string
+    ttlSeconds: 1800
+    owner: spark
+    description: >-
+      OA-13315의 완전한 전체 회차에서 생성한 검증 링크 돌발 목록. 부분 회차와 미승인
+      링크는 온라인 버스 특성의 확인된 사건으로 세지 않는다. 각 구간 조립 시 validUntil과
+      링크 마스터 버전을 다시 검사한다.
+
+  incidentFeatureRefreshLast:
+    pattern: "ml:incident-feature-refresh:last:{masterVersion}"
+    type: string
+    ttlSeconds: 86400
+    owner: ml-serving
+    description: >-
+      마지막으로 처리한 전체 돌발 스냅샷 SHA, 활성 도로 대응표, 이전에 영향받은 링크·구간 목록.
+      새 회차에서 사고가 사라질 때 이전 구간을 다시 계산해 특성을 지운다.
 
   busWeatherMapping:
     pattern: "ml:mapping:bus-weather:{mappingVersion}:{masterVersion}:{gridConfigSha256}"
@@ -86,6 +105,15 @@ keys:
     ttlSeconds: 2592000
     owner: spark
     description: "검증과 전체 기록을 마친 현재 busRoadMapping Hash 키를 가리킨다."
+
+  busRoadProvisionalMappingActive:
+    pattern: "ml:mapping:bus-road-provisional:active:{masterVersion}"
+    type: string
+    ttlSeconds: 604800
+    owner: spark
+    description: >-
+      후보 모드를 명시적으로 켰을 때만 읽는 PROVISIONAL 버스 구간 대응표 포인터다.
+      정식 busRoadMappingActive를 변경하지 않으며 같은 구간의 RESOLVED가 항상 우선한다.
 
   busRoadMappingMetadata:
     pattern: "ml:mapping:bus-road:{mappingVersion}:{masterVersion}:{roadCrosswalkSha256}:meta"

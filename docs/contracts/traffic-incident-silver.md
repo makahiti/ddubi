@@ -88,6 +88,7 @@ LINK_ID/GRS80TM_X/Y/ACC_INFO
 | 좌표 검증 | `grs80tmX`, `grs80tmY`, `sourceCrs`, `latitude`, `longitude`, `coordinateStatus`, `linkCoordinateDistanceMeters`, `nearbyCandidateCount` |
 | 설명 보조값 | `descriptionRoadName`, `descriptionDirection`, `descriptionLaneControl`, `descriptionRegion` |
 | 품질 | `missingFields`, `qualityFlags`, `rejectionReasons` |
+| 설명문 AI | `aiExtractionStatus`, `aiIncidentKind`, `aiIncidentDetail`, `aiControlScope`, `aiClosedLaneCount`, `aiLaneNumbers`, `aiDirectionText`, `aiBusDetourMentioned`, `aiStatusMention`, `aiTimeExpressionsJson`, `aiControlStartAt`, `aiControlEndAt`, `aiEvidenceJson`, `aiExtractedAt`, `aiModel`, `aiPromptVersion`, `aiInputHash`, `aiQualityFlags` |
 
 예를 들어 공식 링크와 좌표가 일치한 한 행은 아래처럼 보인다. 나머지 추적·원문 컬럼도 같은 행에 존재한다.
 
@@ -98,6 +99,10 @@ LINK_ID/GRS80TM_X/Y/ACC_INFO
 결측값은 0이나 임의 좌표로 채우지 않는다. 좌표 변환 실패, 마스터 미매칭, 예상 해제시각 누락은
 null과 `qualityFlags/missingFields`에 남긴다. 사건 ID·발생시각·수집시각 누락만 `REJECTED`다.
 모든 상태는 HDFS에 저장하며 Redis에는 아직 유효한 `VALID/PARTIAL`만 저장한다.
+GMS 설명문 추출은 `TRAFFIC_INCIDENT_AI_ENABLED=true`일 때만 호출한다. 같은 원문은
+SQLite 영속 캐시를 통해 Redis와 HDFS 처리에서 재사용한다. 원문에 없는 모델 값은
+버리고 `aiQualityFlags`에 기록한다. AI 호출 실패 또는 미사용 시 기존 Silver 행은
+계속 저장되며 AI 특성은 결측으로 남는다.
 
 ## Kafka, 체크포인트와 저장
 

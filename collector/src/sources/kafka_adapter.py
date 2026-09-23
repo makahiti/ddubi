@@ -266,7 +266,7 @@ def collect(name, settings: Settings, client):
         reported_complete = result.get("isComplete")
         complete = not bool(result.get("hasMore")) and (reported_complete is not False or name == "topis_notice")
         status = "SUCCESS" if complete else "PARTIAL"
-        return PollBatch(
+        batch = PollBatch(
             [to_record(name, row) for row in result["items"]],
             status=status,
             complete_snapshot=complete,
@@ -274,6 +274,15 @@ def collect(name, settings: Settings, client):
             scope_key="all-current",
             error_code=None if complete else "PAGE_SCOPE_PARTIAL",
         )
+        # The complete set travels in one event so downstream can distinguish an
+        # actual zero from a missing/late row. Oversized sets remain unavailable.
+        if name == "traffic_incident" and complete:
+            snapshot = {"items": result["items"], "rowCount": len(result["items"]), "completeSnapshot": True}
+            if len(json.dumps(snapshot, ensure_ascii=False).encode("utf-8")) <= 800_000:
+                batch.snapshot = snapshot
+            else:
+                log.warning("source=traffic_incident complete snapshot exceeds Kafka event limit")
+        return batch
     except Exception as exc:
         if name == "bus_location":
             from sources.bus_location import BusLocationError

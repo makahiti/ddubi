@@ -16,7 +16,7 @@ ml:feature:bus-segment:{featureVersion}:{masterVersion}:{segmentId}
 예시:
 
 ```text
-ml:feature:bus-segment:bus-segment-feature-v1:metropolitan-bus-v6:BUS:100100609:123456:123789
+ml:feature:bus-segment:bus-segment-feature-v3:metropolitan-bus-v6:BUS:100100609:123456:123789
 ```
 
 - `featureVersion`: JSON 필드·단위·결측 의미가 바뀌면 올린다.
@@ -51,7 +51,24 @@ TTL은 메모리 보관 상한일 뿐이다. ML은 TTL이 남아 있어도 `asOf
 | `*Count`, 인구 | 건, 명 |
 
 원천이 없거나 오래됐거나 매핑이 불확실하면 `0`을 만들지 않고 `null`로 둔다. 현재 조립하지 않는
-최근 구간 통계·사고/통제/집회·적설·주변 유동인구도 같은 규칙을 사용한다.
+최근 구간 통계·돌발 유형별 건수·적설·주변 유동인구도 같은 규칙을 사용한다.
+
+돌발 정보 v2에는 `verifiedIncidentCount`(이 구간의 검증된 AccInfo 링크에 걸친 고유 돌발 수),
+`incidentUnmatchedCount`(같은 전체 수집 회차에서 링크를 확인하지 못한 돌발 수),
+`incidentDataAvailable`, `incidentMinAgeMinutes`, `incidentSnapshotAgeMinutes`를 추가한다.
+`verifiedIncidentCount=0`은 **검증된 링크에서 0건**이라는 뜻이며 서울 전체 돌발이 없다는 뜻은 아니다.
+매핑이 미승인·만료되었거나 완전한 수집 회차가 없으면 건수는 `null`, 가용성은 `false`다.
+`accidentCount` 등 원인별 4개 필드는 공식 코드표의 분류가 검증될 때까지 `null`로 둔다.
+
+v3은 검증된 링크에 걸친 사건의 설명문 추출 결과를 추가한다. `incidentAiCoverageRatio`는
+해당 구간 사건 중 GMS 추출이 성공하고 `aiExtractedAt <= asOf`인 비율이다. 유형별
+`textAccidentCount`, `textConstructionCount`, `textBreakdownCount`, 통제 범위별
+`textFullClosureCount`, `textPartialClosureCount`, 우회 언급 수 `busDetourMentionCount`,
+예정/완료 언급 수 `textPlannedIncidentCount`, `textCompletedIncidentCount`를 제공한다.
+모든 사건의 해당 필드가 검증되지 않으면 그 집계는 `null`이다.
+`maxExplicitClosedLaneCount`는 원문에 `N개 차로`가 명시된 경우에만 값이 있으며
+`N차로`의 차로 번호를 개수로 바꾸지 않는다. 모델 추출 완료시각이 요청 `asOf`보다
+늦으면 당시에는 알 수 없던 결과로 보고 사용하지 않는다.
 
 ## ML 배치 조회
 
@@ -81,4 +98,3 @@ Snapshot Key를 덮어쓰지 않는다. 운영에서 지속적으로 채우려�
 2. 현재시각 조립 후 Key의 TTL, `validUntil`, `missingFeatures`를 확인한다.
 3. 실제 경로의 여러 구간을 배치 API로 읽고 Redis 명령이 MGET 한 번인지 확인한다.
 4. 만료·결측·잘못된 masterVersion에서 기존 예측 fallback이 유지되는지 확인한다.
-

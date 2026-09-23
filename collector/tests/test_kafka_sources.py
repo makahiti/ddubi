@@ -97,7 +97,7 @@ class KafkaSourceTest(unittest.TestCase):
                 with httpx.Client(transport=httpx.MockTransport(lambda req, name=name: response_for(name))) as client:
                     count = run_cycle(source, settings, client, publisher)
                     self.assertGreater(count, 0)
-                    self.assertEqual(count, publisher.sent)
+                    self.assertEqual(count + (1 if name == "traffic_incident" else 0), publisher.sent)
                     self.assertEqual(run_cycle(load_source(name), settings_for(name, path), client, publisher), 0)
                     self.assertEqual(client.event_hooks["request"], [])
                 schema = json.loads(
@@ -107,8 +107,12 @@ class KafkaSourceTest(unittest.TestCase):
                     event = json.loads(message["value"])
                     jsonschema.validate(event, schema, format_checker=jsonschema.FormatChecker())
                     self.assertEqual(message["topic"], source.topic)
-                    self.assertEqual(event["eventType"], POLICIES[name][1])
-                    self.assertIn("raw", event["payload"])
+                    if name == "traffic_incident" and event["eventType"] == "traffic.incident.snapshot":
+                        self.assertTrue(event["payload"]["completeSnapshot"])
+                        self.assertEqual(event["payload"]["rowCount"], len(event["payload"]["items"]))
+                    else:
+                        self.assertEqual(event["eventType"], POLICIES[name][1])
+                        self.assertIn("raw", event["payload"])
                     self.assertNotIn("test-secret", message["value"].decode())
 
     def test_incident_link_namespace_keeps_existing_partition_key(self):

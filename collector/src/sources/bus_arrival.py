@@ -68,7 +68,7 @@ def fetch_bus_arrival(
 ) -> dict[str, Any]:
     """노선 전체 정류소 도착정보를 JSON으로 받아 반환한다."""
     if not api_key.strip():
-        raise BusArrivalError("BUS_ARRIVAL_API_KEY API 키가 비어 있습니다")
+        raise BusArrivalError("BUS_ARRIVAL_API_KEY 또는 DATA_GO_KR_API_KEY API 키가 비어 있습니다")
     if not bus_route_id.strip():
         raise BusArrivalError("버스 노선 ID가 비어 있습니다")
 
@@ -201,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     load_env_file(args.env_file)
 
-    api_key = os.environ.get("BUS_ARRIVAL_API_KEY", "")
+    api_key = os.environ.get("BUS_ARRIVAL_API_KEY") or os.environ.get("DATA_GO_KR_API_KEY", "")
     bus_route_id = args.bus_route_id
     if bus_route_id:
         data = fetch_bus_arrival(api_key, bus_route_id)

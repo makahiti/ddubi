@@ -1,0 +1,12 @@
+{
+  "sampleKind": "SYNTHETIC_NOT_LIVE_API",
+  "collectedAt": "2026-09-22T10:00:00+09:00",
+  "items": [
+    {"incidentId": "fixture-count", "description": "세종대로 서울 방향 사고로 2개 차로 통제, 버스 우회 운행 중", "occurredDate": "20260922", "occurredTime": "091500", "incidentTypeCode": "FIXTURE_ACCIDENT"},
+    {"incidentId": "fixture-number", "description": "동부간선로 2차로 추돌사고로 부분 통제", "occurredDate": "20260922", "occurredTime": "090000", "incidentTypeCode": "FIXTURE_LANE"},
+    {"incidentId": "fixture-full", "description": "교량 보수공사로 양방향 전면통제. 통제 시작 2026-09-22 10:00, 통제 종료 2026-09-22 17:00 예정", "occurredDate": "20260922", "occurredTime": "080000", "incidentTypeCode": "FIXTURE_CONSTRUCTION"},
+    {"incidentId": "fixture-expected", "description": "차량고장 처리 중. 11시 완료 예정", "occurredDate": "20260922", "occurredTime": "094000", "incidentTypeCode": "FIXTURE_BREAKDOWN"},
+    {"incidentId": "fixture-completed", "description": "2차로 추돌사고 처리작업 완료, 통제 해제", "occurredDate": "20260922", "occurredTime": "090000", "incidentTypeCode": "FIXTURE_COMPLETED"},
+    {"incidentId": "fixture-recurring", "description": "집회로 매일 14시부터 17시까지 일부 차로 통제", "occurredDate": "20260922", "occurredTime": "080000", "incidentTypeCode": "FIXTURE_ASSEMBLY"}
+  ]
+}

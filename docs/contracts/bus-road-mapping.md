@@ -21,7 +21,7 @@
 ## 공식 API 검증
 
 `audit.py`가 만든 후보의 `LINK_ID`는 OA-13311 `LinkVerInfo`에서 현재 Vertex를 다시 확인한다.
-`verify_link_api.py`는 `TRAFFIC_INCIDENT_API_KEY`를 env 파일에서만 읽고 URL·로그·캐시에 남기지
+`verify_link_api.py`는 `SEOUL_OPEN_DATA_API_KEY`를 env 파일에서만 읽고 URL·로그·캐시에 남기지
 않는다. 성공한 링크를 한 파일씩 저장하므로 중단 후 같은 명령을 실행하면 완료 링크를 건너뛴다.
 같은 키를 실시간 Collector도 사용하므로 호출 수는 반드시 당일 잔여 예산 안에서 지정한다.
 
@@ -55,8 +55,12 @@ python backend/tools/road-impact/verify_link_api.py \
 
 동일한 segment mapping DataFrame을 사용한다.
 
-- HDFS: `edges/`, `mappings/` Parquet과 품질 집계, 완료 표식
+- HDFS: `edges/`, `mappings/` Parquet, 사람 검토용 `review-table/` CSV, 품질 집계, 완료 표식
 - Redis: `ml:mapping:bus-road:*` Hash의 field=`segmentId`, value=JSON
 
 Redis는 staging Hash의 행 수와 segmentId 유일성을 확인한 뒤 Lua에서 최종 Hash와 active 포인터를
-한 번에 바꾼다. 실패하면 이전 active 포인터가 유지된다. HDFS 저장 실패와 Redis 저장은 분리한다.
+한 번에 바꾼다. 실패하면 이전 active 포인터가 유지된다. Redis만 필요한 경우 `--output`을 생략한다.
+`--output`을 지정한 실행에서는 CSV 확인표까지 저장되어야 Redis 활성화로 진행한다.
+확인표에는 구간 ID, 상태, 사유, 모든 LINK_ID, occurrence 연결률, 방향 경로 근거 및 적용기간을 담는다.
+현재 저장소에는 승인된 도로 crosswalk와 OA-13310 링크 마스터가 없으므로 실제 최종 확인표를
+생성하거나 운영 Redis 매핑을 활성화할 수 없다. 감사 후보를 운영값으로 복사하지 않는다.

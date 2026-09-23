@@ -13,6 +13,7 @@ from common.bus_road_mapping import (
 from common.bus_road_redis import DEFAULT_TTL_SECONDS, publish_segment_road_mapping
 from common.bus_segment_mapping import build_bus_segment_edges
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 LOG = logging.getLogger(__name__)
 
@@ -37,6 +38,24 @@ def _write_hdfs(spark, root, edge_mapping, segment_mapping, metadata):
     ).write.mode("errorifexists").json(root + "/_run")
     edge_mapping.write.mode("errorifexists").partitionBy("providerNamespace").parquet(root + "/edges")
     segment_mapping.write.mode("errorifexists").parquet(root + "/mappings")
+    # 사람 검토용 최종 확인표. 승인되지 않은 후보만으로는 이 단계에 도달할 수 없다.
+    segment_mapping.select(
+        "segmentId",
+        "masterVersion",
+        "mappingStatus",
+        "mappingReason",
+        "edgeOccurrenceCount",
+        "mappedOccurrenceCount",
+        "occurrenceCoverageRatio",
+        F.to_json("topisLinkIds").alias("topisLinkIds"),
+        "topisLinkNamespace",
+        "roadPathValidFrom",
+        "roadPathValidUntil",
+        "trafficLinkMasterVersion",
+        "roadCrosswalkVersion",
+        F.to_json("evidenceMethods").alias("evidenceMethods"),
+        F.to_json("evidenceRefs").alias("evidenceRefs"),
+    ).orderBy("segmentId").coalesce(1).write.mode("errorifexists").option("header", True).csv(root + "/review-table")
     edge_mapping.groupBy("mappingStatus", "mappingReason").count().write.mode("errorifexists").json(
         root + "/quality/edges"
     )
@@ -110,12 +129,7 @@ def main(argv=None):
             if segment_mapping.filter("mappingStatus = 'RESOLVED'").limit(1).count() == 0:
                 raise ValueError("no approved segment-to-TOPIS mapping is resolved")
             if root:
-                try:
-                    _write_hdfs(spark, root, edge_mapping, segment_mapping, metadata)
-                except Exception:
-                    LOG.exception("HDFS bus-road mapping export failed; Redis will continue")
-                    if args.skip_redis:
-                        raise
+                _write_hdfs(spark, root, edge_mapping, segment_mapping, metadata)
             if not args.skip_redis:
                 result = publish_segment_road_mapping(
                     segment_mapping,
@@ -123,6 +137,7 @@ def main(argv=None):
                     port=int(os.environ.get("REDIS_PORT", "6379")),
                     password=os.environ.get("REDIS_PASSWORD"),
                     master_version=metadata["masterVersion"],
+                    bus_crosswalk_sha=metadata["busCrosswalkSha256"],
                     road_crosswalk_version=metadata["roadCrosswalkVersion"],
                     road_crosswalk_sha=metadata["roadCrosswalkSha256"],
                     traffic_link_master_version=metadata["trafficLinkMasterVersion"],

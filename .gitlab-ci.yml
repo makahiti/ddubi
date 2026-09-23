@@ -94,11 +94,11 @@ compose-validate:
     - export MYSQL_PASSWORD=ci-dummy MYSQL_ROOT_PASSWORD=ci-dummy REDIS_PASSWORD=ci-dummy GRAFANA_ADMIN_PASSWORD=ci-dummy
     - docker compose --profile core --profile collect --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
-      --profile exporters --profile topis-ai config -q
+      --profile exporters --profile topis-ai --profile road-silver --profile road-feature config -q
     # 서버 오버레이 검증 (IP 는 필수 변수라 더미 값 주입)
     - export SERVER1_PRIVATE_IP=10.0.0.1 SERVER2_PRIVATE_IP=10.0.0.2
-    - docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile spark --profile archive config -q
-    - docker compose -f docker-compose.yml -f docker-compose.server2.yml --profile data --profile hdfs2 config -q
+    - docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile spark --profile archive --profile road-silver config -q
+    - docker compose -f docker-compose.yml -f docker-compose.server2.yml --profile data --profile hdfs2 --profile road-feature config -q
   rules:
     - changes:
         - infra/**/*
@@ -388,7 +388,7 @@ deploy-server1:
       "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server1.yml
        --profile core --profile collect --profile spark --profile archive --profile hdfs --profile exporters
-       --profile topis-ai
+       --profile topis-ai --profile road-silver
        up -d --build
        && bash scripts/post-deploy.sh server1"
 
@@ -422,7 +422,7 @@ deploy-server2:
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
       "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml
-       --profile data --profile serving --profile hdfs2 --profile monitoring
+       --profile data --profile serving --profile hdfs2 --profile monitoring --profile road-feature
        up -d --build
        && bash scripts/post-deploy.sh server2"
 

@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,16 +50,20 @@ public class MovementConditionsService {
     private final SavedRouteRepository routes;
     private final MovementConditionsRedisReader redis;
     private final ObjectMapper json;
+    private final boolean provisionalRoadMappingEnabled;
 
     public MovementConditionsService(
             ScheduleRepository schedules,
             SavedRouteRepository routes,
             MovementConditionsRedisReader redis,
-            ObjectMapper json) {
+            ObjectMapper json,
+            @Value("${ddubi.road.provisional-mapping-enabled:false}")
+                    boolean provisionalRoadMappingEnabled) {
         this.schedules = schedules;
         this.routes = routes;
         this.redis = redis;
         this.json = json;
+        this.provisionalRoadMappingEnabled = provisionalRoadMappingEnabled;
     }
 
     /**
@@ -187,21 +192,49 @@ public class MovementConditionsService {
     private MovementConditionsResponse.RoadBlock roadBlock(List<EdgeRef> edges, Instant now) {
         if (edges.isEmpty()) return unavailableRoad("NO_BUS_SEGMENT");
         Map<String, String> activeKeys = new HashMap<>();
+        Map<String, String> provisionalKeys = new HashMap<>();
         Set<String> linkKeys = new LinkedHashSet<>();
+        Set<String> mappedLinkIds = new LinkedHashSet<>();
+        Set<String> linkMasterVersions = new LinkedHashSet<>();
+        boolean provisionalUsed = false;
         for (EdgeRef edge : edges) {
             String mappingKey =
                     activeKeys.computeIfAbsent(
                             edge.masterVersion(),
                             version -> redis.value("ml:mapping:bus-road:active:" + version));
-            if (!validMappingPointer(mappingKey, "ml:mapping:bus-road:")) continue;
-            JsonNode mapping = parse(redis.hashValue(mappingKey, edge.segmentId()));
-            if (!validRoadMapping(mapping, edge, now)) continue;
+            JsonNode mapping =
+                    validMappingPointer(mappingKey, "ml:mapping:bus-road:")
+                            ? parse(redis.hashValue(mappingKey, edge.segmentId()))
+                            : null;
+            boolean provisional = false;
+            if (!validRoadMapping(mapping, edge, now, "RESOLVED")
+                    && provisionalRoadMappingEnabled) {
+                String provisionalKey =
+                        provisionalKeys.computeIfAbsent(
+                                edge.masterVersion(),
+                                version ->
+                                        redis.value(
+                                                "ml:mapping:bus-road-provisional:active:"
+                                                        + version));
+                mapping =
+                        validMappingPointer(provisionalKey, "ml:mapping:bus-road-provisional:")
+                                ? parse(redis.hashValue(provisionalKey, edge.segmentId()))
+                                : null;
+                provisional = validRoadMapping(mapping, edge, now, "PROVISIONAL");
+            }
+            if (!validRoadMapping(mapping, edge, now, provisional ? "PROVISIONAL" : "RESOLVED"))
+                continue;
+            provisionalUsed |= provisional;
             String namespace = mapping.path("topisLinkNamespace").asText("");
             if (!safeKeyPart(namespace)) continue;
+            String linkMasterVersion = mapping.path("trafficLinkMasterVersion").asText("");
+            if (safeKeyPart(linkMasterVersion)) linkMasterVersions.add(linkMasterVersion);
             for (JsonNode id : mapping.path("topisLinkIds")) {
                 if (linkKeys.size() >= MAX_ROAD_LINKS) break;
-                if (safeKeyPart(id.asText()))
+                if (safeKeyPart(id.asText())) {
                     linkKeys.add("road:incidents:" + namespace + ":" + id.asText());
+                    mappedLinkIds.add(id.asText());
+                }
             }
         }
         if (linkKeys.isEmpty()) return unavailableRoad("ROAD_PATH_UNMAPPED");
@@ -228,6 +261,34 @@ public class MovementConditionsService {
                 observedAt = later(observedAt, firstInstant(event, "collectedAt"));
             }
         }
+        JsonNode snapshot = parse(redis.value("traffic:latest:incident-snapshot:all-current"));
+        String expectedMappingStatus = provisionalUsed ? "PROVISIONAL" : "RESOLVED";
+        if (snapshot != null
+                && snapshot.path("completeSnapshot").asBoolean(false)
+                && snapshot.path("linkMasterAvailable").asBoolean(false)
+                && "SEOUL_ACCINFO_LINK".equals(snapshot.path("linkNamespace").asText())
+                && expectedMappingStatus.equals(
+                        snapshot.path("linkMappingStatus").asText("RESOLVED"))
+                && linkMasterVersions.contains(snapshot.path("linkMasterVersion").asText())
+                && fresh(snapshot, now)) {
+            for (JsonNode event : snapshot.path("incidents")) {
+                if (!mappedLinkIds.contains(event.path("matchedLinkId").asText())) continue;
+                String incidentId = event.path("providerIncidentId").asText("");
+                if (!safeKeyPart(incidentId)) continue;
+                JsonNode detail = parse(redis.value("traffic:latest:incident:" + incidentId));
+                if (detail != null && !fresh(detail, now)) detail = null;
+                String message = detail == null ? null : firstText(detail, 300);
+                incidents.putIfAbsent(
+                        incidentId,
+                        new MovementConditionsResponse.RoadIncident(
+                                incidentId,
+                                event.at("/textFeatures/aiIncidentKind").asText(null),
+                                message,
+                                instant(event.path("startedAt").asText(null)),
+                                instant(event.path("expectedClearAt").asText(null))));
+            }
+            observedAt = later(observedAt, firstInstant(snapshot, "collectedAt"));
+        }
         if (incidents.isEmpty()) return unavailableRoad("NO_ACTIVE_ROAD_CONTROL");
         List<MovementConditionsResponse.RoadIncident> values = List.copyOf(incidents.values());
         String summary =
@@ -237,7 +298,14 @@ public class MovementConditionsService {
                         .findFirst()
                         .orElse("선택 경로에 도로 돌발정보가 확인됐어요.");
         return new MovementConditionsResponse.RoadBlock(
-                true, null, values.size(), summary, values, observedAt, "seoul.topis");
+                true,
+                null,
+                values.size(),
+                summary,
+                values,
+                observedAt,
+                "seoul.topis",
+                provisionalUsed ? "PROVISIONAL" : "RESOLVED");
     }
 
     private MovementConditionsResponse.SubwayDelay subwayDelay(
@@ -304,9 +372,10 @@ public class MovementConditionsService {
         return new RouteContext(List.copyOf(edges), List.copyOf(lines));
     }
 
-    private static boolean validRoadMapping(JsonNode mapping, EdgeRef edge, Instant now) {
+    private static boolean validRoadMapping(
+            JsonNode mapping, EdgeRef edge, Instant now, String expectedStatus) {
         if (mapping == null
-                || !"RESOLVED".equals(mapping.path("mappingStatus").asText())
+                || !expectedStatus.equals(mapping.path("mappingStatus").asText())
                 || !edge.masterVersion().equals(mapping.path("masterVersion").asText()))
             return false;
         Instant from = instant(mapping.path("roadPathValidFrom").asText(null));
@@ -425,7 +494,7 @@ public class MovementConditionsService {
 
     private static MovementConditionsResponse.RoadBlock unavailableRoad(String reason) {
         return new MovementConditionsResponse.RoadBlock(
-                false, reason, 0, null, List.of(), null, null);
+                false, reason, 0, null, List.of(), null, null, null);
     }
 
     private static MovementConditionsResponse.SubwayDelay unavailableSubway(

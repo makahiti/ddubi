@@ -122,9 +122,12 @@ class TravelConditions {
       return const TravelConditionItem.unavailable();
     }
     final count = data['count'];
+    final provisional = data['mappingStatus'] == 'PROVISIONAL';
     return TravelConditionItem.value(
       summary,
-      note: count is int && count > 1 ? '통제 $count건' : null,
+      note: provisional
+          ? (count is int && count > 1 ? '후보 매핑 · 돌발 $count건' : '후보 매핑 · 추정 정보')
+          : (count is int && count > 1 ? '통제 $count건' : null),
     );
   }
 
