@@ -31,12 +31,13 @@ class RequestBudget:
     # 즉시 실패하지 않고 기다리게 한다.
     BUSY_TIMEOUT_MS = 30_000
 
-    def __init__(self, path: str, key: str, limit: int = 900, clock=time.time):
-        if not 1 <= limit <= 1000:
-            raise ValueError("API_DAILY_LIMIT must be between 1 and 1000")
+    def __init__(self, path: str, key: str, limit: int = 900, clock=time.time, namespace: str = ""):
+        if not 1 <= limit <= 1_000_000:
+            raise ValueError("API daily limit must be between 1 and 1000000")
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.key = hashlib.sha256(unquote(key.strip()).encode()).hexdigest()
+        identity = f"{namespace}\0{unquote(key.strip())}"
+        self.key = hashlib.sha256(identity.encode()).hexdigest()
         self.limit, self.clock = limit, clock
         with self._db() as db:
             db.execute("CREATE TABLE IF NOT EXISTS requests (key TEXT, at REAL)")
@@ -142,6 +143,13 @@ class RequestBudget:
         with self._db() as db:
             row = db.execute("SELECT next FROM cycles WHERE key=? AND source=?", (self.key, source)).fetchone()
             return row[0] if row else None
+
+    def used(self) -> int:
+        """Return requests charged to this quota pool in the rolling 24 hours."""
+        now = self.clock()
+        with self._db() as db:
+            db.execute("DELETE FROM requests WHERE at<=?", (now - 86400,))
+            return db.execute("SELECT count(*) FROM requests WHERE key=?", (self.key,)).fetchone()[0]
 
     def before_request(self, request) -> None:
         """HTTP 요청 직전에 커밋. 실패/리다이렉트도 차감하며 환불하지 않는다."""

@@ -178,8 +178,13 @@ def main() -> int:
         log.error("%s", exc)
         return 2
 
-    interval = settings.interval_seconds or spec.default_interval_seconds
-    if settings.source != "weather":
+    pooled_bus = settings.source in ("bus_arrival", "bus_location") and (
+        settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B")
+    )
+    interval = settings.interval_seconds or (
+        300 if settings.source == "bus_arrival" and pooled_bus else 120 if pooled_bus else spec.default_interval_seconds
+    )
+    if settings.source != "weather" and not pooled_bus:
         interval = max(interval, spec.default_interval_seconds)
     log.info(
         "start source=%s topic=%s interval=%ss kafka=%s run_once=%s",
@@ -211,6 +216,7 @@ def main() -> int:
     exit_code = 0
     with httpx.Client(timeout=httpx.Timeout(10.0 if settings.source == "weather" else 60.0, connect=5.0)) as client:
         while not stop.is_set():
+            cycle_started = time.monotonic()
             wait_seconds = interval
             waiting_for_retry = False
             try:
@@ -250,7 +256,16 @@ def main() -> int:
                     exit_code = 1
             if settings.run_once:
                 break
-            if settings.source == "bus_location" and not waiting_for_retry:
+            if pooled_bus and not waiting_for_retry:
+                # Bus windows define start-to-start cadence. A 100-route scan at
+                # 1 request/s takes about 100 seconds; do not add the full poll
+                # interval again after that work completes.
+                wait_seconds = max(1, interval - (time.monotonic() - cycle_started))
+            if (
+                settings.source == "bus_location"
+                and not waiting_for_retry
+                and not (settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B"))
+            ):
                 # After either regular/retry completion, keep the original 8h deadline.
                 try:
                     budget = RequestBudget(
