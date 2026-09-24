@@ -15,6 +15,7 @@ from bus_crosswalk import POLICY as BUS_ID_POLICY
 from bus_crosswalk import BusCrosswalk
 from config import Settings
 from request_budget import BudgetExceeded, RequestBudget, RetryScheduled, RetryWait
+from topis_notice_policy import plan_topis_notice
 
 from sources.base import KST, PollBatch, Record, SourceSpec, now_kst
 from sources.subway_schedule import SkippedNonService, pause_until
@@ -239,6 +240,7 @@ def collect(name, settings: Settings, client):
     budget = None
     bus_candidates = []
     bus_plan = None
+    topis_plan = plan_topis_notice(now, settings.extra) if name == "topis_notice" else None
     targets = []
     if name.startswith("bus_"):
         targets = (
@@ -267,7 +269,14 @@ def collect(name, settings: Settings, client):
         requested = settings.extra.get("CITY_AREA_IDENTIFIERS")
         targets = module.select_city_areas(areas, requested.split(",") if requested else None)
     expected = len(targets) if targets else (2 if name == "subway_arrival" else 1)
-    interval = max(bus_plan.interval_seconds if bus_plan else default_interval, settings.interval_seconds or 0)
+    planned_interval = (
+        bus_plan.interval_seconds
+        if bus_plan
+        else topis_plan.interval_seconds
+        if topis_plan
+        else default_interval
+    )
+    interval = max(planned_interval, settings.interval_seconds or 0)
     if bus_candidates:
         # With multiple credentials the normal dense wakeup is already the
         # retry path. Keep the legacy delayed retry only for one-key installs.
@@ -289,7 +298,16 @@ def collect(name, settings: Settings, client):
                 "API_BUDGET_PATH", str(Path(__file__).resolve().parents[2] / "data" / "request_budget.sqlite3")
             ),
             key,
-            int(settings.extra.get("API_DAILY_LIMIT", "900")),
+            int(
+                settings.extra.get("TOPIS_NOTICE_DAILY_BUDGET", "500")
+                if name == "topis_notice"
+                else settings.extra.get("API_DAILY_LIMIT", "900")
+            ),
+            namespace=(
+                settings.extra.get("TOPIS_NOTICE_QUOTA_POOL", "seoul-open-data:OA-22861")
+                if name == "topis_notice"
+                else ""
+            ),
         )
     if not bus_candidates and not budget.claim_cycle(name, interval, expected, allow_retry=name == "bus_location"):
         log.info("source=%s cooldown active; no API request", name)
@@ -360,20 +378,36 @@ def collect(name, settings: Settings, client):
         if name == "subway_alert":
             result = module.fetch_alerts(key, page_size=1000, client=client)
         elif name == "topis_notice":
-            result = module.fetch_notices(key, page_size=1000, fetch_all=False, client=client)
+            result = module.fetch_notices(
+                key,
+                page_size=int(settings.extra.get("TOPIS_NOTICE_PAGE_SIZE", "100")),
+                fetch_all=False,
+                client=client,
+            )
         else:
             result = module.fetch_incidents(key, page_size=1000, fetch_all=True, client=client)
-        if result.get("hasMore"):
-            log.warning("source=%s response may have more rows; first 1000 only", name)
+        if result.get("hasMore") and name != "topis_notice":
+            log.warning(
+                "source=%s response may have more rows; first %s only",
+                name,
+                result.get("pageSize") or len(result.get("items", [])),
+            )
         reported_complete = result.get("isComplete")
-        complete = not bool(result.get("hasMore")) and (reported_complete is not False or name == "topis_notice")
+        complete = name == "topis_notice" or (
+            not bool(result.get("hasMore")) and reported_complete is not False
+        )
         status = "SUCCESS" if complete else "PARTIAL"
+        scope_key = (
+            f"{topis_plan.scope}:recent-{result.get('pageSize', 100)}"
+            if topis_plan
+            else "all-current"
+        )
         batch = PollBatch(
             [to_record(name, row) for row in result["items"]],
             status=status,
             complete_snapshot=complete,
             page_count=int(result.get("requestCount") or 1),
-            scope_key="all-current",
+            scope_key=scope_key,
             error_code=None if complete else "PAGE_SCOPE_PARTIAL",
         )
         # The complete set travels in one event so downstream can distinguish an
