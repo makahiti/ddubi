@@ -44,7 +44,32 @@ public class MovementConditionsService {
     private static final String SCHEMA_VERSION = "movement-conditions-v1";
     private static final int MAX_ROUTE_EDGES = 128;
     private static final int MAX_ROAD_LINKS = 256;
-    private static final int MAX_SUBWAY_ALERT_KEYS = 300;
+
+    /**
+     * 지하철 공지를 한 번에 읽는 개수 상한. 수집기가 공지 목록 전체(몇 년 치)를 매번 다시 받아 2026-09-24 기준 991 건이 쌓여 있다. 예전 상한 300
+     * 으로는 새 공지가 아예 읽히지 않을 수 있었다.
+     */
+    static final int MAX_SUBWAY_ALERT_KEYS = 3000;
+
+    /**
+     * 사고 상세 설명을 쓸 수 있는 수집 경과 시간. 상세의 {@code validUntil} 은 "사고 시작 + 10 분" 으로 저장돼, 몇 달째 이어지는 공사는 설명이
+     * 늘 만료로 보였다. 사고 자체가 지금 목록에 있는지는 따로 확인하므로, 설명은 최근에 다시 받았는지만 본다(사고는 15 분마다 받는다).
+     */
+    static final Duration INCIDENT_DETAIL_MAX_AGE = Duration.ofHours(1);
+
+    /**
+     * 지하철 공지를 유효로 보는 시간(올린 시각 기준). 공지에는 끝나는 시각이 없다. 예전에는 "올린 뒤 10 분" 만 봐서, 2026-09-22 2 호선 이대역
+     * 무정차(20:27 공지, 22:19 운행재개) 동안 20:37 부터 "확인된 공지 없음" 으로 보였다. 이제 같은 호선·역에 정상운행·운행재개 공지가 오면 그때
+     * 끝내고, 그런 공지가 없으면 이 시간이 지나야 끝낸다.
+     */
+    static final Duration SUBWAY_ALERT_WINDOW = Duration.ofHours(2);
+
+    /** 운행이 돌아왔다는 공지. 이런 공지는 따로 보여주지 않고 앞선 같은 호선·역 공지를 끝낸다. */
+    private static final Pattern SUBWAY_RESOLVED =
+            Pattern.compile("정상\\s*운행|운행\\s*재개|운행\\s*정상|정상화");
+
+    private static final Pattern STATION = Pattern.compile("([가-힣A-Za-z0-9]+역)");
+    private static final Pattern LINE_IN_TITLE = Pattern.compile("(\\d+호선)");
 
     /** 발표용 가짜 통제 키. {@code RoadClosureDemoSupport} 가 일정마다 하나씩 쓴다. */
     static final String DEMO_ROAD_CONTROL_PREFIX = "demo:topis:road-control:schedule:";
@@ -340,7 +365,7 @@ public class MovementConditionsService {
                 String incidentId = event.path("providerIncidentId").asText("");
                 if (!safeKeyPart(incidentId)) continue;
                 JsonNode detail = parse(redis.value("traffic:latest:incident:" + incidentId));
-                if (detail != null && !fresh(detail, now)) detail = null;
+                if (detail != null && !currentIncidentDetail(detail, now)) detail = null;
                 String message = detail == null ? null : firstText(detail, 300);
                 incidents.putIfAbsent(
                         incidentId,
@@ -368,7 +393,7 @@ public class MovementConditionsService {
                 String incidentId = event.path("providerIncidentId").asText("");
                 if (!safeKeyPart(incidentId)) continue;
                 JsonNode detail = parse(redis.value("traffic:latest:incident:" + incidentId));
-                if (detail != null && !fresh(detail, now)) detail = null;
+                if (detail != null && !currentIncidentDetail(detail, now)) detail = null;
                 String message = detail == null ? null : firstText(detail, 300);
                 incidents.putIfAbsent(
                         incidentId,
@@ -403,23 +428,42 @@ public class MovementConditionsService {
     private MovementConditionsResponse.SubwayDelay subwayDelay(
             List<String> routeLines, Instant now) {
         if (routeLines.isEmpty()) return unavailableSubway("NO_SUBWAY_SEGMENT", routeLines);
-        List<MovementConditionsResponse.SubwayAlert> alerts = new ArrayList<>();
+        List<SubwayNotice> notices = new ArrayList<>();
         Instant observedAt = null;
         for (MovementConditionsRedisReader.KeyValue item :
                 redis.scanValues("transit:latest:subway-alert:", MAX_SUBWAY_ALERT_KEYS)) {
             JsonNode node = parse(item.value());
-            if (node == null || !fresh(node, now)) continue;
+            if (node == null) continue;
+            Instant posted = instant(node.path("occurredAt").asText(null));
+            if (posted == null
+                    || posted.isAfter(now)
+                    || !posted.isAfter(now.minus(SUBWAY_ALERT_WINDOW))) continue;
+            String title = nullableText(node.at("/observation/alertTitle"));
             String line = node.at("/observation/alertLineName").asText("");
+            // 호선 칸이 빈 공지가 있다(2026-09-22 "2호선 이대역 내, 외선 무정차 통과중"). 제목의 호선을 쓴다.
+            if (line.isBlank()) line = lineInTitle(title);
             if (!matchesAnyLine(line, routeLines)) continue;
-            String id = item.key().substring(item.key().lastIndexOf(':') + 1);
+            notices.add(
+                    new SubwayNotice(
+                            item.key().substring(item.key().lastIndexOf(':') + 1),
+                            line,
+                            title,
+                            nullableText(node.at("/observation/alertContent")),
+                            posted,
+                            title != null && SUBWAY_RESOLVED.matcher(title).find(),
+                            station(title)));
+        }
+        List<MovementConditionsResponse.SubwayAlert> alerts = new ArrayList<>();
+        for (SubwayNotice notice : notices) {
+            if (notice.resolved() || closedLater(notice, notices)) continue;
             alerts.add(
                     new MovementConditionsResponse.SubwayAlert(
-                            id,
-                            line,
-                            nullableText(node.at("/observation/alertTitle")),
-                            nullableText(node.at("/observation/alertContent")),
-                            instant(node.path("validUntil").asText(null))));
-            observedAt = later(observedAt, firstInstant(node, "occurredAt", "collectedAt"));
+                            notice.id(),
+                            notice.line(),
+                            notice.title(),
+                            notice.content(),
+                            notice.postedAt().plus(SUBWAY_ALERT_WINDOW)));
+            observedAt = later(observedAt, notice.postedAt());
         }
         if (alerts.isEmpty()) return unavailableSubway("NO_MATCHING_ACTIVE_ALERT", routeLines);
         String summary =
@@ -443,6 +487,50 @@ public class MovementConditionsService {
                 List.copyOf(alerts),
                 observedAt,
                 "seoul.metro.alert");
+    }
+
+    /** 지하철 공지 한 건. 운행이 돌아왔다는 공지({@code resolved})도 함께 담아 앞선 공지를 끝내는 데 쓴다. */
+    private record SubwayNotice(
+            String id,
+            String line,
+            String title,
+            String content,
+            Instant postedAt,
+            boolean resolved,
+            String station) {}
+
+    /** 뒤에 같은 호선(역이 적혀 있으면 같은 역)의 정상운행·운행재개 공지가 왔는가. */
+    private static boolean closedLater(SubwayNotice notice, List<SubwayNotice> notices) {
+        return notices.stream()
+                .anyMatch(
+                        other ->
+                                other.resolved()
+                                        && other.postedAt().isAfter(notice.postedAt())
+                                        && matchesAnyLine(other.line(), List.of(notice.line()))
+                                        && (other.station() == null
+                                                || notice.station() == null
+                                                || other.station().equals(notice.station())));
+    }
+
+    private static String lineInTitle(String title) {
+        if (title == null) return "";
+        Matcher matcher = LINE_IN_TITLE.matcher(title);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private static String station(String title) {
+        if (title == null) return null;
+        Matcher matcher = STATION.matcher(title);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    /** 사고 상세 설명을 써도 되는가. 상세의 유효시각이 남아 있거나, 최근에 다시 받은 상세면 쓴다. 사고가 지금 목록에 있는지는 부른 쪽이 이미 확인했다. */
+    private static boolean currentIncidentDetail(JsonNode detail, Instant now) {
+        if (fresh(detail, now)) return true;
+        Instant collected = instant(detail.path("collectedAt").asText(null));
+        return collected != null
+                && !collected.isAfter(now)
+                && collected.isAfter(now.minus(INCIDENT_DETAIL_MAX_AGE));
     }
 
     private static RouteContext routeContext(SavedRoute route) {

@@ -342,7 +342,9 @@ class MovementConditionsServiceTest {
                         {"observation":{"incidentMessage":"봉은교 양방향 전면통제"},
                          "validUntil":"2026-09-22T03:00:00+09:00"}
                         """);
-        when(redis.scanValues("transit:latest:subway-alert:", 300))
+        when(redis.scanValues(
+                        "transit:latest:subway-alert:",
+                        MovementConditionsService.MAX_SUBWAY_ALERT_KEYS))
                 .thenReturn(
                         List.of(
                                 new MovementConditionsRedisReader.KeyValue(
@@ -407,5 +409,200 @@ class MovementConditionsServiceTest {
                 provisionalService.get(7L, 3L, Instant.parse("2026-09-21T17:00:00Z"));
         assertThat(snapshotFallback.roadBlock().available()).isTrue();
         assertThat(snapshotFallback.roadBlock().mappingStatus()).isEqualTo("PROVISIONAL");
+    }
+
+    /** 2호선만 타는 경로. 지하철 칸만 본다. */
+    private static MovementConditionsService subwayOnly(
+            MovementConditionsRedisReader redis,
+            List<MovementConditionsRedisReader.KeyValue> alerts) {
+        ScheduleRepository schedules = mock(ScheduleRepository.class);
+        SavedRouteRepository routes = mock(SavedRouteRepository.class);
+        Schedule schedule = mock(Schedule.class);
+        when(schedules.findById(3L)).thenReturn(Optional.of(schedule));
+        when(schedule.isOwnedBy(7L)).thenReturn(true);
+        when(schedule.getDestination())
+                .thenReturn(
+                        new LocationSnapshot(
+                                "이대역",
+                                new BigDecimal("37.5567000"),
+                                new BigDecimal("126.9460000")));
+        SavedRoute route = SavedRoute.builder().baseDurationMin(20).selected(true).build();
+        route.addSegment(
+                SavedRouteSegment.builder()
+                        .seq(1)
+                        .mode(TransportMode.SUBWAY)
+                        .providerRouteKey("2호선")
+                        .fromName("시청")
+                        .toName("신촌")
+                        .baseDurationMin(20)
+                        .build());
+        when(routes.findSelectedWithSegments(3L)).thenReturn(Optional.of(route));
+        when(redis.scanValues(
+                        "transit:latest:subway-alert:",
+                        MovementConditionsService.MAX_SUBWAY_ALERT_KEYS))
+                .thenReturn(alerts);
+        return new MovementConditionsService(
+                schedules, routes, redis, new ObjectMapper(), false, 12);
+    }
+
+    /** 수집기가 저장하는 모양 그대로. 유효시각은 "올린 시각 + 10분" 이다. */
+    private static MovementConditionsRedisReader.KeyValue notice(
+            String id, String line, String title, String postedAt, String validUntil) {
+        return new MovementConditionsRedisReader.KeyValue(
+                "transit:latest:subway-alert:" + id,
+                """
+                {"observation":{"alertLineName":%s,"alertTitle":"%s","alertContent":"%s"},
+                 "occurredAt":"%s","validUntil":"%s",
+                 "collectedAt":"2026-09-22T21:55:00+09:00"}
+                """
+                        .formatted(
+                                line == null ? "null" : "\"" + line + "\"",
+                                title,
+                                title,
+                                postedAt,
+                                validUntil));
+    }
+
+    /**
+     * 지하철 공지는 올린 뒤 10분이 아니라, 같은 호선·역에 운행재개 공지가 올 때까지 보여준다(최대 2시간). 2026-09-22 2호선 이대역 무정차는 20:27 에
+     * 공지되고 22:19 에 운행이 재개됐는데, 예전 규칙으로는 20:37 부터 "확인된 공지 없음" 이었다.
+     */
+    @Test
+    void 지하철공지는운행재개공지가오기전까지보여준다() {
+        var disruption =
+                notice(
+                        "A",
+                        "2호선",
+                        "2호선 이대역 안전문장애로 열차 무정차 통과중",
+                        "2026-09-22T21:22:00+09:00",
+                        "2026-09-22T21:32:00+09:00");
+        var old =
+                notice(
+                        "OLD",
+                        "2호선",
+                        "2호선 합정역 열차 지연",
+                        "2026-09-22T18:00:00+09:00",
+                        "2026-09-22T18:10:00+09:00");
+        Instant now = Instant.parse("2026-09-22T12:55:00Z"); // 21:55 KST
+
+        var during =
+                subwayOnly(mock(MovementConditionsRedisReader.class), List.of(disruption, old))
+                        .get(7L, 3L, now)
+                        .subwayDelay();
+        assertThat(during.available()).isTrue();
+        assertThat(during.summary()).contains("이대역");
+        assertThat(during.alerts()).hasSize(1); // 4시간 전 공지는 끝난 것으로 본다
+
+        var resumed =
+                notice(
+                        "B",
+                        "2호선",
+                        "2호선 이대역 열차 운행재개",
+                        "2026-09-22T22:19:00+09:00",
+                        "2026-09-22T22:29:00+09:00");
+        var after =
+                subwayOnly(mock(MovementConditionsRedisReader.class), List.of(disruption, resumed))
+                        .get(7L, 3L, Instant.parse("2026-09-22T13:25:00Z")) // 22:25 KST
+                        .subwayDelay();
+        // 운행재개 공지는 따로 보여주지 않고 앞선 공지를 끝낸다.
+        assertThat(after.available()).isFalse();
+        assertThat(after.reason()).isEqualTo("NO_MATCHING_ACTIVE_ALERT");
+
+        // 다른 역의 운행재개는 이대역 공지를 끝내지 않는다. 호선 칸이 빈 공지는 제목의 호선으로 맞춘다.
+        var elsewhere =
+                notice(
+                        "C",
+                        null,
+                        "2호선 신촌역 열차 정상운행",
+                        "2026-09-22T21:40:00+09:00",
+                        "2026-09-22T21:50:00+09:00");
+        var mixed =
+                subwayOnly(
+                                mock(MovementConditionsRedisReader.class),
+                                List.of(disruption, elsewhere))
+                        .get(7L, 3L, now)
+                        .subwayDelay();
+        assertThat(mixed.available()).isTrue();
+        assertThat(mixed.alerts()).extracting("title").containsExactly("2호선 이대역 안전문장애로 열차 무정차 통과중");
+    }
+
+    /**
+     * 사고 상세의 유효시각은 "사고 시작 + 10분" 이라 오래 이어지는 공사는 늘 만료로 보였다. 그래서 도로 칸에 실제 내용 대신 "선택 경로에 도로 돌발정보가
+     * 확인됐어요" 만 떴다. 최근에 다시 받은 상세면 설명을 쓴다. 오래전에 받은 상세는 여전히 쓰지 않는다.
+     */
+    @Test
+    void 오래이어지는사고도최근에받은설명이면도로칸에보여준다() {
+        MovementConditionsRedisReader redis = mock(MovementConditionsRedisReader.class);
+        ScheduleRepository schedules = mock(ScheduleRepository.class);
+        SavedRouteRepository routes = mock(SavedRouteRepository.class);
+        Schedule schedule = mock(Schedule.class);
+        when(schedules.findById(3L)).thenReturn(Optional.of(schedule));
+        when(schedule.isOwnedBy(7L)).thenReturn(true);
+        when(schedule.getDestination())
+                .thenReturn(
+                        new LocationSnapshot(
+                                "서울시청",
+                                new BigDecimal("37.5665000"),
+                                new BigDecimal("126.9780000")));
+        SavedRoute route = SavedRoute.builder().baseDurationMin(30).selected(true).build();
+        SavedRouteSegment bus =
+                SavedRouteSegment.builder()
+                        .seq(1)
+                        .mode(TransportMode.BUS)
+                        .fromName("A")
+                        .toName("B")
+                        .baseDurationMin(10)
+                        .build();
+        bus.addEdge(
+                SavedRouteSegmentEdge.builder()
+                        .edgeSeq(1)
+                        .segmentId("BUS:100:A:B")
+                        .mappingVersion("master-v1")
+                        .policyVersion("policy-v1")
+                        .build());
+        route.addSegment(bus);
+        when(routes.findSelectedWithSegments(3L)).thenReturn(Optional.of(route));
+        when(redis.value("ml:mapping:bus-road:active:master-v1"))
+                .thenReturn("ml:mapping:bus-road:v1:master-v1:sha");
+        when(redis.hashValue("ml:mapping:bus-road:v1:master-v1:sha", "BUS:100:A:B"))
+                .thenReturn(
+                        """
+                        {"masterVersion":"master-v1","mappingStatus":"RESOLVED",
+                         "topisLinkNamespace":"SEOUL_ACCINFO_LINK","topisLinkIds":["L1"],
+                         "roadPathValidFrom":"2026-09-01T00:00:00+09:00",
+                         "roadPathValidUntil":"2026-10-01T00:00:00+09:00"}
+                        """);
+        when(redis.hashEntries("road:incidents:SEOUL_ACCINFO_LINK:L1"))
+                .thenReturn(
+                        Map.of(
+                                "event",
+                                """
+                                {"providerIncidentId":"I1","incidentTypeCode":"A04",
+                                 "startsAt":"2025-08-25T00:00:00+09:00",
+                                 "collectedAt":"2026-09-22T01:58:00+09:00",
+                                 "expiresEpoch":1790024400,"conflicted":false}
+                                """));
+        String detail =
+                """
+                {"observation":{"incidentMessage":"증산로 (신사오거리 → 새절역) 3차로 시설물보수"},
+                 "occurredAt":"2025-08-25T00:00:00+09:00",
+                 "validUntil":"2025-08-25T00:10:00+09:00",
+                 "collectedAt":"%s"}
+                """;
+        when(redis.value("traffic:latest:incident:I1"))
+                .thenReturn(detail.formatted("2026-09-22T01:50:00+09:00"));
+        var service =
+                new MovementConditionsService(
+                        schedules, routes, redis, new ObjectMapper(), false, 12);
+        Instant now = Instant.parse("2026-09-21T17:00:00Z"); // 02:00 KST
+
+        assertThat(service.get(7L, 3L, now).roadBlock().summary()).contains("증산로");
+
+        // 세 시간 전에 받은 설명은 쓰지 않는다. 통제는 있으니 일반 문장으로 남는다.
+        when(redis.value("traffic:latest:incident:I1"))
+                .thenReturn(detail.formatted("2026-09-21T23:00:00+09:00"));
+        var stale = service.get(7L, 3L, now).roadBlock();
+        assertThat(stale.available()).isTrue();
+        assertThat(stale.summary()).doesNotContain("증산로");
     }
 }

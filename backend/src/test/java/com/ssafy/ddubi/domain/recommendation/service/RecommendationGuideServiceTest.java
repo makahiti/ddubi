@@ -276,6 +276,38 @@ class RecommendationGuideServiceTest {
      * AI 가 앞당김·늦춤 방향을 설명하므로 방향이 뒤집히면 다른 상황이다. 지난 문장을 다시 쓰면 반대로 안내한다. 폭(몇 분)만 달라진 것은 같은 상황으로 본다 — 폭을
      * 지문에 넣으면 1분마다 다시 묻게 된다.
      */
+    /**
+     * 도로 사고 상세는 유효시각이 "사고 시작 + 10분" 이라 오래 이어지는 공사는 늘 만료로 보였다. 최근에 다시 받은 상세면 원인 설명으로 쓴다. 지하철 공지는
+     * 수집기가 몇 년 치를 매번 다시 받아서 받은 시각으로 현재 여부를 알 수 없으므로 예외로 두지 않는다.
+     */
+    @Test
+    void longRunningIncidentDetailIsUsedWhenRecentlyCollected() throws Exception {
+        ObjectMapper json = new ObjectMapper();
+        Instant now = Instant.parse("2026-09-24T07:00:00Z"); // 16:00 KST
+        String detail =
+                """
+                {"observation":{"incidentMessage":"증산로 3차로 시설물보수"},
+                 "validUntil":"2025-08-25T00:10:00.000+09:00","collectedAt":"%s"}
+                """;
+        var recent = json.readTree(detail.formatted("2026-09-24T15:50:00+09:00"));
+        var stale = json.readTree(detail.formatted("2026-09-24T12:00:00+09:00"));
+
+        assertThat(RecommendationGuideService.usableDetail("traffic:latest:incident:", recent, now))
+                .isTrue();
+        assertThat(RecommendationGuideService.usableDetail("traffic:latest:incident:", stale, now))
+                .isFalse();
+        assertThat(
+                        RecommendationGuideService.usableDetail(
+                                "transit:latest:subway-alert:", recent, now))
+                .isFalse();
+        assertThat(
+                        RecommendationGuideService.usableDetail(
+                                "transit:latest:subway-alert:",
+                                json.readTree("{\"validUntil\":\"2026-09-24T17:00:00+09:00\"}"),
+                                now))
+                .isTrue();
+    }
+
     @Test
     void directionFlipIsANewSituationButAmountChangeIsNot() {
         java.util.function.Function<Long, String> situationFor =

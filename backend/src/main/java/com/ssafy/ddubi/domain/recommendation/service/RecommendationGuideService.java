@@ -507,11 +507,13 @@ public class RecommendationGuideService {
         if (causes == null || causes.isEmpty()) return null;
         var keys = new ArrayList<String>();
         var owners = new ArrayList<ScheduleEvaluationV2.Cause>();
+        var prefixes = new ArrayList<String>();
         for (var cause : causes) {
             if (!safeId(cause.eventId())) continue;
             for (String prefix : CAUSE_PREFIXES) {
                 keys.add(prefix + cause.eventId());
                 owners.add(cause);
+                prefixes.add(prefix);
             }
         }
         if (keys.isEmpty()) return null;
@@ -522,8 +524,7 @@ public class RecommendationGuideService {
                 String raw = values.get(i);
                 if (raw == null) continue;
                 JsonNode node = json.readTree(raw);
-                Instant until = instant(node.path("validUntil").asText(null));
-                if (until != null && !until.isAfter(now)) continue;
+                if (!usableDetail(prefixes.get(i), node, now)) continue;
                 String message = firstText(node, 300);
                 if (message != null)
                     return new CauseDetail(owners.get(i), message, source(node, owners.get(i)));
@@ -532,6 +533,26 @@ public class RecommendationGuideService {
             return null;
         }
         return null;
+    }
+
+    /** 사고 설명을 다시 받은 지 이 시간 안이면 쓴다. 사고는 15 분마다 받는다. */
+    static final Duration INCIDENT_DETAIL_MAX_AGE = Duration.ofHours(1);
+
+    /**
+     * 원인 설명을 써도 되는가. 유효시각이 남아 있으면 쓴다.
+     *
+     * <p>도로 사고 상세는 예외다. 상세의 {@code validUntil} 이 "사고 시작 + 10 분" 으로 저장돼, 몇 달째 이어지는 공사는 늘 만료로 보여 설명
+     * 대신 "교통 영향 가능성이 있어요" 같은 일반 문장만 나갔다(2026-09-24 확인). 사고가 지금 원인인지는 평가가 이미 판단했으므로, 도로 사고는 최근에 다시
+     * 받은 상세면 쓴다. 지하철 공지는 수집기가 몇 년 치를 매번 다시 받아 받은 시각으로는 현재 여부를 알 수 없어 예외로 두지 않는다.
+     */
+    static boolean usableDetail(String prefix, JsonNode node, Instant now) {
+        Instant until = instant(node.path("validUntil").asText(null));
+        if (until == null || until.isAfter(now)) return true;
+        if (!prefix.startsWith("traffic:latest:incident")) return false;
+        Instant collected = instant(node.path("collectedAt").asText(null));
+        return collected != null
+                && !collected.isAfter(now)
+                && collected.isAfter(now.minus(INCIDENT_DETAIL_MAX_AGE));
     }
 
     private static RecommendationGuideResponse.Delay delay(
