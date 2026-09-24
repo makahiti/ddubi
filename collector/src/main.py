@@ -213,8 +213,13 @@ def main() -> int:
         log.error("%s", exc)
         return 2
 
-    interval = settings.interval_seconds or spec.default_interval_seconds
-    if settings.source != "weather":
+    pooled_bus = settings.source in ("bus_arrival", "bus_location") and (
+        settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B")
+    )
+    interval = settings.interval_seconds or (
+        300 if settings.source == "bus_arrival" and pooled_bus else 120 if pooled_bus else spec.default_interval_seconds
+    )
+    if settings.source != "weather" and not pooled_bus:
         interval = max(interval, spec.default_interval_seconds)
     log.info(
         "start source=%s topic=%s interval=%ss kafka=%s run_once=%s",
@@ -246,6 +251,7 @@ def main() -> int:
     exit_code = 0
     with httpx.Client(timeout=httpx.Timeout(10.0 if settings.source == "weather" else 60.0, connect=5.0)) as client:
         while not stop.is_set():
+            cycle_started = time.monotonic()
             wait_seconds = interval
             waiting_for_retry = False
             try:
@@ -285,7 +291,16 @@ def main() -> int:
                     exit_code = 1
             if settings.run_once:
                 break
-            if settings.source == "bus_location" and not waiting_for_retry:
+            if pooled_bus and not waiting_for_retry:
+                # Bus windows define start-to-start cadence. A 100-route scan at
+                # 1 request/s takes about 100 seconds; do not add the full poll
+                # interval again after that work completes.
+                wait_seconds = max(1, interval - (time.monotonic() - cycle_started))
+            if (
+                settings.source == "bus_location"
+                and not waiting_for_retry
+                and not (settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B"))
+            ):
                 # After either regular/retry completion, keep the original 8h deadline.
                 try:
                     budget = RequestBudget(
@@ -301,9 +316,11 @@ def main() -> int:
                         wait_seconds = next_at - time.time()
                 except Exception:
                     log.warning("Could not read bus regular deadline; using normal polling interval")
-            if settings.source != "bus_location" and not waiting_for_retry and wait_seconds == interval:
+            if not settings.source.startswith("bus_") and not waiting_for_retry and wait_seconds == interval:
                 # 정상 수집이든 쉬는 시간이라 건너뛴 것이든, 다음 허용 시각까지만 기다린다.
                 # 멈춤 시간대·재시도처럼 따로 정한 대기(wait_seconds != interval)는 건드리지 않는다.
+                # 버스는 키 풀별 이름표(namespace)로 호출 기록을 따로 남겨 이 조회로는 다음 시각을 읽을 수 없다.
+                # 버스 대기는 위의 키 풀 규칙이 정한다.
                 wait_seconds = resume_wait(_next_cycle_at(settings), time.time(), wait_seconds)
             stop.wait(wait_seconds)
 

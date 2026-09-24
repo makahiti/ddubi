@@ -165,6 +165,14 @@ class KafkaSourceTest(unittest.TestCase):
             with self.assertRaises(BudgetExceeded):
                 RequestBudget(path, "a+b", 1).before_request(None)
 
+    def test_dataset_namespaces_keep_same_credential_budgets_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "budget.db")
+            RequestBudget(path, "same-key", 1, namespace="data-go-kr:15000314:A").before_request(None)
+            RequestBudget(path, "same-key", 1, namespace="data-go-kr:15000332:A").before_request(None)
+            with self.assertRaises(BudgetExceeded):
+                RequestBudget(path, "same-key", 1, namespace="data-go-kr:15000314:A").before_request(None)
+
     def test_bus_targets_are_limited_to_100(self):
         targets = [str(index) for index in range(723)]
         self.assertEqual(len(_limit_bus_targets(targets)), 100)

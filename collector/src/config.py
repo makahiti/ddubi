@@ -38,6 +38,8 @@ class Settings:
         "INCHEON_API_KEY",
         "KMA_API_KEY",  # weather (우선)
         "DATA_GO_KR_API_KEY",  # weather (KMA 없을 때)
+        "BUS_API_KEY_A",  # short-term bus collection pool A
+        "BUS_API_KEY_B",  # short-term bus collection pool B
         "BUS_ARRIVAL_API_KEY",  # bus_arrival
         "BUS_LOCATION_API_KEY",  # bus_location
         "SUBWAY_API_KEY",  # subway_arrival, subway_location
@@ -67,6 +69,22 @@ class Settings:
         "BUS_CROSSWALK_SHA256",
         "API_BUDGET_PATH",
         "API_DAILY_LIMIT",
+        "BUS_ARRIVAL_DAILY_BUDGET_PER_KEY",
+        "BUS_LOCATION_DAILY_BUDGET_PER_KEY",
+        "BUS_ARRIVAL_QUOTA_POOL",
+        "BUS_LOCATION_QUOTA_POOL",
+        "BUS_WEEKDAY_PEAK_WINDOWS",
+        "BUS_SERVICE_WINDOWS",
+        "BUS_ARRIVAL_PEAK_INTERVAL_SECONDS",
+        "BUS_ARRIVAL_OFFPEAK_INTERVAL_SECONDS",
+        "BUS_ARRIVAL_WEEKEND_INTERVAL_SECONDS",
+        "BUS_ARRIVAL_OVERNIGHT_INTERVAL_SECONDS",
+        "BUS_LOCATION_DENSE_INTERVAL_SECONDS",
+        "BUS_LOCATION_SPARSE_INTERVAL_SECONDS",
+        "BUS_LOCATION_DENSE_ROUTE_COUNT",
+        "BUS_LOCATION_OFFPEAK_INTERVAL_SECONDS",
+        "BUS_LOCATION_WEEKEND_INTERVAL_SECONDS",
+        "BUS_LOCATION_OVERNIGHT_INTERVAL_SECONDS",
         "WEATHER_GRID_POINTS",
         "BUS_ROUTE_IDS",
         "BUS_ROUTE_LIMIT",
