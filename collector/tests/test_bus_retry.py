@@ -111,6 +111,32 @@ class BusRetryTest(unittest.TestCase):
                 self.assertEqual(len(calls), 2)
                 self.assertEqual(client.event_hooks["request"], [])
 
+    def test_adapter_publishes_other_routes_when_one_route_has_no_result(self):
+        # 운행 차량이 없는 노선(headerCd 4)이 섞여도 회차는 성공이고 나머지 노선 위치는 발행돼야 한다.
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Settings(
+                source="bus_location",
+                kafka_bootstrap_servers="unused",
+                api_keys={"BUS_LOCATION_API_KEY": "secret-key"},
+                extra={"API_BUDGET_PATH": str(Path(directory) / "budget.db"), "BUS_ROUTE_IDS": "100100118,100100124"},
+            )
+
+            def handler(request):
+                if request.url.params["busRouteId"] == "100100124":
+                    return httpx.Response(200, json={"msgHeader": {"headerCd": "4"}, "msgBody": None})
+                return httpx.Response(
+                    200, json={"msgHeader": {"headerCd": "0"}, "msgBody": {"itemList": [{"vehId": "V1"}]}}
+                )
+
+            with patch("sources.bus_location.time.sleep"), httpx.Client(
+                transport=httpx.MockTransport(handler)
+            ) as client:
+                batch = collect("bus_location", settings, client)
+
+            self.assertEqual(len(batch), 1)
+            self.assertTrue(batch.complete_snapshot)
+            self.assertEqual(batch.page_count, 2)
+
     def test_retry_failure_does_not_schedule_again(self):
         clock = [1000.0]
         with tempfile.TemporaryDirectory() as directory:

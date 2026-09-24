@@ -32,6 +32,11 @@ _ROUTE_ID = re.compile(r"^\d{9}$")
 MAX_REQUESTS_PER_SECOND = 25
 DEFAULT_ROUTE_LIMIT = 100
 
+# 활용가이드의 headerCd 4("결과가 존재하지 않습니다"). 심야·출퇴근 전용 노선처럼 그 시각
+# 운행 차량이 없는 노선이 돌려준다. 이것을 오류로 올리면 노선 하나 때문에 나머지 노선의
+# 위치까지 한 회차 통째로 버려져, 2026-09-24 01:32·09:33 KST 두 회차가 연속으로 비었다.
+NO_RESULT_HEADER_CODE = "4"
+
 
 class BusLocationError(RuntimeError):
     """API 요청 또는 JSON 응답 처리에 실패했을 때 발생한다."""
@@ -69,15 +74,20 @@ def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
 
 
 def _validate_api_response(data: dict[str, Any]) -> None:
-    """HTTP 200 안에 포함된 서울시 API 업무 오류도 실패로 처리한다."""
+    """HTTP 200 안에 포함된 서울시 API 업무 오류도 실패로 처리한다. 결과 없음은 오류가 아니다."""
     header = data.get("msgHeader")
     if not isinstance(header, dict):
         return
 
     header_code = str(header.get("headerCd", "0"))
-    if header_code != "0":
+    if header_code not in ("0", NO_RESULT_HEADER_CODE):
         safe_code = header_code if header_code.isdigit() else "INVALID_CODE"
         raise BusLocationError(f"서울 버스위치 API 오류({safe_code})")
+
+
+def _is_no_result(data: dict[str, Any]) -> bool:
+    header = data.get("msgHeader")
+    return isinstance(header, dict) and str(header.get("headerCd", "")) == NO_RESULT_HEADER_CODE
 
 
 def fetch_bus_location(
@@ -120,6 +130,9 @@ def fetch_bus_location(
         if not isinstance(data, dict):
             raise BusLocationError("서울 버스위치 API JSON 응답의 최상위 값이 객체가 아닙니다")
         _validate_api_response(data)
+        if _is_no_result(data):
+            # 결과 없음 응답은 msgBody·itemList가 비거나 null일 수 있어 빈 목록으로 맞춘다.
+            return {"msgHeader": data["msgHeader"], "msgBody": {"itemList": []}}
         return data
     except httpx.HTTPError as exc:
         raise BusLocationError(
@@ -181,6 +194,7 @@ def fetch_all_bus_locations(
     interval = 1 / requests_per_second
     last_request_started: float | None = None
     route_results: dict[str, dict[str, Any]] = {}
+    no_result_route_ids: list[str] = []
     total_vehicle_count = 0
     try:
         for route_id in bus_route_ids:
@@ -194,6 +208,8 @@ def fetch_all_bus_locations(
             except BusLocationError as exc:
                 raise BusLocationError(f"노선={route_id}: {exc}", retryable=exc.retryable) from None
             route_results[route_id] = response
+            if _is_no_result(response):
+                no_result_route_ids.append(route_id)
             total_vehicle_count += _vehicle_count(response)
     finally:
         if owns_client:
@@ -203,6 +219,7 @@ def fetch_all_bus_locations(
         "collectedAt": datetime.now(timezone.utc).isoformat(),
         "routeCount": len(route_results),
         "vehicleCount": total_vehicle_count,
+        "noResultRouteIds": no_result_route_ids,
         "routeResults": route_results,
     }
 

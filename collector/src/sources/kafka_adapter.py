@@ -209,6 +209,8 @@ def collect(name, settings: Settings, client):
             )
         if name == "bus_location":
             result = module.fetch_all_bus_locations(key, targets, client=client, requests_per_second=1)
+            if result.get("noResultRouteIds"):
+                log.info("source=bus_location no_result_routes=%d", len(result["noResultRouteIds"]))
             return PollBatch(
                 [
                     to_record(name, row, route, crosswalk)

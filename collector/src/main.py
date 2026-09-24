@@ -43,6 +43,41 @@ def load_source(name: str) -> SourceSpec:
     return spec
 
 
+def resume_wait(next_at: float | None, now: float, wait_seconds: float) -> float:
+    """다음 수집이 허용되는 시각까지만 기다린다. 원래 기다릴 시간보다 늘리지는 않는다.
+
+    쉬는 시간(cooldown) 안에 수집기가 다시 켜지면 요청을 건너뛴다. 예전에는 그 뒤에 한 주기를
+    통째로 다시 기다려서, 배포로 재시작될 때마다 다음 수집이 밀렸다. 2026-09-24 15:04 서버1 배포 뒤
+    혼잡도는 16:21 에 받을 것을 21:04 까지 못 받았다(6시간 주기, 공백 약 10시간 40분).
+    1초를 더하는 이유: 깨어나는 시각이 허용 시각보다 아주 조금 이르면 다시 쉬는 시간으로 판정된다.
+    """
+    if next_at is None or next_at <= now:
+        return wait_seconds
+    return min(wait_seconds, next_at - now + 1.0)
+
+
+def _next_cycle_at(settings: Settings) -> float | None:
+    """호출 한도 기록에 남은 이 수집기의 다음 수집 허용 시각. 한도를 쓰지 않는 수집기면 None."""
+    from sources.kafka_adapter import POLICIES
+
+    policy = POLICIES.get(settings.source)
+    if policy is None:
+        return None
+    try:
+        budget = RequestBudget(
+            settings.extra.get(
+                "API_BUDGET_PATH",
+                str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3"),
+            ),
+            settings.api_key(policy[0]),
+            int(settings.extra.get("API_DAILY_LIMIT", "900")),
+        )
+        return budget.next_cycle_at(settings.source)
+    except Exception:
+        log.warning("source=%s could not read cycle deadline; using normal polling interval", settings.source)
+        return None
+
+
 @retry(
     retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
     stop=stop_after_attempt(3),
@@ -266,6 +301,10 @@ def main() -> int:
                         wait_seconds = next_at - time.time()
                 except Exception:
                     log.warning("Could not read bus regular deadline; using normal polling interval")
+            if settings.source != "bus_location" and not waiting_for_retry and wait_seconds == interval:
+                # 정상 수집이든 쉬는 시간이라 건너뛴 것이든, 다음 허용 시각까지만 기다린다.
+                # 멈춤 시간대·재시도처럼 따로 정한 대기(wait_seconds != interval)는 건드리지 않는다.
+                wait_seconds = resume_wait(_next_cycle_at(settings), time.time(), wait_seconds)
             stop.wait(wait_seconds)
 
     if publisher.flush() > 0 or publisher.failed > 0:
