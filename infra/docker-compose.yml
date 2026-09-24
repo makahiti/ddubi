@@ -47,8 +47,10 @@ x-collector-env: &collector-env
   # --- 포털별 공통 키 우선. 기존 소스별 변수는 배포 전환용 fallback ---
   KMA_API_KEY: ${KMA_API_KEY:-}                                 # weather (우선)
   DATA_GO_KR_API_KEY: ${DATA_GO_KR_API_KEY:-}                   # weather (KMA 없을 때)
-  BUS_API_KEY_A: ${BUS_API_KEY_A:-}                             # 버스 수집 키 풀 A
-  BUS_API_KEY_B: ${BUS_API_KEY_B:-}                             # 버스 수집 키 풀 B
+  BUS_ARRIVAL_API_KEY_A: ${BUS_ARRIVAL_API_KEY_A:-}             # 버스 도착정보 키 풀 A
+  BUS_ARRIVAL_API_KEY_B: ${BUS_ARRIVAL_API_KEY_B:-}             # 버스 도착정보 키 풀 B
+  BUS_LOCATION_API_KEY_A: ${BUS_LOCATION_API_KEY_A:-}           # 버스 위치정보 키 풀 A
+  BUS_LOCATION_API_KEY_B: ${BUS_LOCATION_API_KEY_B:-}           # 버스 위치정보 키 풀 B
   SEOUL_OPEN_DATA_API_KEY: ${SEOUL_OPEN_DATA_API_KEY:-}         # 서울 열린데이터광장 일반키
   BUS_ARRIVAL_API_KEY: ${BUS_ARRIVAL_API_KEY:-}
   BUS_LOCATION_API_KEY: ${BUS_LOCATION_API_KEY:-}

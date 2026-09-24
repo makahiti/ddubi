@@ -13,6 +13,7 @@ from pathlib import Path
 from bus_collection_policy import BusCollectionPlan, plan_bus_collection
 from bus_crosswalk import POLICY as BUS_ID_POLICY
 from bus_crosswalk import BusCrosswalk
+from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import Settings
 from request_budget import BudgetExceeded, RequestBudget, RetryScheduled, RetryWait
 from topis_notice_policy import plan_topis_notice
@@ -54,25 +55,6 @@ def _limit_bus_targets(targets, raw_limit=None):
     if not 1 <= limit <= DEFAULT_BUS_ROUTE_LIMIT:
         raise ValueError(f"BUS_ROUTE_LIMIT must be between 1 and {DEFAULT_BUS_ROUTE_LIMIT}")
     return targets[:limit]
-
-
-def _bus_key_candidates(settings: Settings, fallback_name: str) -> list[tuple[str, str]]:
-    candidates = [
-        (slot, settings.api_keys[name])
-        for slot, name in (("A", "BUS_API_KEY_A"), ("B", "BUS_API_KEY_B"))
-        if settings.api_keys.get(name)
-    ]
-    if not candidates:
-        candidates = [("legacy", settings.api_key(fallback_name))]
-    # A duplicated credential is one quota, not two independent pools.
-    unique = []
-    seen = set()
-    for slot, key in candidates:
-        normalized = key.strip()
-        if normalized not in seen:
-            unique.append((slot, key))
-            seen.add(normalized)
-    return unique
 
 
 def _bus_budget_limit(name: str, settings: Settings) -> int:
@@ -249,8 +231,8 @@ def collect(name, settings: Settings, client):
             else module.load_bus_route_ids()
         )
         targets = _limit_bus_targets(targets, settings.extra.get("BUS_ROUTE_LIMIT"))
-        bus_candidates = _bus_key_candidates(settings, key_name)
-        pooled = any(slot != "legacy" for slot, _ in bus_candidates)
+        bus_candidates = bus_key_candidates(settings, name)
+        pooled = bus_dense_policy_enabled(settings, name)
         bus_plan = (
             plan_bus_collection(name, targets, now, settings.extra)
             if pooled

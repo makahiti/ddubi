@@ -7,6 +7,7 @@ from unittest.mock import patch
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import Settings
 from request_budget import RequestBudget
 from sources.kafka_adapter import collect
@@ -18,7 +19,7 @@ class BusKeyPoolTest(unittest.TestCase):
             settings = Settings(
                 source="bus_arrival",
                 kafka_bootstrap_servers="unused",
-                api_keys={"BUS_API_KEY_A": "key-a", "BUS_API_KEY_B": "key-b"},
+                api_keys={"BUS_ARRIVAL_API_KEY_A": "key-a", "BUS_ARRIVAL_API_KEY_B": "key-b"},
                 extra={
                     "API_BUDGET_PATH": str(Path(directory) / "budget.db"),
                     "BUS_ROUTE_IDS": "100100118",
@@ -55,6 +56,34 @@ class BusKeyPoolTest(unittest.TestCase):
 
             self.assertEqual([item[0] for item in used], ["key-a", "key-b"])
             self.assertEqual(used[0][1], used[1][1])
+
+    def test_arrival_and_location_pools_are_isolated(self):
+        settings = Settings(
+            source="bus_location",
+            kafka_bootstrap_servers="unused",
+            api_keys={
+                "BUS_ARRIVAL_API_KEY_A": "arrival-a",
+                "BUS_ARRIVAL_API_KEY_B": "arrival-b",
+                "BUS_LOCATION_API_KEY_A": "location-a",
+            },
+        )
+
+        self.assertEqual(bus_key_candidates(settings, "bus_location"), [("A", "location-a")])
+        self.assertFalse(bus_dense_policy_enabled(settings, "bus_location"))
+        self.assertTrue(bus_dense_policy_enabled(settings, "bus_arrival"))
+
+    def test_duplicate_pool_credentials_do_not_enable_dense_policy(self):
+        settings = Settings(
+            source="bus_location",
+            kafka_bootstrap_servers="unused",
+            api_keys={
+                "BUS_LOCATION_API_KEY_A": "same-key",
+                "BUS_LOCATION_API_KEY_B": "same-key",
+            },
+        )
+
+        self.assertEqual(bus_key_candidates(settings, "bus_location"), [("A", "same-key")])
+        self.assertFalse(bus_dense_policy_enabled(settings, "bus_location"))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import httpx
+from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import ConfigError, Settings
 from events import build_event
 from notice_dedup import NoticeDedup, publish_notices
@@ -179,8 +180,8 @@ def main() -> int:
         log.error("%s", exc)
         return 2
 
-    pooled_bus = settings.source in ("bus_arrival", "bus_location") and (
-        settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B")
+    pooled_bus = settings.source in ("bus_arrival", "bus_location") and bus_dense_policy_enabled(
+        settings, settings.source
     )
     topis_dynamic = settings.source == "topis_notice"
     interval = settings.interval_seconds or (
@@ -277,17 +278,25 @@ def main() -> int:
             if (
                 settings.source == "bus_location"
                 and not waiting_for_retry
-                and not (settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B"))
+                and not pooled_bus
             ):
                 # After either regular/retry completion, keep the original 8h deadline.
                 try:
+                    slot, key = bus_key_candidates(settings, "bus_location")[0]
+                    pool = settings.extra.get("BUS_LOCATION_QUOTA_POOL", "data-go-kr:15000332")
                     budget = RequestBudget(
                         settings.extra.get(
                             "API_BUDGET_PATH",
                             str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3"),
                         ),
-                        settings.api_key("BUS_LOCATION_API_KEY"),
-                        int(settings.extra.get("API_DAILY_LIMIT", "900")),
+                        key,
+                        int(
+                            settings.extra.get(
+                                "BUS_LOCATION_DAILY_BUDGET_PER_KEY",
+                                settings.extra.get("API_DAILY_LIMIT", "900"),
+                            )
+                        ),
+                        namespace=f"{pool}:{slot}",
                     )
                     next_at = budget.next_cycle_at("bus_location")
                     if next_at is not None and next_at > time.time():
