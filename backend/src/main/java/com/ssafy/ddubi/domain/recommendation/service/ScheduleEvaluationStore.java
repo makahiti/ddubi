@@ -271,12 +271,19 @@ public class ScheduleEvaluationStore {
         var saved = stored.withRecommendationId(recommendationId);
         // 계산 중 들어온 이벤트는 다음 평가를 앞당긴다. 완료가 event-trigger를 지우지 않는다.
         if (((Number) state.get("event_revision")).longValue() != job.eventRevision()) nextAt = now;
-        Instant validUntil =
-                ScheduleEvaluationV2.validity(
-                        outcome.conditional(), outcome.evidence(), outcome.checkedAt(), nextAt);
-        // 실제 적용한 도보/실시간 증거가 정기 주기보다 먼저 만료되면 그때 재평가한다.
-        // 이미 만료된 결과는 유효기간을 늘리지 않고 짧은 재시도 간격만 둔다.
-        nextAt = ScheduleEvaluationV2.nextRefresh(now, nextAt, validUntil);
+        Instant validUntil;
+        if (ScheduleEvaluationV2.waitingForWatch(now, nextAt)) {
+            // 감시 창(출발 1시간 전)이 열리기 전에는 다음 정기 계산(3일 전·하루·1시간·30분 간격)까지
+            // 유효로 두고 당기지 않는다. 몇 주 뒤 반복 일정이 근거 만료(10분)마다 다시 계산되던 것을 막는다.
+            validUntil = nextAt;
+        } else {
+            validUntil =
+                    ScheduleEvaluationV2.validity(
+                            outcome.conditional(), outcome.evidence(), outcome.checkedAt(), nextAt);
+            // 실제 적용한 도보/실시간 증거가 정기 주기보다 먼저 만료되면 그때 재평가한다.
+            // 이미 만료된 결과는 유효기간을 늘리지 않고 짧은 재시도 간격만 둔다.
+            nextAt = ScheduleEvaluationV2.nextRefresh(now, nextAt, validUntil);
+        }
         jdbc.update(
                 "UPDATE schedule_evaluation SET"
                         + " input_updated_at=?,candidates_json=?,result_json=?,next_check_at=?,lease_token=NULL,lease_until=NULL,last_error=NULL,notification_json=?,notification_key=?"

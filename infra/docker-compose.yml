@@ -200,6 +200,9 @@ services:
   collector-bus-arrival:
     <<: *collector
     container_name: collector-bus-arrival
+    # 버스 수집기는 노선 100개 응답과 버스 대응표(crosswalk)를 한 번에 들고 있어 256m 의 85~90% 를 썼다
+    # (2026-09-25). 수집이 5~10분 간격으로 촘촘해져 상한에 걸려 강제 종료되지 않게 여유를 둔다.
+    mem_limit: 512m
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: bus_arrival
@@ -207,6 +210,7 @@ services:
   collector-bus-location:
     <<: *collector
     container_name: collector-bus-location
+    mem_limit: 512m
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: bus_location

@@ -153,6 +153,25 @@ public record ScheduleEvaluationV2(
         return left.isBefore(right) ? left : right;
     }
 
+    /**
+     * 감시 창 안에서 다음 정기 계산이 가장 멀 때의 간격({@link ScheduleMonitoringPolicy} 의 farInterval 과 같다). 다음 정기 계산이
+     * 이보다 멀면 아직 감시 창(출발 1시간 전)이 열리지 않은 것이다.
+     */
+    static final java.time.Duration WATCH_MAX_INTERVAL = java.time.Duration.ofMinutes(10);
+
+    /**
+     * 감시 창(출발 1시간 전)이 열리기 전이라, 다음 정기 계산이 {@link ScheduleMonitoringPolicy.PreWatch} 의
+     * 간격(3일·하루·1시간·30분)으로 멀리 잡혀 있는가.
+     *
+     * <p>이때는 결과를 다음 정기 계산까지 유효로 두고, 기본 유효시간(10분)이나 도보·실시간 근거 만료로 계산을 당기지 않는다. 당기면 정한 간격이 무시되고 몇 주 뒤
+     * 반복 일정까지 10분마다 다시 계산된다. 2026-09-25 에 9/28~10/7 출근 반복 9건이 그렇게 하루 약 1,300번 계산됐고, 그때마다 추천 기록(한 줄
+     * 약 800KB)과 평가 행(약 1.4MB)을 새로 써서 DB 가 하루 1GB 넘게 늘고 변경 기록(binlog)이 하루 16~19GB 쌓였다. 창이 열리면 평소처럼
+     * 10분·5분·1분 간격으로 새로 계산한다.
+     */
+    public static boolean waitingForWatch(Instant now, Instant scheduled) {
+        return scheduled.isAfter(now.plus(WATCH_MAX_INTERVAL));
+    }
+
     /** 만료 후 정기 갱신까지 빈 화면으로 남지 않도록 증거 만료에도 깨운다. 과거 만료의 즉시 반복은 피한다. */
     public static Instant nextRefresh(Instant now, Instant scheduled, Instant expires) {
         if (!scheduled.isAfter(now)) return scheduled;
