@@ -17,7 +17,7 @@ crosswalk 및 OA-13310 링크 마스터가 없다. 따라서 **실제 최종 확
    `evidenceRefs`, 적용기간을 검토한다. `RESOLVED`만 사고 역조회 대상이다.
 3. Redis의 `ml:mapping:bus-road:active:{masterVersion}`가 새 대응표를 가리키고,
    `:meta`에 버스 crosswalk SHA와 승인 링크 마스터 버전이 일치하는지 확인한다.
-4. Collector, Kafka, `spark-streaming-traffic-incident`, Redis, `ml-serving`을 실행한다.
+4. Collector, Kafka, `spark-streaming-light`(돌발 Silver 잡 포함, 2026-09-25 부터), Redis, `ml-serving`을 실행한다.
    돌발 Silver의 GMS 추출은 `TRAFFIC_INCIDENT_AI_ENABLED=true`일 때 동작한다.
    구간 특성 API는 `ML_REDIS_LATEST_FEATURES_ENABLED=true`일 때 읽을 수 있다.
 5. 별도 `ml-incident-feature-refresh` 서비스를 실행한다. 기본 15초마다 Redis의 완전한
@@ -25,8 +25,8 @@ crosswalk 및 OA-13310 링크 마스터가 없다. 따라서 **실제 최종 확
    `OnlineFeatureAssembler`를 호출한다. 사고가 사라진 구간도 다시 계산한다.
 
 ```sh
-docker compose --env-file infra/.env -f infra/docker-compose.yml --profile road-silver up -d \
-  spark-streaming-traffic-incident ml-incident-feature-refresh
+docker compose --env-file infra/.env -f infra/docker-compose.yml --profile spark --profile road-feature up -d \
+  spark-streaming-light ml-incident-feature-refresh
 ```
 
 ## 운영 확인

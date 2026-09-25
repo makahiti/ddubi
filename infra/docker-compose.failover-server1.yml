@@ -8,7 +8,7 @@
 #
 # 사용법(서버1 infra/ 에서). 먼저 .env 에 HDFS_NAMENODE_HOST=<서버2 사설 IP> 를 넣는다. 그 다음
 #   docker compose -f docker-compose.yml -f docker-compose.server1.yml -f docker-compose.failover-server1.yml \
-#     --profile archive --profile spark up -d --force-recreate archiver spark-streaming-weather spark-streaming-realtime
+#     --profile archive --profile spark up -d --force-recreate archiver spark-streaming-light spark-streaming-realtime
 # 되돌릴 때는 .env 의 HDFS_NAMENODE_HOST 를 지우고, 이 파일 없이 같은 서비스를 --force-recreate 한다.
 #
 # 절차 전체는 docs/runbooks/hdfs-namenode-metadata-loss.md 에 있다.
@@ -26,6 +26,7 @@ services:
   spark-worker-1: *nn-remote
   spark-worker-2: *nn-remote
   spark-worker-3: *nn-remote
+  spark-streaming-light: *nn-remote
   spark-streaming-weather: *nn-remote
   spark-streaming-realtime: *nn-remote
   spark-streaming-replay: *nn-remote

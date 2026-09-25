@@ -157,7 +157,7 @@ groups:
         for: 5m
         labels: { severity: critical, layer: data }
         annotations:
-          summary: master 가 보는 실행 중 앱이 5 미만. weather·realtime·city_realtime·topis·traffic_incident 중 하나가 죽어 재시작 반복 중일 수 있다 (기준 5 는 2026-09-23, dt 확인으로 상시 잡 5개 고정)
+          summary: master 가 보는 실행 중 앱이 2 미만. light_streaming(날씨·도시·TOPIS 공지·돌발을 한 앱으로)·realtime 중 하나가 죽어 재시작 반복 중일 수 있다 (2026-09-25 네 잡을 한 앱으로 합쳐 기준 5→2. 합친 앱 안의 잡 하나라도 멈추면 앱 전체가 재시작한다)
           runbook: docs/runbooks/spark-streaming-crash.md
         noDataState: Alerting
         execErrState: Error
@@ -168,7 +168,7 @@ groups:
             model: { refId: A, instant: true, expr: 'metrics_master_apps_Value{type="gauges"}' }
           - refId: C
             datasourceUid: __expr__
-            model: { refId: C, type: math, expression: "$A < 5" }
+            model: { refId: C, type: math, expression: "$A < 2" }
 
       - uid: ddubi-hdfs-datanode-down
         title: HDFS 데이터노드 1대

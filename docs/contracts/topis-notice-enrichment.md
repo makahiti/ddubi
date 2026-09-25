@@ -63,11 +63,13 @@ GMS/Kakao의 일시 장애는 Spark 배치를 실패시켜 같은 Kafka 오프�
 
 ## 실행
 
-실시간 잡은 새 기능 기본 꺼짐 원칙에 따라 별도 Compose 프로필로 켠다.
+2026-09-25 부터 이 잡은 날씨·도시·돌발 잡과 한 Spark 앱(`spark-streaming-light`, `spark` 프로필)으로 돈다.
+처음에는 새 기능 기본 꺼짐 원칙에 따라 `topis-ai` 프로필로 따로 켰다. 끄려면 서버 `.env` 의
+`LIGHT_STREAMING_JOBS` 목록에서 `topis_enriched` 를 뺀다.
 
 ```sh
-docker compose --profile spark --profile topis-ai up -d spark-streaming-topis
-docker logs spark-streaming-topis --tail 100
+docker compose --profile spark up -d spark-streaming-light
+docker logs spark-streaming-light --tail 300 2>&1 | grep -E "topis|ValueError"
 ```
 
 필수 환경변수는 `GMS_API_KEY`, `KAKAO_REST_API_KEY`다. HDFS Silver도 쓸 서버만

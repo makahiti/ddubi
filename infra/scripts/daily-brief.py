@@ -36,12 +36,12 @@ SERVER1_KEY = os.path.expanduser("~/.ssh/ddubi_deploy")
 BACKUP_LOG = os.path.expanduser("~/backups/mysql/backup.log")
 WINDOW_H = 12  # 브리핑 간격(아침 9:30 ↔ 오후 5:00 ≈ 7.5h/16.5h). 12시간 창으로 "지난 반나절" 을 본다
 
-# 서버1 배포 프로필(spark·topis-ai·road-silver)에서 항상 떠 있어야 하는 스트리밍 잡 수.
-# weather·realtime 둘이었다가 9/18 city-realtime, 9/21 topis, 9/23 traffic-incident 가 더해져 다섯이 됐고, dt 확인(2026-09-23)으로
-# 이 다섯이 고정이다(segment 계열 2개는 폐기). 이 수보다 적으면 "Spark 잡 부족" 으로 경고한다.
-# 배포 프로필에 잡을 넣거나 빼면 여기와 Grafana 규칙 "Spark 스트리밍 잡 부족"(infra/monitoring/grafana/alerting/rules.yaml)
+# 서버1 배포 프로필(spark)에서 항상 떠 있어야 하는 스트리밍 앱 수.
+# 9/23 에 다섯(weather·realtime·city-realtime·topis·traffic-incident)이었는데, 9/25 서버1 메모리가 모자라 realtime 을 뺀
+# 넷을 한 앱(spark-streaming-light)으로 합쳐 둘이 됐다. 이 수보다 적으면 "Spark 잡 부족" 으로 경고한다.
+# 배포 프로필에 앱을 넣거나 빼면 여기와 Grafana 규칙 "Spark 스트리밍 잡 부족"(infra/monitoring/grafana/alerting/rules.yaml)
 # 의 기준을 함께 고친다.
-SPARK_APPS_EXPECTED = 5
+SPARK_APPS_EXPECTED = 2
 
 
 def load_env(path):
@@ -123,14 +123,14 @@ def grafana_firing(env):
 
 REMOTE_SCRIPT = r"""
 echo "@@restarts"; docker ps -a --filter label=com.docker.compose.project=ddubi --format '{{.Names}}' | xargs -r -I{} docker inspect {} --format '{{.Name}} {{.RestartCount}} {{.State.Status}}'
-echo "@@errors"; for c in archiver spark-streaming-weather spark-streaming-realtime spark-streaming-city-realtime; do printf "%s %s\n" "$c" "$(docker logs "$c" --since %(h)dh 2>&1 | grep -cE 'ERROR|Traceback')"; done
+echo "@@errors"; for c in archiver spark-streaming-light spark-streaming-realtime; do printf "%s %s\n" "$c" "$(docker logs "$c" --since %(h)dh 2>&1 | grep -cE 'ERROR|Traceback')"; done
 for c in $(docker ps --format '{{.Names}}' | grep '^collector-'); do printf "%s-failed %s\n" "$c" "$(docker logs "$c" --since %(h)dh 2>&1 | grep -cE 'failed=[1-9]|ERROR')"; done
 echo "@@archive_files"; docker logs archiver --since %(h)dh 2>&1 | grep -c " wrote "
 echo "@@archiver_started"; docker inspect archiver --format '{{.State.StartedAt}}'
 echo "@@kafka"; docker exec kafka du -s --block-size=1 /var/lib/kafka/data 2>/dev/null | cut -f1   # 실제 디스크 사용량(희소 인덱스 파일 제외)
 echo "@@deploy"; cd ~/S15P21E202 && git log -1 --format='%h %cd' --date=format:'%m-%d %H:%M' && stat -c %y .git/FETCH_HEAD 2>/dev/null | cut -c1-16
 echo "@@nn_backup"; tail -n 1 ~/backups/hdfs-name/backup.log 2>/dev/null || echo "로그 없음"
-echo "@@spark_started"; docker inspect spark-streaming-realtime spark-streaming-weather spark-streaming-city-realtime --format '{{.Name}} {{.State.StartedAt}}' 2>/dev/null
+echo "@@spark_started"; docker inspect spark-streaming-realtime spark-streaming-light --format '{{.Name}} {{.State.StartedAt}}' 2>/dev/null
 echo "@@sparkjobs_commit"; cd ~/S15P21E202 && git log -1 --format=%ct -- sparkjobs/streaming sparkjobs/common sparkjobs/batch sparkjobs/submit.sh sparkjobs/requirements.txt
 """
 

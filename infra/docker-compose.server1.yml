@@ -28,6 +28,7 @@ services:
   spark-worker-1: *dn2-hosts
   spark-worker-2: *dn2-hosts
   spark-worker-3: *dn2-hosts
+  spark-streaming-light: *dn2-hosts
   spark-streaming-weather: *dn2-hosts
   spark-streaming-realtime: *dn2-hosts
   spark-streaming-city-realtime: *dn2-hosts

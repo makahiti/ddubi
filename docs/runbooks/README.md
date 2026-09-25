@@ -54,7 +54,7 @@ cd ~/S15P21E202/infra && bash scripts/post-deploy.sh server1    # 서버1에서 
 # 서버1
 docker ps -a --format "{{.Names}}\t{{.Status}}"                     # 전부 Up 이어야 함 (spark-streaming-replay 는 Exited 가 정상)
 docker exec hdfs-namenode hdfs dfsadmin -report | grep -E "Live datanodes|Under replicated"   # Live 2, Under replicated 0
-docker logs spark-streaming-weather --since 15m 2>&1 | grep "batch="    # 10분 안에 grids=14 배치가 있어야 함
+docker logs spark-streaming-light --since 15m 2>&1 | grep "batch="    # 10분 안에 grids=14 배치가 있어야 함
 docker logs collector-weather --since 15m 2>&1 | grep "cycle ok"        # sent=14 failed=0 pending=0
 
 # 서버2

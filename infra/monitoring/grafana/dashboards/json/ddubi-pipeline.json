@@ -758,7 +758,7 @@
       "id": 116,
       "type": "stat",
       "title": "Spark 실행 중 앱",
-      "description": "스트리밍 잡 수. 정상 2 (weather_latest, realtime_latest). 배치 실행 중엔 잠깐 3. 1 이면 잡 하나가 죽어 재시작 중",
+      "description": "스트리밍 앱 수. 정상 2 (light_streaming = 날씨·도시·TOPIS 공지·돌발을 한 앱으로, realtime_latest). 배치 실행 중엔 잠깐 3. 1 이면 앱 하나가 죽어 재시작 중 (2026-09-25 네 잡 합침)",
       "gridPos": {
         "x": 8,
         "y": 20,

@@ -31,15 +31,16 @@
 
 | 프로필 | 서비스 | 비고 |
 |---|---|---|
-| `core` | kafka, kafka-ui | 가장 먼저 띄운다 |
+| `core` | kafka | 가장 먼저 띄운다 |
+| `kafka-ui` | kafka-ui | Kafka 관리 화면. 필요할 때만 `--profile kafka-ui up -d kafka-ui` 로 켜고 다 보면 끈다(약 500MB, 2026-09-25 기본 배포에서 뺌) |
 | `data` | mysql, redis | |
 | `collect` | collector-weather, -bus-arrival, -bus-location, -subway-arrival, -subway-location, -subway-alert, -city-realtime, -traffic-incident, -topis-notice | 수집기 9개 전부. 배포 잡이 항상 켠다. 키가 비어 있는 수집기는 재시작을 반복하므로 서버 `.env` 의 "수집기 전용" 절을 먼저 채운다. 상세는 [수집 가이드](../docs/data-collection-guide.md) |
 | `hdfs` | hdfs-namenode, hdfs-datanode1 | archiver·spark가 HDFS를 쓰므로 함께 필요 |
 | `hdfs2` | hdfs-datanode2, hdfs-secondarynamenode | 서버2 전용. 세컨더리 네임노드는 매시간 네임노드 메타데이터 사본을 서버2 볼륨에 만든다(2026-09-14). 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
 | `hdfs-standby` | hdfs-namenode-standby | 서버2 전용, **평소 켜지 않는다**. 서버1 네임노드 메타데이터를 잃었을 때 `scripts/failover-namenode.sh` 가 켠다. [절차서](../docs/runbooks/hdfs-namenode-metadata-loss.md) |
-| `spark` | spark-master, spark-worker-1/2, spark-streaming-weather, spark-streaming-realtime | |
-| `topis-ai` | spark-streaming-topis | GMS·Kakao 키를 설정한 뒤 명시적으로 켜는 TOPIS 공지 전처리 잡 |
-| `road-silver` | spark-streaming-traffic-incident | 서버1에서 TOPIS 교통 돌발 전체 회차를 Redis 최신 Snapshot으로 정리 |
+| `spark` | spark-master, spark-worker-1/2, spark-streaming-light, spark-streaming-realtime | light 는 날씨·도시·TOPIS 공지(GMS·Kakao 키 필요)·TOPIS 돌발 네 잡을 한 앱으로 돌린다(2026-09-25). 일부만 돌리려면 `LIGHT_STREAMING_JOBS` |
+| `spark-split` | spark-streaming-weather, -city-realtime, -topis, -traffic-incident | **되돌리기용**. 네 잡을 따로 돌리던 예전 방식. light 와 체크포인트를 같이 쓰므로 light 를 멈춘 뒤에만 켠다 |
+| `topis-ai`, `road-silver` | (없음) | 예전에 topis·돌발 잡을 따로 켜던 프로필. 지금은 light 안에서 돈다. 배포 명령에 남아 있어도 해가 없다 |
 | `road-feature` | ml-incident-feature-refresh | 서버2에서 새 돌발 회차를 감지해 버스 구간별 Redis feature를 자동 갱신 |
 | `batch` | spark-batch | 일회성 실행기. `run --rm`으로만 쓴다 |
 | `archive` | archiver | |
@@ -80,7 +81,7 @@
    ```
    - 로그에 `cycle ok records=14`가 나오면 Kafka까지 들어간 것입니다 (서울 25개 구가 공유하는 격자 14개 단위로 호출).
    - Kafka UI: http://localhost:8085 → Topics → city.raw
-   - 기상 Spark 드라이버: `docker logs spark-streaming-weather --tail 5` 에서 `batch=N grids=14`
+   - 기상 Spark 드라이버(합친 앱): `docker logs spark-streaming-light 2>&1 | grep grids= | tail -3` 에서 `batch=N grids=14`
    - 비기상 Spark 드라이버(기본 UI 4042, executor 480m): `docker logs spark-streaming-realtime --tail 5` 에서 `batch=N ... redisKeys=N`
    - Redis: `docker compose --profile data exec redis redis-cli -a <REDIS_PASSWORD> KEYS "weather:latest:*"` → 격자 14개
    - HDFS: http://localhost:9870 (Utilities → Browse) 에서 `/ddubi/archive`, `/ddubi/checkpoints`
@@ -161,7 +162,7 @@ SPARK_CHECKPOINT_DIR=/opt/ddubi/checkpoints
   sudo sh scripts/firewall.sh <상대서버_사설IP>        # 서버2에서 nginx 도입 후에는 --web 추가 (80/443 공개)
   sudo netfilter-persistent save                        # 재부팅 유지
   ```
-- **관리 화면은 SSH 터널로**: 방화벽 이후 Grafana(3000, 서버2)·kafka-ui(8085, 서버1)·HDFS UI(9870, 서버1)는 외부 차단 상태입니다.
+- **관리 화면은 SSH 터널로**: 방화벽 이후 Grafana(3000, 서버2)·kafka-ui(8085, 서버1, 켤 때만)·HDFS UI(9870, 서버1)는 외부 차단 상태입니다.
   ```
   ssh -i <pem> -L 3000:localhost:3000 ubuntu@j15e202.p.ssafy.io   # 켜둔 채 브라우저에서 localhost:3000
   ```

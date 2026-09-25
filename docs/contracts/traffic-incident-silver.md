@@ -117,7 +117,8 @@ Redis를 멈추지 않는다.
 - 과거 원본: `traffic_incident_silver_backfill.py`를 수동 실행하고 Redis는 갱신하지 않는다.
 
 ```sh
-docker compose --profile spark --profile road-silver up -d spark-streaming-traffic-incident
+# 2026-09-25 부터 날씨·도시·TOPIS 공지 잡과 한 앱(spark-streaming-light)으로 돈다. 로그 줄: batch=N incidentRows=N redisKeys=N
+docker compose --profile spark up -d spark-streaming-light
 
 sh submit.sh batch/traffic_incident_silver_backfill.py \
   --input hdfs://hdfs-namenode:9000/ddubi/archive \

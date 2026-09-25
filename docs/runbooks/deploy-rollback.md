@@ -65,7 +65,7 @@ Flyway 는 한 번 적용된 마이그레이션을 되돌리지 않는다. 코�
 `.env` 는 깃에 없으므로 서버에서 직접 고치고 해당 컨테이너만 다시 올린다. 백업(`.env.bak-<날짜>`)을 먼저 남긴다.
 ```
 cp -p .env .env.bak-$(date +%Y%m%d) && vi .env
-$DC1 --profile spark up -d spark-streaming-weather      # 바뀐 값을 쓰는 컨테이너만
+$DC1 --profile spark up -d spark-streaming-light      # 바뀐 값을 쓰는 컨테이너만
 ```
 
 ## 롤백 뒤 확인
