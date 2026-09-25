@@ -1135,7 +1135,10 @@ services:
     image: ddubi/archiver:${APP_VERSION:-0.1.0}
     container_name: archiver
     profiles: ["archive"]
-    mem_limit: 512m
+    # 2026-09-25 512m → 1g. 버스 도착 수집 주기를 줄인 뒤 transport.raw 가 시간당 3만 4천 → 6만~7만 8천 건으로 늘었다.
+    # 1시간·128MB 묶음을 Parquet 으로 바꿀 때 파이썬 객체와 Arrow 배열로 여러 번 복사돼 512m 을 넘어 606번 OOM 으로 죽었다.
+    # 근본 조치는 아래의 작은 묶음(16MB·5분)이고, 1g 은 밀린 자료를 따라잡는 동안의 안전판이다.
+    mem_limit: ${ARCHIVER_MEM_LIMIT:-1g}
     environment:
       TZ: ${TZ:-Asia/Seoul}
       APP_ENV: ${APP_ENV:-local}
@@ -1144,9 +1147,9 @@ services:
       ARCHIVE_LOCAL_DIR: ${ARCHIVE_LOCAL_DIR}
       ARCHIVE_URI: ${ARCHIVE_URI}
       ARCHIVE_HDFS_USER: ${ARCHIVE_HDFS_USER:-hadoop}
-      ARCHIVE_FLUSH_MINUTES: ${ARCHIVE_FLUSH_MINUTES:-60}
+      ARCHIVE_FLUSH_MINUTES: ${ARCHIVE_FLUSH_MINUTES:-5}            # 2026-09-25 60 → 5. 작게 자주 써서 메모리를 묶는다
       ARCHIVE_FLUSH_SECONDS: ${ARCHIVE_FLUSH_SECONDS:-}            # 개발·검증용. 비우면 분 단위 사용
-      ARCHIVE_MAX_BYTES: ${ARCHIVE_MAX_BYTES:-134217728}
+      ARCHIVE_MAX_BYTES: ${ARCHIVE_MAX_BYTES:-16777216}            # 2026-09-25 128MB → 16MB
     volumes:
       - archive-data:${ARCHIVE_LOCAL_DIR}
     depends_on:

@@ -22,8 +22,8 @@ class Settings:
     kafka_bootstrap_servers: str
     topics: tuple[str, ...]  # docs/contracts/topics.yaml 에서 archive: true 인 토픽
     archive_uri: str  # file:///opt/ddubi/archive (2단계) → webhdfs://hdfs-namenode:9870/ddubi/archive (3단계)
-    flush_seconds: int  # 버퍼의 첫 메시지부터 이 시간이 지나면 파일로 쓴다 (기본 1시간)
-    max_bytes: int  # 버퍼가 이 크기를 넘으면 시간과 무관하게 파일로 쓴다 (기본 128MB)
+    flush_seconds: int  # 버퍼의 첫 메시지부터 이 시간이 지나면 파일로 쓴다 (기본 5분, 2026-09-25 1시간에서 줄임)
+    max_bytes: int  # 버퍼가 이 크기를 넘으면 시간과 무관하게 파일로 쓴다 (기본 16MB, 2026-09-25 128MB 에서 줄임)
     group_id: str = "archiver"
     hdfs_user: str = "hadoop"  # webhdfs:// 일 때 user.name 으로 보낸다 (권한 검사는 꺼져 있지만 소유자 표기용)
 
@@ -48,16 +48,16 @@ class Settings:
         if not topics:
             raise ConfigError("ARCHIVE_TOPICS 가 비어 있습니다")
 
-        # 개발·테스트용 초 단위 지정이 있으면 우선, 없으면 분 단위(기본 60분)
+        # 개발·테스트용 초 단위 지정이 있으면 우선, 없으면 분 단위(기본 5분)
         flush_seconds_raw = _env("ARCHIVE_FLUSH_SECONDS")
         if flush_seconds_raw:
             flush_seconds = int(flush_seconds_raw)
         else:
-            flush_seconds = int(_env("ARCHIVE_FLUSH_MINUTES", "60") or "60") * 60
+            flush_seconds = int(_env("ARCHIVE_FLUSH_MINUTES", "5") or "5") * 60
         if flush_seconds <= 0:
             raise ConfigError("flush 주기는 1초 이상이어야 합니다")
 
-        max_bytes = int(_env("ARCHIVE_MAX_BYTES", str(128 * 1024 * 1024)) or 0)
+        max_bytes = int(_env("ARCHIVE_MAX_BYTES", str(16 * 1024 * 1024)) or 0)
         if max_bytes <= 0:
             raise ConfigError("ARCHIVE_MAX_BYTES 는 1 이상이어야 합니다")
 
