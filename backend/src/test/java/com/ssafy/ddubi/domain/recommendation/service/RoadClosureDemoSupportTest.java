@@ -92,7 +92,45 @@ class RoadClosureDemoSupportTest {
         assertThat(edited).isEqualTo(original);
     }
 
+    /**
+     * 화면·알림 문장이 실제 돌발 공지처럼 읽히도록 막힌 구간의 정류장과 버스 번호를 쓴다. "가짜" 같은 말은 넣지 않고, 시연임은 앞의 "[시연]" 으로만
+     * 밝힌다(2026-09-25 요청).
+     */
+    @Test
+    void describesTheBlockedHopLikeARealNotice() {
+        var route = candidate(0, TransportMode.BUS, "BUS:100:1:2");
+
+        var place = RoadClosureDemoSupport.place(route, "BUS:100:1:2");
+
+        assertThat(place.routeName()).isEqualTo("노선");
+        assertThat(place.message()).isEqualTo("A → B 구간 도로 통제로 노선번 버스 운행에 차질이 있어요.");
+        // 정류장 이름 뒤의 보조 설명(".갈월동")은 빼고, 경로에 없는 구간이면 아는 만큼만 쓴다.
+        var dotted = candidate(0, TransportMode.BUS, "BUS:100:1:2", List.of("숙대입구역.갈월동", "숙명여대"));
+        assertThat(RoadClosureDemoSupport.place(dotted, "BUS:100:1:2").fromStop())
+                .isEqualTo("숙대입구역");
+        assertThat(RoadClosureDemoSupport.place(route, "BUS:999:8:9").message())
+                .isEqualTo("버스 경로 구간 도로 통제로 버스 운행에 차질이 있어요.");
+    }
+
+    @Test
+    void displayMessageAlwaysStartsWithDemoLabelAndNeverSaysFake() throws Exception {
+        var json = new ObjectMapper();
+        assertThat(
+                        RoadClosureDemoSupport.displayMessage(
+                                json.readTree(
+                                        "{\"message\":\"A → B 구간 도로 통제로 262번 버스 운행에 차질이 있어요.\"}")))
+                .isEqualTo("[시연] A → B 구간 도로 통제로 262번 버스 운행에 차질이 있어요.");
+        // 문장이 없던 예전 키
+        assertThat(RoadClosureDemoSupport.displayMessage(json.readTree("{}")))
+                .isEqualTo("[시연] 지금 버스 경로에 도로 통제가 있어요.")
+                .doesNotContain("가짜");
+    }
+
     private RouteCandidate candidate(int index, TransportMode mode, String id) {
+        return candidate(index, mode, id, List.of("A", "B"));
+    }
+
+    private RouteCandidate candidate(int index, TransportMode mode, String id, List<String> stops) {
         var edge =
                 new MappedTransitSegment(
                         1, id, mode, "100", null, "노선", "FORWARD", "1", "2", null, null, 1, 2);
@@ -116,18 +154,7 @@ class RoadClosureDemoSupportTest {
                         List.of(edge));
         var segment =
                 new RouteSegment(
-                        1,
-                        mode,
-                        id,
-                        "노선",
-                        null,
-                        "A",
-                        "B",
-                        2000,
-                        900,
-                        List.of("A", "B"),
-                        List.of(),
-                        List.of(),
+                        1, mode, id, "노선", null, "A", "B", 2000, 900, stops, List.of(), List.of(),
                         mapping);
         return new RouteCandidate(
                 index,

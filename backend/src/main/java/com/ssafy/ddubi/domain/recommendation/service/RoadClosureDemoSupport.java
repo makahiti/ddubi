@@ -238,6 +238,13 @@ public class RoadClosureDemoSupport {
             event.put("eventId", "DEMO-TOPIS-" + scheduleId + "-" + row.get("schedule_revision"));
             event.put("roadLinkId", "DEMO-" + possible.get(0));
             event.put("segmentId", possible.get(0));
+            // 화면·알림·안내 문장이 실제 통제처럼 읽히도록 막힌 구간의 정류장과 버스 번호를 남긴다.
+            // 문장 앞의 "[시연]" 은 보여주는 쪽(displayMessage)이 붙인다.
+            Place place = place(selected, possible.get(0));
+            if (place.routeName() != null) event.put("routeName", place.routeName());
+            if (place.fromStop() != null) event.put("fromStop", place.fromStop());
+            if (place.toStop() != null) event.put("toStop", place.toStop());
+            event.put("message", place.message());
             event.put("status", "blocked");
             event.put("computedAt", now.toString());
             event.put("validUntil", until.toString());
@@ -255,6 +262,76 @@ public class RoadClosureDemoSupport {
         } catch (Exception invalid) {
             throw new BusinessException(ErrorCode.INVALID_STATE, "시연 경로 자료를 읽을 수 없습니다.");
         }
+    }
+
+    /** 막힌 구간의 버스 번호와 앞뒤 정류장. 모르면 null 이고, 문장은 아는 만큼만 만든다. */
+    public record Place(String routeName, String fromStop, String toStop) {
+        /** "[시연]" 을 뺀 본문. 실제 돌발 공지처럼 구간·원인·영향을 한 문장에 담는다. */
+        public String message() {
+            String bus = routeName == null ? "버스" : routeName + "번 버스";
+            if (fromStop == null || toStop == null)
+                return "버스 경로 구간 도로 통제로 " + bus + " 운행에 차질이 있어요.";
+            return fromStop + " → " + toStop + " 구간 도로 통제로 " + bus + " 운행에 차질이 있어요.";
+        }
+    }
+
+    /**
+     * 막을 구간의 이름을 경로 자료에서 찾는다. 버스 구간의 정류장 목록은 보통 인접 구간 수보다 하나 많아 i 번째 구간이 i·i+1 번째 정류장을 잇는다. 수가 안
+     * 맞으면(경기 버스 등) 그 구간의 승차·하차 정류장으로 대신한다.
+     */
+    static Place place(RouteCandidate selected, String segmentId) {
+        if (selected != null) {
+            for (var segment : selected.segments()) {
+                if (segment.mode() != TransportMode.BUS) continue;
+                var edges = RouteEvidenceAssembler.edges(segment);
+                for (int i = 0; i < edges.size(); i++) {
+                    if (!edges.get(i).segmentId().equals(segmentId)) continue;
+                    String route = blankToNull(edges.get(i).routeName());
+                    if (route == null && !segment.vehicles().isEmpty())
+                        route = blankToNull(segment.vehicles().get(0).name());
+                    var stops = segment.stopNames();
+                    if (stops.size() == edges.size() + 1)
+                        return new Place(route, stopName(stops.get(i)), stopName(stops.get(i + 1)));
+                    return new Place(
+                            route, stopName(segment.fromName()), stopName(segment.toName()));
+                }
+            }
+        }
+        return new Place(null, null, null);
+    }
+
+    /** 정류장 이름 뒤의 보조 설명("숙대입구역.갈월동" 의 ".갈월동")은 뺀다. */
+    private static String stopName(String raw) {
+        String value = blankToNull(raw);
+        if (value == null) return null;
+        int dot = value.indexOf('.');
+        String head = dot > 0 ? value.substring(0, dot).trim() : value;
+        return head.isEmpty() ? value : head;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /** 사람에게 보여줄 시연 통제 문장. 저장된 본문이 없던 예전 키도 같은 모양으로 보여준다. */
+    public static String displayMessage(JsonNode event) {
+        String body = event == null ? null : blankToNull(event.path("message").asText(null));
+        return TITLE_PREFIX + " " + (body == null ? "지금 버스 경로에 도로 통제가 있어요." : body);
+    }
+
+    /** 이 일정에 지금 걸려 있는 시연 통제. 기능이 꺼져 있거나 없으면 비어 있다. */
+    public Optional<JsonNode> event(long scheduleId) {
+        if (!enabled) return Optional.empty();
+        try {
+            String raw = redis.opsForValue().get(PREFIX + scheduleId);
+            return raw == null ? Optional.empty() : Optional.of(json.readTree(raw));
+        } catch (Exception unreadable) {
+            return Optional.empty();
+        }
+    }
+
+    public boolean enabled() {
+        return enabled;
     }
 
     /** 최초 재평가가 실패한 경우에만 시연 키를 되돌려 같은 화면에서 안전하게 재시도한다. */

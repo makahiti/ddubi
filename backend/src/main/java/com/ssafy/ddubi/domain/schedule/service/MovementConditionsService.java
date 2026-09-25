@@ -2,6 +2,7 @@ package com.ssafy.ddubi.domain.schedule.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ssafy.ddubi.domain.recommendation.service.RoadClosureDemoSupport;
 import com.ssafy.ddubi.domain.route.entity.SavedRoute;
 import com.ssafy.ddubi.domain.route.entity.SavedRouteSegment;
 import com.ssafy.ddubi.domain.route.model.TransportMode;
@@ -266,8 +267,9 @@ public class MovementConditionsService {
     /**
      * 발표용 가짜 통제가 이 일정에 걸려 있으면 도로 칸에도 보여준다. 추천은 이 통제로 경로를 바꾸는데 도로 칸만 "확인된 통제 없음" 이면 화면이 서로 어긋난다.
      *
-     * <p>실제 사고로 오해하지 않게 문장과 출처에 시연임을 밝힌다. 판단 조건은 추천 쪽({@code RoadClosureDemoSupport#overlay})과 같다 —
-     * 같은 일정·같은 입력 버전·아직 유효·지금 경로의 버스 구간일 때만. 기능이 꺼져 있으면 키를 읽지도 않는다.
+     * <p>문장은 실제 돌발 공지와 같은 모양에 "[시연]" 을 붙이고, 출처 칸(DEMO_TOPIS)으로 시연임을 남긴다. 판단 조건은 추천 쪽({@code
+     * RoadClosureDemoSupport#overlay})과 같다 — 같은 일정·같은 입력 버전·아직 유효·지금 경로의 버스 구간일 때만. 기능이 꺼져 있으면 키를
+     * 읽지도 않는다.
      */
     private java.util.Optional<MovementConditionsResponse.RoadBlock> demoRoad(
             Schedule schedule, List<EdgeRef> edges, Instant now) {
@@ -287,7 +289,8 @@ public class MovementConditionsService {
                 || !until.isAfter(now)
                 || edges.stream().noneMatch(edge -> edge.segmentId().equals(segmentId)))
             return java.util.Optional.empty();
-        String message = "[시연] 선택한 버스 구간에 가짜 도로 통제를 적용했어요.";
+        // 실제 돌발 공지처럼 구간·원인·영향을 보여주고, 앞에 "[시연]" 만 붙인다(2026-09-25 요청).
+        String message = RoadClosureDemoSupport.displayMessage(event);
         return java.util.Optional.of(
                 new MovementConditionsResponse.RoadBlock(
                         true,

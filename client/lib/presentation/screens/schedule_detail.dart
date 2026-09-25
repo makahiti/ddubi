@@ -508,6 +508,8 @@ class ScheduleDetailScreen extends StatefulWidget {
                     departedAt: schedule.actualDepartAt,
                     onFirstReadyDisplayed: onFirstEvaluationDisplayed,
                     refreshGeneration: evaluationRefreshGeneration,
+                    // 이동 예측 카드는 보이지 않게 한다. 결론·이동 변수가 같은 값을 보여준다.
+                    showCard: diagnostics,
                   ),
                 )
               else

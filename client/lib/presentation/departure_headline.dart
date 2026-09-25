@@ -138,35 +138,59 @@ class DepartureHeadlineContent {
         spareMinutes: _spareMinutes(evaluation, arrival),
       );
     }
-    // 출발 시각이 지났는데 아직 출발을 알리지 않았다. "나가세요" 를 그대로 두면 이미 지난 시각을
-    // 권하는 꼴이다. 서버는 새 정보가 들어오면 지금 기준으로 다시 계산한다.
+    final cause = HeadlineCause.of(evaluation);
+    // 계획한 출발 시각은 지났지만 아직 출발을 알리지 않았다. 서버는 이때 "지금 출발" 기준으로 다시
+    // 계산한다(DEPART_NOW). 예전에는 늘 노란 "출발 시각이 지났어요" 만 띄워, 시간 안에 도착할 수
+    // 있는데도 급한 일처럼 읽혔다(2026-09-25 제보). 지금 나가면 되는지, 늦는지, 왜 그런지를 말한다.
     if (evaluation.departureMissed && depart != null && arrival != null) {
+      final spare = _spareMinutes(evaluation, arrival);
+      if (spare != null && spare < 0) {
+        return _late(now, arrival, spare, cause, departNow: true);
+      }
       return DepartureHeadlineContent(
-        title: '${formatClock(depart)} 출발 시각이 지났어요.',
-        detail:
-            '아래에서 다시 계산하면 지금 기준 출발 시각을 알려드려요. 이미 나섰다면 이동 안내에서 출발했어요를 눌러 주세요.',
-        tone: DepartureHeadlineTone.attention,
-        departAt: depart,
+        title: cause == null
+            ? '지금 나가면 ${formatClock(arrival)} 도착'
+            : cause.label('${cause.subject} 예상돼 지금 바로 나가는 게 좋아요'),
+        detail: cause == null
+            ? _marginDetail(evaluation, arrival)
+            : _join(
+                '지금 나가면 ${formatClock(arrival)} 도착 예정이에요.',
+                _marginDetail(evaluation, arrival),
+              ),
+        tone: DepartureHeadlineTone.ready,
+        departAt: now,
         arriveAt: arrival,
-        spareMinutes: _spareMinutes(evaluation, arrival),
-        label: '출발 시각이 지났어요',
-        clockSuffix: '이 지났어요',
+        spareMinutes: spare,
+        label: cause == null
+            ? '지금 출발하세요'
+            : cause.label('${cause.subject} 예상돼요'),
+        clockSuffix: '에 바로 나가세요',
       );
     }
     if (evaluation.canAcceptAt(now) && depart != null && arrival != null) {
       final spare = _spareMinutes(evaluation, arrival);
-      if (spare != null && spare < 0) return _late(depart, arrival, spare);
+      if (spare != null && spare < 0) {
+        return _late(depart, arrival, spare, cause);
+      }
       final timing = _timing(now, depart);
       return DepartureHeadlineContent(
-        title: timing.decorate(
-          '${formatClock(depart)}에 나가면 ${formatClock(arrival)} 도착',
+        title: _labeled(
+          cause,
+          timing.decorate(
+            '${formatClock(depart)}에 나가면 ${formatClock(arrival)} 도착',
+          ),
         ),
-        detail: _marginDetail(evaluation, arrival),
+        detail: cause == null
+            ? _marginDetail(evaluation, arrival)
+            : _join(
+                '${cause.subject} 예상돼 서둘러 나가는 게 좋아요.',
+                _marginDetail(evaluation, arrival),
+              ),
         tone: DepartureHeadlineTone.ready,
         departAt: depart,
         arriveAt: arrival,
         spareMinutes: spare,
-        label: timing.label,
+        label: _labeled(cause, timing.label),
         clockSuffix: timing.clockSuffix,
       );
     }
@@ -186,23 +210,31 @@ class DepartureHeadlineContent {
         arrival != null) {
       final spare = _spareMinutes(evaluation, arrival);
       // 참고값이라도 늦는다는 사실은 같은 무게로 말한다. 파란 참고색 뒤에 숨기면 놓친다.
-      if (spare != null && spare < 0) return _late(depart, arrival, spare);
+      if (spare != null && spare < 0) {
+        return _late(depart, arrival, spare, cause);
+      }
       final reason = evaluationShortfallReason(evaluation);
       final timing = _timing(now, depart);
       return DepartureHeadlineContent(
         departAt: depart,
         arriveAt: arrival,
         spareMinutes: spare,
-        title: timing.decorate(
-          '${formatClock(depart)}에 나가면 ${formatClock(arrival)} 도착 예상',
+        title: _labeled(
+          cause,
+          timing.decorate(
+            '${formatClock(depart)}에 나가면 ${formatClock(arrival)} 도착 예상',
+          ),
         ),
-        detail: evaluation.guidance.isProviderEstimate
-            ? '기본 경로 기준 예상이에요. 실시간 정보가 들어오면 더 정확해져요.'
-            : reason == null
-            ? '아직 확정 전 참고값이에요.'
-            : '아직 확정 전 참고값이에요. $reason',
+        detail: _join(
+          cause == null ? '' : '${cause.subject} 예상돼 서둘러 나가는 게 좋아요.',
+          evaluation.guidance.isProviderEstimate
+              ? '기본 경로 기준 예상이에요. 실시간 정보가 들어오면 더 정확해져요.'
+              : reason == null
+              ? '아직 확정 전 참고값이에요.'
+              : '아직 확정 전 참고값이에요. $reason',
+        ).trim(),
         tone: DepartureHeadlineTone.reference,
-        label: timing.label,
+        label: _labeled(cause, timing.label),
         clockSuffix: timing.clockSuffix,
       );
     }
@@ -317,19 +349,44 @@ class DepartureHeadlineContent {
   ///
   /// 여유가 음수인데 초록·파란 카드에 "늦음 3분" 이 작게 붙어 있으면 못 간다는 사실이 읽히지 않는다
   /// (2026-09-22 제보). 제목부터 늦는다고 말하고 카드 전체를 붉게 한다.
+  ///
+  /// 원인을 알면 원인부터 말한다: "도로 통제로 희망 도착 시간에 도착하기 어려울 것 같아요"(2026-09-25).
+  /// [departNow] 는 계획 출발이 지나 "지금 출발" 기준으로 다시 계산한 결과다. 큰 시각은 지금이다.
   static DepartureHeadlineContent _late(
     DateTime depart,
     DateTime arrival,
     int spare,
-  ) => DepartureHeadlineContent(
-    title:
-        '${formatClock(depart)}에 나가도 ${formatClock(arrival)} 도착 · ${-spare}분 늦어요',
-    detail: '지금 경로로는 시간 안에 도착하기 어려워요. 더 일찍 나가거나 다른 경로가 필요해요.',
-    tone: DepartureHeadlineTone.late,
-    departAt: depart,
-    arriveAt: arrival,
-    spareMinutes: spare,
-  );
+    HeadlineCause? cause, {
+    bool departNow = false,
+  }) {
+    final times = departNow
+        ? '지금 나가도 ${formatClock(arrival)} 도착 · ${-spare}분 늦어요'
+        : '${formatClock(depart)}에 나가도 ${formatClock(arrival)} 도착 · ${-spare}분 늦어요';
+    return DepartureHeadlineContent(
+      title: cause == null
+          ? times
+          : cause.label('${cause.instrument} 희망 도착 시간에 도착하기 어려울 것 같아요'),
+      detail: cause == null
+          ? '지금 경로로는 시간 안에 도착하기 어려워요. 더 일찍 나가거나 다른 경로가 필요해요.'
+          : '$times. 다른 경로나 일정 조정이 필요해요.',
+      tone: DepartureHeadlineTone.late,
+      departAt: depart,
+      arriveAt: arrival,
+      spareMinutes: spare,
+      label: cause == null
+          ? (departNow ? '희망 도착 시간에 늦을 것 같아요' : '추천 출발 시각')
+          : cause.label('${cause.instrument} 늦을 것 같아요'),
+      clockSuffix: departNow ? '에 나가도 늦어요' : '에 나가세요',
+    );
+  }
+
+  /// 발표용 통제가 원인이면 앞에 "[시연]" 을 붙인다. 원인이 없거나 실제 원인이면 그대로.
+  static String _labeled(HeadlineCause? cause, String text) =>
+      cause?.label(text) ?? text;
+
+  /// 두 문장을 한 칸에 잇는다. 뒤 문장이 없으면 앞 문장만.
+  static String _join(String first, String? second) =>
+      second == null ? first : '$first $second';
 
   /// 일정 시작까지 얼마나 여유가 있는지 한 줄로. 늦는 경우를 여유처럼 쓰지 않는다.
   static String? _marginDetail(
@@ -757,6 +814,58 @@ class HeadlinePalette {
     accent: DdubiColors.orange,
     icon: Icons.info_outline_rounded,
   );
+}
+
+/// 결론 문장에 넣을 원인 이름("도로 통제" 등)과 조사.
+///
+/// 원인이 확정된 것(effect BLOCKED·DELAYED)만 쓴다. "영향 가능성" 같은 추정 원인으로 "예상돼요" 라고
+/// 말하지 않는다. 발표용 통제(source DEMO_TOPIS)면 문장은 실제와 같게 두고 앞에 "[시연]" 만 붙인다.
+@visibleForTesting
+class HeadlineCause {
+  const HeadlineCause(this.name, {this.demo = false});
+
+  final String name;
+  final bool demo;
+
+  static HeadlineCause? of(ScheduleEvaluationV2 evaluation) {
+    final ordered = [
+      ...evaluation.causes.where((c) => c.confirmed == true),
+      ...evaluation.causes.where((c) => c.confirmed != true),
+    ];
+    for (final cause in ordered) {
+      final name = _name(cause);
+      if (name != null) {
+        return HeadlineCause(name, demo: cause.source == 'DEMO_TOPIS');
+      }
+    }
+    return null;
+  }
+
+  static String? _name(EvaluationCause cause) {
+    final source = cause.source ?? '';
+    return switch (cause.effect) {
+      'BLOCKED' => source.contains('subway') ? '지하철 운행 중단' : '도로 통제',
+      'DELAYED' => source.contains('subway') ? '지하철 지연' : '교통 지연',
+      _ => null,
+    };
+  }
+
+  /// "도로 통제가" / "교통 지연이"
+  String get subject => '$name${_hasFinalConsonant(name) ? '이' : '가'}';
+
+  /// "도로 통제로" / "교통 지연으로" (받침 ㄹ 뒤에는 "로")
+  String get instrument {
+    final last = name.runes.last;
+    final jong = last >= 0xAC00 && last <= 0xD7A3 ? (last - 0xAC00) % 28 : 0;
+    return '$name${jong == 0 || jong == 8 ? '로' : '으로'}';
+  }
+
+  String label(String text) => demo ? '[시연] $text' : text;
+
+  static bool _hasFinalConsonant(String word) {
+    final last = word.runes.last;
+    return last >= 0xAC00 && last <= 0xD7A3 && (last - 0xAC00) % 28 != 0;
+  }
 }
 
 /// 남은 시간에 따른 말머리·꼬리. [DepartureHeadlineContent] 가 그대로 받아 쓴다.

@@ -120,7 +120,13 @@ class ScheduleEvaluationCard extends StatefulWidget {
     this.showActions = true,
     this.onFirstReadyDisplayed,
     this.refreshGeneration = 0,
+    this.showCard = true,
   });
+
+  /// 카드를 그릴지. 일정 상세는 이동 예측 카드를 보여주지 않는다(2026-09-25 요청). 그래도 이 위젯은
+  /// 남아서 평가를 주기적으로 읽고 [headline] 과 [onFirstReadyDisplayed] 를 채운다 — 맨 위 결론·
+  /// 이동 변수·시연 시작이 모두 이 값을 쓴다. 개발자 옵션을 켜면 다시 보인다.
+  final bool showCard;
 
   /// 버튼 줄을 이 카드에 그릴지. 일정 상세는 같은 버튼을 AI 안내 카드에 두므로 끈다.
   /// 두 곳에 같이 두면 사용자가 서로 다른 단추로 오해한다.
@@ -457,6 +463,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.showCard) return const SizedBox.shrink();
     final initialComputing = evaluation == null && error == null;
     final computing = _computing;
     return Container(

@@ -293,21 +293,84 @@ void main() {
     expect(content.title, contains('남았어요'));
   });
 
-  test('출발 시각이 지났는데 출발을 알리지 않았으면 지났다고 크게 말한다', () async {
+  // 2026-09-25 제보: 시간 안에 도착할 수 있는데도 노란 "출발 시각이 지났어요" 만 떠서 급한 일처럼 읽혔다.
+  // 계획 출발이 지나면 서버는 "지금 출발" 로 다시 계산한다. 지금 나가면 되는지, 늦는지, 왜인지를 말한다.
+  Future<ScheduleEvaluationV2> missed({
+    List<Map<String, dynamic>> causes = const [],
+    bool late = false,
+  }) async {
     final raw = await _raw('keep');
     raw['departureMissed'] = true;
+    raw['causes'] = causes;
+    if (late) raw['latenessSeconds'] = 300;
     raw['validUntil'] = now
         .add(const Duration(minutes: 1))
         .toUtc()
         .toIso8601String();
-    final missed = ScheduleEvaluationV2.fromJson(raw);
+    return ScheduleEvaluationV2.fromJson(raw);
+  }
 
-    final content = DepartureHeadlineContent.of(missed, now);
+  const demoRoad = {
+    'eventId': 'DEMO-TOPIS-65-1',
+    'source': 'DEMO_TOPIS',
+    'segmentIds': ['BUS:100:1:2'],
+    'effect': 'BLOCKED',
+    'confirmed': true,
+  };
 
-    expect(content.tone, DepartureHeadlineTone.attention);
-    expect(content.title, contains('지났어요'));
-    expect(content.label, '출발 시각이 지났어요');
-    expect(content.departAt, isNotNull, reason: '지난 시각도 큰 숫자로는 보여준다');
+  test('출발 시각이 지났어도 시간 안에 닿으면 "지금 나가면" 으로 말한다', () async {
+    final content = DepartureHeadlineContent.of(await missed(), now);
+
+    expect(content.tone, DepartureHeadlineTone.ready);
+    expect(content.title, startsWith('지금 나가면'));
+    expect(content.label, '지금 출발하세요');
+    expect(content.title + content.label, isNot(contains('지났어요')));
+    expect(content.departAt, isNotNull, reason: '큰 숫자는 지금 시각이다');
+  });
+
+  test('원인이 있으면 "원인이 예상돼 지금 바로 나가는 게 좋아요" 로 말하고 시연이면 [시연] 만 붙인다', () async {
+    final content = DepartureHeadlineContent.of(
+      await missed(causes: [demoRoad]),
+      now,
+    );
+
+    expect(content.title, '[시연] 도로 통제가 예상돼 지금 바로 나가는 게 좋아요');
+    expect(content.label, '[시연] 도로 통제가 예상돼요');
+    expect(content.detail, startsWith('지금 나가면'));
+    expect('${content.title}${content.detail}', isNot(contains('가짜')));
+  });
+
+  test('늦으면 "원인으로 희망 도착 시간에 도착하기 어려울 것 같아요" 로 말한다', () async {
+    final real = {...demoRoad, 'source': 'seoul.traffic_incident'};
+    final content = DepartureHeadlineContent.of(
+      await missed(causes: [real], late: true),
+      now,
+    );
+
+    expect(content.tone, DepartureHeadlineTone.late);
+    expect(content.title, '도로 통제로 희망 도착 시간에 도착하기 어려울 것 같아요');
+    expect(content.detail, contains('5분 늦어요'));
+  });
+
+  test('추정 원인(영향 가능성)으로는 "예상돼요" 라고 단정하지 않는다', () async {
+    final potential = {
+      ...demoRoad,
+      'effect': 'POTENTIAL_IMPACT',
+      'confirmed': false,
+    };
+    final content = DepartureHeadlineContent.of(
+      await missed(causes: [potential]),
+      now,
+    );
+
+    expect(content.title, startsWith('지금 나가면'));
+  });
+
+  test('원인 이름의 조사를 받침에 맞춘다', () {
+    expect(const HeadlineCause('도로 통제').subject, '도로 통제가');
+    expect(const HeadlineCause('교통 지연').subject, '교통 지연이');
+    expect(const HeadlineCause('도로 통제').instrument, '도로 통제로');
+    expect(const HeadlineCause('교통 지연').instrument, '교통 지연으로');
   });
 
   test('참고·대기·주의 카드는 여유와 관계없이 성격별 색을 쓴다', () {

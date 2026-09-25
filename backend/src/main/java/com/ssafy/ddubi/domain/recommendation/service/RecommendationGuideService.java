@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -75,6 +76,19 @@ public class RecommendationGuideService {
                     "traffic:latest:topis-event:",
                     "traffic:latest:topis-notice:");
 
+    /** 발표용 도로 통제 키(일정마다 하나). {@code RoadClosureDemoSupport} 가 쓴다. */
+    private static final String DEMO_ROAD_CONTROL_PREFIX = "demo:topis:road-control:schedule:";
+
+    /** 시연 통제 사건 번호: DEMO-TOPIS-{일정}-{입력 버전}. */
+    private static final Pattern DEMO_EVENT_ID =
+            Pattern.compile("DEMO-TOPIS-(\\d{1,19})-\\d{1,19}");
+
+    /**
+     * 시연 통제의 출처 표시. 실제 돌발 상세와 같은 값이라 안내 카드가 실제 통제와 똑같이 보인다. 시연임은 문장 앞 "[시연]" 으로 밝힌다(2026-09-25 요청:
+     * "시연 붙고 뒤에 실제처럼").
+     */
+    static final String DEMO_DISPLAY_SOURCE = "seoul.traffic_incident";
+
     private final ScheduleEvaluationStore store;
     private final GmsRecommendationGuideClient gms;
     private final RecommendationGuideProperties properties;
@@ -110,7 +124,11 @@ public class RecommendationGuideService {
         if (cached != null) return cached;
 
         List<RecommendationGuideResponse.RouteStep> steps = steps(evaluation);
-        CauseDetail detail = cause(evaluation.causes(), now);
+        // 발표용 통제도 실제 통제와 같은 길로 안내 문장을 만든다. 생성 AI 에는 실제 돌발 공지와 같은 모양의 사실(구간·버스 번호)만
+        // 보내고, 사용자에게 보이는 문장 앞에만 "[시연]" 을 붙인다. 예전에는 AI 를 건너뛰고 "가짜 도로 통제" 문장을 그대로 보여 줬다.
+        boolean syntheticDemo =
+                evaluation.causes().stream().anyMatch(cause -> "DEMO_TOPIS".equals(cause.source()));
+        CauseDetail detail = cause(scheduleId, evaluation.causes(), now);
         RecommendationGuideResponse.Delay delay = delay(evaluation.causes(), detail);
         GmsRecommendationGuideClient.ChangeFact change = change(evaluation);
         String fallbackRoute =
@@ -130,12 +148,7 @@ public class RecommendationGuideService {
         String copyKey =
                 COPY_PREFIX + scheduleId + ":" + situation(facts, steps, properties.model());
         try {
-            // 발표용 사건은 실제 TOPIS 공지로 오해하면 안 된다. 서버의 [시연용] 문장을
-            // 그대로 쓰고 생성 AI에는 보내지 않아 가짜 상황을 사실처럼 부풀리지 않는다.
-            boolean syntheticDemo =
-                    evaluation.causes().stream()
-                            .anyMatch(cause -> "DEMO_TOPIS".equals(cause.source()));
-            if (!syntheticDemo && worthAsking(change, delay)) {
+            if (worthAsking(change, delay)) {
                 // 같은 상황(경로·변경 종류와 방향·지연 원인)을 이미 AI 에게 물었으면 그 문장을 다시 쓴다.
                 // 출발 직전엔 1분마다 새 계산 번호가 생겨, 계산 번호만으로는 같은 문장을 매번 새로 받았다.
                 generated = reusedCopy(copyKey);
@@ -160,6 +173,10 @@ public class RecommendationGuideService {
                 generated == null
                         ? fallbackRecommendation(change, delay)
                         : generated.recommendationReason();
+        if (syntheticDemo) {
+            delayReason = demoLabel(delayReason);
+            recommendationReason = demoLabel(recommendationReason);
+        }
         RecommendationGuideResponse response =
                 new RecommendationGuideResponse(
                         "recommendation-guide-v1",
@@ -503,8 +520,17 @@ public class RecommendationGuideService {
         };
     }
 
-    private CauseDetail cause(List<ScheduleEvaluationV2.Cause> causes, Instant now) {
+    /** 시연 문장 앞에 "[시연]" 을 한 번만 붙인다. */
+    static String demoLabel(String text) {
+        if (text == null || text.isBlank()) return text;
+        return text.startsWith("[시연]") ? text : "[시연] " + text;
+    }
+
+    private CauseDetail cause(
+            long scheduleId, List<ScheduleEvaluationV2.Cause> causes, Instant now) {
         if (causes == null || causes.isEmpty()) return null;
+        CauseDetail demo = demoCause(scheduleId, causes, now);
+        if (demo != null) return demo;
         var keys = new ArrayList<String>();
         var owners = new ArrayList<ScheduleEvaluationV2.Cause>();
         var prefixes = new ArrayList<String>();
@@ -531,6 +557,34 @@ public class RecommendationGuideService {
             }
         } catch (Exception ignored) {
             return null;
+        }
+        return null;
+    }
+
+    /**
+     * 발표용 통제의 설명. 같은 일정의 시연 키에 저장된 구간 문장("A → B 구간 도로 통제로 …")을 실제 돌발 상세처럼 쓴다. 사건 번호·일정·유효시각이 모두 맞을
+     * 때만이다.
+     */
+    private CauseDetail demoCause(
+            long scheduleId, List<ScheduleEvaluationV2.Cause> causes, Instant now) {
+        for (var cause : causes) {
+            if (!"DEMO_TOPIS".equals(cause.source()) || cause.eventId() == null) continue;
+            var matcher = DEMO_EVENT_ID.matcher(cause.eventId());
+            if (!matcher.matches() || Long.parseLong(matcher.group(1)) != scheduleId) continue;
+            try {
+                String raw = redis.opsForValue().get(DEMO_ROAD_CONTROL_PREFIX + scheduleId);
+                if (raw == null) return null;
+                JsonNode event = json.readTree(raw);
+                Instant until = instant(event.path("validUntil").asText(null));
+                String message = event.path("message").asText("");
+                if (!cause.eventId().equals(event.path("eventId").asText())
+                        || until == null
+                        || !until.isAfter(now)
+                        || message.isBlank()) return null;
+                return new CauseDetail(cause, message, DEMO_DISPLAY_SOURCE);
+            } catch (Exception unreadable) {
+                return null;
+            }
         }
         return null;
     }
@@ -578,7 +632,7 @@ public class RecommendationGuideService {
                 detailMatchesChosen
                         ? detail.message()
                         : "DEMO_TOPIS".equals(chosen.source())
-                                ? "[시연용] 선택한 버스 경로에 가짜 도로 통제를 적용해 다른 경로를 계산했어요."
+                                ? "선택 경로에 도로 통제가 확인됐어요."
                                 : confirmed
                                         ? "선택 경로에 공식 교통 영향이 확인됐어요."
                                         : "선택 경로 주변에 교통 영향 가능성이 있어요.";

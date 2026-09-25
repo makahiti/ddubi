@@ -174,10 +174,8 @@ class TravelConditions {
     if (summary is! String || summary.isEmpty) {
       return const TravelConditionItem.unavailable();
     }
-    // 발표용 가짜 통제. 실제 사고로 오해하지 않게 덧말로 한 번 더 밝힌다.
-    if (data['source'] == 'DEMO_TOPIS') {
-      return TravelConditionItem.value(summary, note: '시연용 가상 통제');
-    }
+    // 발표용 통제도 실제 통제와 똑같이 보인다. 시연임은 서버 문장 앞의 "[시연]" 으로만 밝힌다
+    // (2026-09-25 요청). 예전에는 "시연용 가상 통제" 덧말을 붙였다.
     final count = data['count'];
     final provisional = data['mappingStatus'] == 'PROVISIONAL';
     return TravelConditionItem.value(

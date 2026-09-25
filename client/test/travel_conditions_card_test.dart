@@ -226,18 +226,24 @@ void main() {
       expect(parsed.roadBlock.note, '후보 매핑 · 추정 정보');
     });
 
-    test('시연용 가짜 통제는 실제 사고로 보이지 않게 덧말을 붙인다', () {
+    // 2026-09-25 요청: 시연 표시만 하고 나머지는 실제 통제와 똑같이 보인다.
+    test('시연 통제는 "[시연]" 표시만 붙고 실제 통제와 같은 모양으로 보인다', () {
       final parsed = TravelConditions.fromJson(const {
         'roadBlock': {
           'available': true,
           'count': 1,
-          'summary': '[시연] 선택한 버스 구간에 가짜 도로 통제를 적용했어요.',
+          'summary': '[시연] 서울역 → 숙대입구역 구간 도로 통제로 262번 버스 운행에 차질이 있어요.',
           'source': 'DEMO_TOPIS',
           'mappingStatus': 'DEMO',
         },
       });
       expect(parsed.roadBlock.text, startsWith('[시연]'));
-      expect(parsed.roadBlock.note, '시연용 가상 통제');
+      expect(parsed.roadBlock.text, isNot(contains('가짜')));
+      expect(
+        parsed.roadBlock.note,
+        isNull,
+        reason: '"시연용 가상 통제" 덧말은 더 붙이지 않는다',
+      );
     });
 
     test('기온이 없으면 강수량만으로 날씨를 만들지 않는다', () {

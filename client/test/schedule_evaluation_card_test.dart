@@ -283,6 +283,34 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  // 2026-09-25 요청: 일정 상세의 이동 예측 카드는 없앤다. 그래도 평가는 계속 읽어 맨 위 결론·시연 시작에 쓴다.
+  testWidgets('카드를 숨겨도 평가를 읽어 결론 값과 첫 결과 콜백을 채운다', (tester) async {
+    final repository = _FakeEvaluationRepository([fixtures['keep']!]);
+    final headline = ValueNotifier<ScheduleEvaluationV2?>(null);
+    var displayed = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScheduleEvaluationCard(
+            repository: repository,
+            scheduleId: 'schedule-1',
+            headline: headline,
+            showCard: false,
+            onFirstReadyDisplayed: () => displayed++,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('scheduleEvaluationCard')), findsNothing);
+    expect(headline.value, isNotNull);
+    expect(displayed, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('첫 READY 표시 뒤 시연 콜백은 한 번만 실행되고 이벤트 후 즉시 재조회한다', (tester) async {
     final repository = _FakeEvaluationRepository([fixtures['keep']!]);
     var displayed = 0;

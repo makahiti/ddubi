@@ -178,8 +178,8 @@ class MovementConditionsServiceTest {
     }
 
     /**
-     * 발표용 가짜 통제가 걸리면 도로 칸에도 시연이라고 밝혀 보여준다. 추천은 그 통제로 경로를 바꾸는데 도로 칸만 "확인된 통제 없음" 이면 화면이 어긋난다. 기능이 꺼져
-     * 있거나, 일정을 고쳐 입력 버전이 바뀌었거나, 지금 경로의 버스 구간이 아니면 보여주지 않는다.
+     * 발표용 통제가 걸리면 도로 칸에도 보여준다. 문장은 실제 돌발 공지 모양에 "[시연]" 만 붙인다(2026-09-25). 추천은 그 통제로 경로를 바꾸는데 도로 칸만
+     * "확인된 통제 없음" 이면 화면이 어긋난다. 기능이 꺼져 있거나, 일정을 고쳐 입력 버전이 바뀌었거나, 지금 경로의 버스 구간이 아니면 보여주지 않는다.
      */
     @Test
     void 시연통제는기능이켜지고같은일정같은입력버전의버스구간일때만시연으로표시한다() {
@@ -233,7 +233,28 @@ class MovementConditionsServiceTest {
                         .roadBlock();
         assertThat(shown.available()).isTrue();
         assertThat(shown.source()).isEqualTo("DEMO_TOPIS");
-        assertThat(shown.summary()).startsWith("[시연]");
+        // 저장된 구간 문장이 없던 예전 키도 "가짜" 같은 말 없이 같은 모양으로 보인다.
+        assertThat(shown.summary()).isEqualTo("[시연] 지금 버스 경로에 도로 통제가 있어요.");
+        when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
+                .thenReturn(
+                        event.formatted(2, "BUS:100:A:B", "BUS:100:A:B")
+                                .replace(
+                                        "\"status\"",
+                                        "\"message\":\"A → B 구간 도로 통제로 262번 버스 운행에 차질이 있어요.\","
+                                                + "\"status\""));
+        assertThat(
+                        new MovementConditionsService(
+                                        schedules,
+                                        routes,
+                                        redis,
+                                        new ObjectMapper(),
+                                        false,
+                                        12,
+                                        true)
+                                .get(7L, 3L, now)
+                                .roadBlock()
+                                .summary())
+                .isEqualTo("[시연] A → B 구간 도로 통제로 262번 버스 운행에 차질이 있어요.");
 
         // 기능이 꺼져 있으면 키가 남아 있어도 보여주지 않는다.
         assertThat(

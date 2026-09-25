@@ -164,11 +164,14 @@ public class EvaluationNotificationPlanner {
 
     private NotificationCommand command(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
                                         NotificationType type, String title, String body, String suppressKey) {
+        // 발표용 통제가 원인인 계산이면 제목 앞에 "[시연]" 만 붙이고 문구는 실제 알림과 같게 둔다(2026-09-25).
+        boolean demo = outcome.evidence() != null
+                && outcome.evidence().reasons().contains("DEMO_TOPIS_ROAD_CONTROL");
         return NotificationCommand.builder()
                 .userId(job.userId())
                 .scheduleId(outcome.scheduleId())
                 .type(type)
-                .title(title)
+                .title(demo ? "[시연] " + title : title)
                 .body(outcome.preview()!=null&&!outcome.preview().productionReady()?"[검증용] "+body:body)
                 .suppressKey(suppressKey)
                 .evaluationId(outcome.evaluationId())
