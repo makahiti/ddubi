@@ -38,8 +38,8 @@ class Settings:
         "INCHEON_API_KEY",
         "KMA_API_KEY",  # weather (우선)
         "DATA_GO_KR_API_KEY",  # weather (KMA 없을 때)
-        "BUS_API_KEY_A",  # short-term bus collection pool A
-        "BUS_API_KEY_B",  # short-term bus collection pool B
+        "BUS_API_KEY_A",  # bus_arrival/bus_location shared pool A
+        "BUS_API_KEY_B",  # bus_arrival/bus_location shared pool B
         "BUS_ARRIVAL_API_KEY",  # bus_arrival
         "BUS_LOCATION_API_KEY",  # bus_location
         "SUBWAY_API_KEY",  # subway_arrival, subway_location
@@ -64,11 +64,21 @@ class Settings:
     # SUBWAY_ALERT_API_URL/SERVICE_NAME·TRAFFIC_INCIDENT_SERVICE_NAME·SEOUL_API_PAGE_SIZE 는 어느 소스도 읽지 않아 제거)
     EXTRA_NAMES = (
         "TOPIS_NOTICE_DEDUP_PATH",
+        "TOPIS_NOTICE_PAGE_SIZE",
+        "TOPIS_NOTICE_DAILY_BUDGET",
+        "TOPIS_NOTICE_QUOTA_POOL",
+        "TOPIS_NOTICE_WEEKDAY_PEAK_WINDOWS",
+        "TOPIS_NOTICE_ACTIVE_WINDOWS",
+        "TOPIS_NOTICE_PEAK_INTERVAL_SECONDS",
+        "TOPIS_NOTICE_OFFPEAK_INTERVAL_SECONDS",
+        "TOPIS_NOTICE_OVERNIGHT_INTERVAL_SECONDS",
         "REGIONAL_BUS_TARGET_IDS",
         "BUS_CROSSWALK_PATH",
         "BUS_CROSSWALK_SHA256",
         "API_BUDGET_PATH",
         "API_DAILY_LIMIT",
+        "CITY_REALTIME_DAILY_BUDGET",
+        "CITY_REALTIME_QUOTA_POOL",
         "BUS_ARRIVAL_DAILY_BUDGET_PER_KEY",
         "BUS_LOCATION_DAILY_BUDGET_PER_KEY",
         "BUS_ARRIVAL_QUOTA_POOL",

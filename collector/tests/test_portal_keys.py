@@ -52,6 +52,21 @@ class PortalKeyTest(unittest.TestCase):
             settings = Settings.from_env()
         self.assertEqual(settings.api_key("TRAFFIC_INCIDENT_API_KEY"), "shared")
 
+    def test_environment_loads_shared_bus_pool(self):
+        with patch.dict(
+            os.environ,
+            {
+                "COLLECTOR_SOURCE": "bus_location",
+                "KAFKA_BOOTSTRAP_SERVERS": "unused",
+                "BUS_API_KEY_A": "key-a",
+                "BUS_API_KEY_B": "key-b",
+            },
+            clear=True,
+        ):
+            settings = Settings.from_env()
+        self.assertEqual(settings.api_keys["BUS_API_KEY_A"], "key-a")
+        self.assertEqual(settings.api_keys["BUS_API_KEY_B"], "key-b")
+
     def test_data_go_kr_sources_share_one_key(self):
         settings = self.settings({"DATA_GO_KR_API_KEY": "portal"})
         for source_name in ("BUS_ARRIVAL_API_KEY", "BUS_LOCATION_API_KEY", "GBIS_API_KEY", "INCHEON_API_KEY"):

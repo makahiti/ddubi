@@ -73,8 +73,8 @@ def plan_bus_collection(name: str, targets: list[str], now: datetime, extra: dic
         raise ValueError(f"unsupported bus source: {name}")
 
     if peak:
-        dense_interval = _positive(extra, "BUS_LOCATION_DENSE_INTERVAL_SECONDS", 120)
-        sparse_interval = _positive(extra, "BUS_LOCATION_SPARSE_INTERVAL_SECONDS", 600)
+        dense_interval = _positive(extra, "BUS_LOCATION_DENSE_INTERVAL_SECONDS", 150)
+        sparse_interval = _positive(extra, "BUS_LOCATION_SPARSE_INTERVAL_SECONDS", 300)
         panel_size = min(_positive(extra, "BUS_LOCATION_DENSE_ROUTE_COUNT", 50), len(targets))
         first, second = list(targets[:panel_size]), list(targets[panel_size:])
         if not second:
@@ -89,10 +89,10 @@ def plan_bus_collection(name: str, targets: list[str], now: datetime, extra: dic
         return BusCollectionPlan(selected, dense_interval, "weekday-peak-rotating-panel")
 
     if weekday and service:
-        interval = _positive(extra, "BUS_LOCATION_OFFPEAK_INTERVAL_SECONDS", 1800)
+        interval = _positive(extra, "BUS_LOCATION_OFFPEAK_INTERVAL_SECONDS", 900)
         scope = "weekday-offpeak-all-routes"
     elif service:
-        interval = _positive(extra, "BUS_LOCATION_WEEKEND_INTERVAL_SECONDS", 1800)
+        interval = _positive(extra, "BUS_LOCATION_WEEKEND_INTERVAL_SECONDS", 900)
         scope = "weekend-all-routes"
     else:
         interval = _positive(extra, "BUS_LOCATION_OVERNIGHT_INTERVAL_SECONDS", 3600)

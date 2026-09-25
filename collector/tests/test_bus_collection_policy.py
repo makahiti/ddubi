@@ -25,22 +25,22 @@ class BusCollectionPolicyTest(unittest.TestCase):
             plan_bus_collection("bus_arrival", self.targets, monday.replace(hour=2), {}).interval_seconds, 1800
         )
 
-    def test_location_rotates_dense_panel_and_includes_sparse_panel_every_ten_minutes(self):
-        monday = datetime(2026, 9, 21, 7, 2, tzinfo=KST)
+    def test_location_rotates_dense_panel_and_includes_sparse_panel_every_five_minutes(self):
+        monday = datetime(2026, 9, 21, 7, 2, 30, tzinfo=KST)
         tuesday = monday.replace(day=22)
         monday_plan = plan_bus_collection("bus_location", self.targets, monday, {})
         tuesday_plan = plan_bus_collection("bus_location", self.targets, tuesday, {})
-        self.assertEqual(monday_plan.interval_seconds, 120)
+        self.assertEqual(monday_plan.interval_seconds, 150)
         self.assertEqual(len(monday_plan.targets), 50)
         self.assertEqual(len(tuesday_plan.targets), 50)
         self.assertTrue(set(monday_plan.targets).isdisjoint(tuesday_plan.targets))
-        full = plan_bus_collection("bus_location", self.targets, monday.replace(minute=10), {})
+        full = plan_bus_collection("bus_location", self.targets, monday.replace(minute=5, second=0), {})
         self.assertEqual(len(full.targets), 100)
 
     def test_weekend_keeps_low_frequency_full_coverage(self):
         saturday = datetime(2026, 9, 26, 12, 0, tzinfo=KST)
         plan = plan_bus_collection("bus_location", self.targets, saturday, {})
-        self.assertEqual(plan.interval_seconds, 1800)
+        self.assertEqual(plan.interval_seconds, 900)
         self.assertEqual(plan.targets, self.targets)
 
 

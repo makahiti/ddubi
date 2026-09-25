@@ -44,7 +44,7 @@
 | subway_arrival | 6분 | API 2회/cycle | 480 | API `isComplete`; 정상 0건 허용 |
 | subway_location | 60분 | line 16 | 384 | configured line 전체 성공; empty line 보존 |
 | subway_alert | 15분 | 전체 page | 최소 96 + 추가 page | `hasMore`이면 PARTIAL |
-| city_realtime | 6시간 | area 121 | 484 | requested/received scope 일치 여부 |
+| city_realtime | 5분 | area 121 | 34,848 | requested/received scope 일치 여부 |
 | topis_notice | 15분 | 첫 1,000건 | 96 | `hasMore`이면 PARTIAL, content revision dedup |
 | traffic_incident | 15분 | 전체 page | 최소 96 + 추가 page | 전체 page 검증 성공만 complete |
 | weather | 10분 | grid 14 | 2,016 | grid별 성공/실패, 일부 실패는 PARTIAL |

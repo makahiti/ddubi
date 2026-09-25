@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import httpx
+from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import ConfigError, Settings
 from events import build_event
 from notice_dedup import NoticeDedup, publish_notices
@@ -24,6 +25,7 @@ from request_budget import RequestBudget, RetryScheduled, RetryWait
 from sources.base import SourceSpec, now_kst
 from sources.subway_schedule import SkippedNonService, pause_until
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from topis_notice_policy import plan_topis_notice
 
 log = logging.getLogger("collector")
 
@@ -58,20 +60,13 @@ def resume_wait(next_at: float | None, now: float, wait_seconds: float) -> float
 
 def _next_cycle_at(settings: Settings) -> float | None:
     """호출 한도 기록에 남은 이 수집기의 다음 수집 허용 시각. 한도를 쓰지 않는 수집기면 None."""
-    from sources.kafka_adapter import POLICIES
+    from sources.kafka_adapter import POLICIES, make_request_budget
 
     policy = POLICIES.get(settings.source)
     if policy is None:
         return None
     try:
-        budget = RequestBudget(
-            settings.extra.get(
-                "API_BUDGET_PATH",
-                str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3"),
-            ),
-            settings.api_key(policy[0]),
-            int(settings.extra.get("API_DAILY_LIMIT", "900")),
-        )
+        budget = make_request_budget(settings.source, settings, settings.api_key(policy[0]))
         return budget.next_cycle_at(settings.source)
     except Exception:
         log.warning("source=%s could not read cycle deadline; using normal polling interval", settings.source)
@@ -213,13 +208,20 @@ def main() -> int:
         log.error("%s", exc)
         return 2
 
-    pooled_bus = settings.source in ("bus_arrival", "bus_location") and (
-        settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B")
+    pooled_bus = settings.source in ("bus_arrival", "bus_location") and bus_dense_policy_enabled(
+        settings, settings.source
     )
+    topis_dynamic = settings.source == "topis_notice"
     interval = settings.interval_seconds or (
-        300 if settings.source == "bus_arrival" and pooled_bus else 120 if pooled_bus else spec.default_interval_seconds
+        plan_topis_notice(now_kst(), settings.extra).interval_seconds
+        if topis_dynamic
+        else 300
+        if settings.source == "bus_arrival" and pooled_bus
+        else int(settings.extra.get("BUS_LOCATION_DENSE_INTERVAL_SECONDS", "150"))
+        if pooled_bus
+        else spec.default_interval_seconds
     )
-    if settings.source != "weather" and not pooled_bus:
+    if settings.source != "weather" and not pooled_bus and not topis_dynamic:
         interval = max(interval, spec.default_interval_seconds)
     log.info(
         "start source=%s topic=%s interval=%ss kafka=%s run_once=%s",
@@ -251,6 +253,11 @@ def main() -> int:
     exit_code = 0
     with httpx.Client(timeout=httpx.Timeout(10.0 if settings.source == "weather" else 60.0, connect=5.0)) as client:
         while not stop.is_set():
+            if topis_dynamic:
+                interval = max(
+                    plan_topis_notice(now_kst(), settings.extra).interval_seconds,
+                    settings.interval_seconds or 0,
+                )
             cycle_started = time.monotonic()
             wait_seconds = interval
             waiting_for_retry = False
@@ -291,25 +298,29 @@ def main() -> int:
                     exit_code = 1
             if settings.run_once:
                 break
-            if pooled_bus and not waiting_for_retry:
-                # Bus windows define start-to-start cadence. A 100-route scan at
-                # 1 request/s takes about 100 seconds; do not add the full poll
-                # interval again after that work completes.
+            if (pooled_bus or topis_dynamic) and not waiting_for_retry:
+                # Time-window policies use start-to-start cadence. In particular,
+                # a 100-route bus scan must not add the full interval again after
+                # that work completes.
                 wait_seconds = max(1, interval - (time.monotonic() - cycle_started))
-            if (
-                settings.source == "bus_location"
-                and not waiting_for_retry
-                and not (settings.api_keys.get("BUS_API_KEY_A") or settings.api_keys.get("BUS_API_KEY_B"))
-            ):
+            if settings.source == "bus_location" and not waiting_for_retry and not pooled_bus:
                 # After either regular/retry completion, keep the original 8h deadline.
                 try:
+                    slot, key = bus_key_candidates(settings, "bus_location")[0]
+                    pool = settings.extra.get("BUS_LOCATION_QUOTA_POOL", "data-go-kr:15000332")
                     budget = RequestBudget(
                         settings.extra.get(
                             "API_BUDGET_PATH",
                             str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3"),
                         ),
-                        settings.api_key("BUS_LOCATION_API_KEY"),
-                        int(settings.extra.get("API_DAILY_LIMIT", "900")),
+                        key,
+                        int(
+                            settings.extra.get(
+                                "BUS_LOCATION_DAILY_BUDGET_PER_KEY",
+                                settings.extra.get("API_DAILY_LIMIT", "900"),
+                            )
+                        ),
+                        namespace=f"{pool}:{slot}",
                     )
                     next_at = budget.next_cycle_at("bus_location")
                     if next_at is not None and next_at > time.time():

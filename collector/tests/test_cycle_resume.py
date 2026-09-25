@@ -12,22 +12,22 @@ from request_budget import RequestBudget
 
 class CycleResumeTest(unittest.TestCase):
     def test_restart_inside_cooldown_waits_only_the_rest(self):
-        """10:21 에 수집한 혼잡도(6시간 주기)가 15:04 재시작 뒤 16:21 에 다시 받게 된다."""
+        """5분 도시 수집 도중 재시작해도 최초 시작 시각 기준 다음 회차를 지킨다."""
         clock = [0.0]
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "budget.db")
-            budget = RequestBudget(path, "key", 900, clock=lambda: clock[0])
-            self.assertTrue(budget.claim_cycle("city_realtime", 21600, 121))
+            budget = RequestBudget(path, "key", 40000, clock=lambda: clock[0])
+            self.assertTrue(budget.claim_cycle("city_realtime", 300, 121))
 
-            clock[0] = 4 * 3600 + 43 * 60  # 재시작: 아직 쉬는 시간
-            restarted = RequestBudget(path, "key", 900, clock=lambda: clock[0])
-            self.assertFalse(restarted.claim_cycle("city_realtime", 21600, 121))
+            clock[0] = 120  # 121개 장소 수집이 끝나기 직전에 재시작한 상황
+            restarted = RequestBudget(path, "key", 40000, clock=lambda: clock[0])
+            self.assertFalse(restarted.claim_cycle("city_realtime", 300, 121))
 
-            wait = resume_wait(restarted.next_cycle_at("city_realtime"), clock[0], 21600)
-            self.assertEqual(wait, 21600 - clock[0] + 1)  # 한 주기(6시간)가 아니라 남은 1시간 17분
+            wait = resume_wait(restarted.next_cycle_at("city_realtime"), clock[0], 300)
+            self.assertEqual(wait, 181)  # 완료 뒤 5분이 아니라 최초 시작 뒤 5분(+1초)
 
             clock[0] += wait
-            self.assertTrue(restarted.claim_cycle("city_realtime", 21600, 121))
+            self.assertTrue(restarted.claim_cycle("city_realtime", 300, 121))
 
     def test_never_waits_longer_than_the_interval(self):
         # 수집이 금방 끝나면 허용 시각이 한 주기 가까이 남는다. 주기보다 길게 기다리지 않는다.

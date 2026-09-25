@@ -14,9 +14,9 @@ rs=$(docker ps --filter label=com.docker.compose.project=ddubi --format '{{.Name
 [ -z "$rs" ] && r PASS 컨테이너 "재시작 0" "-" || r WARN 컨테이너 "재시작 있음" "$rs"
 
 # 2. 수집기 9개. 마지막 사이클이 성공이고 소스별 주기의 2배 안에 있어야 한다.
-#    주기: weather 10분, subway-arrival 6분, subway-location 60분, bus 두 개 480분, city-realtime 360분(6시간), 나머지 15분.
+#    주기: weather 10분, subway-arrival 6분, subway-location 60분, bus는 시간대별 정책, city-realtime 5분, 나머지는 소스별 정책.
 for c in $(docker ps --format '{{.Names}}' | grep '^collector-'); do
-  case $c in *weather) p=10;; *subway-arrival) p=6;; *subway-location) p=60;; *bus-*) p=480;; *city-realtime) p=360;; *) p=15;; esac
+  case $c in *weather) p=10;; *subway-arrival) p=6;; *subway-location) p=60;; *bus-*) p=480;; *city-realtime) p=5;; *) p=15;; esac
   last=$(docker logs "$c" --since 20h 2>&1 | grep -E 'cycle (ok|failed|skipped)' | tail -1)
   ts=$(echo "$last" | grep -oE '^[0-9-]{10} [0-9:]{8}'); st=$(echo "$last" | grep -oE 'cycle (ok|failed|skipped)')
   [ -z "$ts" ] && { r FAIL 수집 "$c" "20시간 안에 사이클 기록 없음"; continue; }
