@@ -16,8 +16,9 @@ import org.springframework.stereotype.Component;
  * 시연 일정은 상세 화면을 열지 않아도 도로 통제와 알림이 오게 한다(2026-09-25 요청).
  *
  * <p>일정을 저장하고(입력 시각) 기본 10초가 지나면 서버가 스스로 {@link RoadClosureDemoRunner} 를 부른다. 첫 계산이 아직 안 끝났거나 다른
- * 계산이 잠깐 붙잡고 있으면 5초 뒤 다시 해 보고, 일정·입력 버전마다 최대 {@value #MAX_ATTEMPTS} 번까지만 한다. 이미 통제가 걸린 일정은 다시 계산하지
- * 않는다. 버스 위주 경로가 아니거나 우회 경로가 없는 일정은 RoadClosureDemoSupport 가 거절하고, 그러면 평소 일정처럼 둔다.
+ * 계산이 잠깐 붙잡고 있으면 5초 뒤 다시 해 보고, 일정마다 한 번, 최대 {@value #MAX_ATTEMPTS} 번까지만 한다. 이미 통제가 걸린 일정은 다시 계산하지
+ * 않는다 — 제안 경로로 바꿔 입력 버전이 올라가도 다시 걸지 않는다(2026-09-26: 바꾼 경로에 통제를 또 걸어 계속 막혔다). 버스 위주 경로가 아니거나 우회 경로가
+ * 없는 일정은 RoadClosureDemoSupport 가 거절하고, 그러면 평소 일정처럼 둔다.
  *
  * <p>대상은 제목이 "[시연]" 으로 시작하고, 출발 전이고, 도착까지 3시간 안이고, 30분 안에 저장한 일정뿐이다. 기능이 꺼져 있으면 Bean 자체가 없다.
  */
@@ -85,10 +86,11 @@ public class RoadClosureDemoAutoTrigger {
         attempts.values()
                 .removeIf(a -> a.firstAt().isBefore(now.minusSeconds(FORGET_AFTER_SECONDS)));
         for (Candidate c : candidates) {
-            String key = c.scheduleId() + ":" + c.inputRevision();
+            // 일정마다 한 번이다. 제안 경로로 바꿔 입력 버전이 올라가도 다시 걸지 않는다(2026-09-26 제보).
+            String key = String.valueOf(c.scheduleId());
             Attempt previous = attempts.get(key);
             if (previous != null && (previous.done() || previous.count() >= MAX_ATTEMPTS)) continue;
-            // 앱이 먼저 걸었거나 서버가 재시작된 경우: 같은 입력 버전의 통제가 이미 있으면 다시 계산하지 않는다.
+            // 앱이 먼저 걸었거나 서버가 재시작된 경우: 이 일정에 통제가 이미 있으면 다시 계산하지 않는다.
             if (alreadyApplied(c)) {
                 attempts.put(key, new Attempt(0, true, now));
                 continue;
@@ -115,8 +117,6 @@ public class RoadClosureDemoAutoTrigger {
     }
 
     private boolean alreadyApplied(Candidate c) {
-        return demo.event(c.scheduleId())
-                .map(event -> event.path("inputRevision").asLong(-1) == c.inputRevision())
-                .orElse(false);
+        return demo.event(c.scheduleId()).isPresent();
     }
 }

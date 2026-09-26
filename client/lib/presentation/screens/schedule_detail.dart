@@ -1254,11 +1254,7 @@ class ScheduleCompareBanner {
     if (evaluation != null && evaluation.routeChangeProposed) {
       return ('새로 제안된 경로가 있어요.', '아래 경로 카드에서 비교하고 바꿀 수 있어요.');
     }
-    final planned = evaluation?.plannedDepartAt;
-    final proposed = evaluation?.proposedDepartAt;
-    if (planned != null &&
-        proposed != null &&
-        proposed.difference(planned).inMinutes.abs() >= 1) {
+    if (evaluation != null && evaluation.departureChangeProposed) {
       return ('출발 시각을 다시 제안했어요.', '아래 안내에서 확인하고 바꿀 수 있어요.');
     }
     return ('지금 경로 그대로 가면 돼요.', '새 정보가 들어오면 자동으로 다시 계산해요.');

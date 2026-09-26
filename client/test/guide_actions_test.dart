@@ -347,4 +347,30 @@ void main() {
     expect(find.text('seoul.traffic_incident'), findsNothing);
     expect(find.textContaining('[시연]'), findsNothing);
   });
+
+  // 2026-09-26 제보: 이동 예측 카드를 숨기면서 경로·시각·요금이 화면에서 사라졌다. 안내 카드에 다시 보인다.
+  testWidgets('안내 카드 안에 경로 요약과 요금을 다시 보여준다', (tester) async {
+    await pumpActions(
+      tester,
+      repository: _FakeRepository(latest: _evaluation('eval-1')),
+    );
+
+    expect(find.byKey(const Key('guideRouteSummary')), findsOneWidget);
+    expect(find.text('예상 요금 1,650원'), findsOneWidget);
+  });
+
+  testWidgets('지금 경로를 유지하면 출발 시각 바꾸기 단추를 띄우지 않는다', (tester) async {
+    await pumpActions(
+      tester,
+      repository: _FakeRepository(latest: _evaluation('eval-1')),
+      evaluation: _evaluationWith({
+        'selectedRouteId': 1,
+        'proposedRouteId': 1,
+        'plannedDepartAt': future.toIso8601String(),
+        'proposedDepartAt': future.toIso8601String(),
+      }),
+    );
+
+    expect(find.text('제안한 출발 시각으로 바꾸기'), findsNothing);
+  });
 }

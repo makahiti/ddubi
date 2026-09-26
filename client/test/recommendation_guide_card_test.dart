@@ -135,9 +135,10 @@ void main() {
     expect(find.byKey(const Key('guideChangeType')), findsOneWidget);
     expect(find.text('다른 경로 제안'), findsOneWidget);
     expect(find.text('AI 교통 안내'), findsOneWidget);
-    expect(find.byKey(const Key('guideRouteSummary')), findsNothing);
-    expect(find.byKey(const Key('guideFare')), findsNothing);
-    expect(find.text('도보로 역까지 이동한 뒤 지하철을 이용하세요.'), findsNothing);
+    // 2026-09-26: 이동 예측 카드를 숨겨서 경로·요금을 이 카드에 다시 보여준다(09-23 에 뺐던 것).
+    expect(find.byKey(const Key('guideRouteSummary')), findsOneWidget);
+    expect(find.byKey(const Key('guideFare')), findsOneWidget);
+    expect(find.text('도보로 역까지 이동한 뒤 지하철을 이용하세요.'), findsOneWidget);
   });
 
   testWidgets('구형 AI의 경로 나열은 숨기고 교통 영향과 경로 변경만 설명한다', (tester) async {

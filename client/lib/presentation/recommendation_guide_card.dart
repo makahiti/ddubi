@@ -285,7 +285,7 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
               ),
             ],
           ),
-          if (guide != null && guide.delay.hasMessage) ...[
+          if (guide != null && _hasDetail(guide)) ...[
             const SizedBox(height: 12),
             _detailBox(guide),
           ],
@@ -452,8 +452,16 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
       value.contains('→') ||
       (value.contains('탑승 후') && value.contains('하차') && value.contains('에서'));
 
-  /// 중복되는 경로·시각·요금은 아래 전용 카드에 맡긴다. 여기에는 확인된
-  /// 교통 영향과 변경 이유만 남겨 AI 안내의 목적을 분명히 한다.
+  static bool _hasDetail(RecommendationGuide guide) =>
+      guide.routeSummary != null ||
+      guide.steps.isNotEmpty ||
+      guide.minimumFareWon != null ||
+      guide.delay.hasMessage;
+
+  /// 카드 안쪽 흰 상자. 경로·시각·요금·구간·교통 영향을 담는다.
+  ///
+  /// 2026-09-23 에 경로·시각·요금을 아래 "이동 예측" 카드에 맡기고 여기서 뺐다. 그 카드를 2026-09-25 에 숨기면서
+  /// 이 정보가 화면에서 통째로 사라졌다(2026-09-26 제보: "원래 밑에 다 나왔는데 지금은 안 나와"). 다시 여기에 둔다.
   Widget _detailBox(RecommendationGuide guide) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
@@ -463,11 +471,63 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _delayRow(guide.delay),
+        if (guide.routeSummary != null)
+          Text(
+            guide.routeSummary!,
+            key: const Key('guideRouteSummary'),
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: Color(0xFF344054),
+            ),
+          ),
+        // 사유 없는 구형 응답이면 숫자 headline 을 되풀이하지 않는다(위 문장이 상태만 말한다).
+        if (guide.headline != null && guide.recommendationReason != null) ...[
+          if (guide.routeSummary != null) const SizedBox(height: 10),
+          Text(
+            guide.headline!,
+            key: const Key('guideHeadline'),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: DdubiColors.navy,
+            ),
+          ),
+        ],
+        if (guide.minimumFareWon != null) ...[
+          const SizedBox(height: 8),
+          Row(
+            key: const Key('guideFare'),
+            children: [
+              const Icon(
+                Icons.payments_outlined,
+                size: 16,
+                color: Color(0xFF5C6B7F),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '예상 요금 ${_fare(guide.minimumFareWon!, guide.maximumFareWon)}',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: DdubiColors.navy,
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (guide.steps.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          for (final step in guide.steps) _stepRow(step),
+        ],
+        if (guide.delay.hasMessage) ...[
+          const SizedBox(height: 10),
+          _delayRow(guide.delay),
+        ],
         if (guide.dataAsOf != null) ...[
           const SizedBox(height: 10),
           Text(
-            '확인한 자료 기준 ${_clock(guide.dataAsOf!)}',
+            '실시간 정보 기준 ${_clock(guide.dataAsOf!)}',
             key: const Key('guideDataAsOf'),
             style: const TextStyle(fontSize: 11, color: Color(0xFF6B7A8C)),
           ),
@@ -476,10 +536,73 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     ),
   );
 
-  /// 서버가 확정한 변경 유형을 사람 말로 바꾼다.
-  ///
-  /// 모르는 값이면 null 을 돌려주고 아무것도 그리지 않는다. 서버가 나중에 유형을
-  /// 늘렸을 때 앱이 영어 코드를 그대로 보여주는 일이 없어야 한다.
+  Widget _stepRow(GuideStep step) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(_stepIcon(step.mode), size: 17, color: _stepTone(step.mode)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            _stepText(step),
+            style: const TextStyle(fontSize: 13, color: DdubiColors.navy),
+          ),
+        ),
+        if (step.durationSeconds != null)
+          Text(
+            '약 ${(step.durationSeconds! / 60).ceil()}분',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+          ),
+      ],
+    ),
+  );
+
+  static String _stepText(GuideStep step) {
+    if (step.instruction != null) return step.instruction!;
+    final label = _modeLabel(step.mode);
+    final route = step.routeLabel == null ? label : '$label ${step.routeLabel}';
+    final from = step.fromName ?? '';
+    final to = step.toName ?? '';
+    if (from.isEmpty && to.isEmpty) return route;
+    return '$route  $from → $to';
+  }
+
+  static String _modeLabel(String mode) => switch (mode) {
+    'WALK' => '도보',
+    'BUS' => '버스',
+    'SUBWAY' => '지하철',
+    'TAXI' => '택시',
+    _ => '이동',
+  };
+
+  static IconData _stepIcon(String mode) => switch (mode) {
+    'WALK' => Icons.directions_walk_rounded,
+    'BUS' => Icons.directions_bus_rounded,
+    'SUBWAY' => Icons.directions_subway_rounded,
+    _ => Icons.place_outlined,
+  };
+
+  static Color _stepTone(String mode) => switch (mode) {
+    'WALK' => const Color(0xFF7F91A2),
+    'BUS' => DdubiColors.green,
+    'SUBWAY' => DdubiColors.blue,
+    _ => DdubiColors.navy,
+  };
+
+  /// 단일 요금과 범위 요금을 구분한다. 최대값이 없으면 확인된 최소값만 표시한다.
+  static String _fare(int minimum, int? maximum) {
+    final value = maximum == null || maximum == minimum
+        ? _number(minimum)
+        : '${_number(minimum)}~${_number(maximum)}';
+    return '$value원';
+  }
+
+  static String _number(int value) => value.toString().replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
+
   /// 출처 이름을 사람의 말로. 서버의 출처 값(영문 코드)을 그대로 보여 주지 않는다(2026-09-26 제보).
   /// 모르는 출처는 보여 주지 않는다.
   static String? sourceLabel(String? source) {
@@ -492,6 +615,10 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
     return null;
   }
 
+  /// 서버가 확정한 변경 유형을 사람 말로 바꾼다.
+  ///
+  /// 모르는 값이면 null 을 돌려주고 아무것도 그리지 않는다. 서버가 나중에 유형을
+  /// 늘렸을 때 앱이 영어 코드를 그대로 보여주는 일이 없어야 한다.
   static String? _changeLabel(String? changeType) => switch (changeType) {
     'ROUTE_CHANGED' => '다른 경로 제안',
     'DEPARTURE_TIME_CHANGED' => '출발시각 변경 제안',
@@ -714,7 +841,8 @@ class _GuideActionsState extends State<_GuideActions> {
       final departureOnly =
           proposed != null &&
           evaluation != null &&
-          !evaluation.routeChangeProposed;
+          !evaluation.routeChangeProposed &&
+          evaluation.departureChangeProposed;
       final departed = evaluation?.actualDepartAt != null;
       final journey = widget.onStartJourney;
 

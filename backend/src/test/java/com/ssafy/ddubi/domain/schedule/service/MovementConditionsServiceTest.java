@@ -265,13 +265,13 @@ class MovementConditionsServiceTest {
                                 .source())
                 .isNotEqualTo("DEMO_TOPIS");
 
-        // 일정을 고쳐 입력 버전이 바뀌면 지난 시연 통제는 쓰지 않는다.
+        // 통제는 일정마다 한 번이다. 제안 경로로 바꿔 입력 버전이 올라가도 막힌 도로는 그대로 막혀 있다(2026-09-26).
         when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
                 .thenReturn(event.formatted(1, "BUS:100:A:B", "BUS:100:A:B"));
         var service =
                 new MovementConditionsService(
                         schedules, routes, redis, new ObjectMapper(), false, 12, true);
-        assertThat(service.get(7L, 3L, now).roadBlock().source()).isNotEqualTo("DEMO_TOPIS");
+        assertThat(service.get(7L, 3L, now).roadBlock().source()).isEqualTo("DEMO_TOPIS");
 
         // 지금 경로에 없는 구간의 통제는 이 경로의 통제가 아니다.
         when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))

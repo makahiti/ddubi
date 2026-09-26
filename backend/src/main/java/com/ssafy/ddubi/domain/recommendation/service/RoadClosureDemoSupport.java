@@ -155,7 +155,16 @@ public class RoadClosureDemoSupport {
     public static String stopPair(String segmentId) {
         if (segmentId == null || !segmentId.startsWith("BUS:")) return null;
         String[] parts = segmentId.split(":");
-        return parts.length == 4 ? parts[2] + ":" + parts[3] : null;
+        return parts.length == 4 ? stopNumber(parts[2]) + ":" + stopNumber(parts[3]) : null;
+    }
+
+    /**
+     * 정류장 번호에서 출처 표시를 뗀다. 경기 버스는 같은 서울 정류장을 "GBIS.122000008" 처럼 앞에 표시를 붙여 적는다. 떼지 않으면 같은 정류장을 지나는
+     * 경기 버스(3030번 등)가 다른 도로로 보여 통제를 피해 갔다(2026-09-26 제보).
+     */
+    private static String stopNumber(String node) {
+        int dot = node.lastIndexOf('.');
+        return dot >= 0 ? node.substring(dot + 1) : node;
     }
 
     private static Set<String> stopPairs(RouteCandidate c) {
@@ -199,15 +208,17 @@ public class RoadClosureDemoSupport {
                 || !(row.get("evaluation_revision") instanceof Number evaluationRevision)
                 || scheduleRevision.longValue() != evaluationRevision.longValue())
             throw new BusinessException(ErrorCode.INVALID_STATE, "서울 시연 일정의 첫 계산이 필요합니다.");
+        // 시연 통제는 일정마다 한 번이다. 제안 경로로 바꾸면 입력 버전이 올라가는데, 예전에는 그때 새 경로에 통제를 또
+        // 걸어 계속 막혔다(2026-09-26 제보). 이미 걸린 통제가 있으면 버전과 관계없이 그대로 둔다.
         String existing = redis.opsForValue().get(PREFIX + scheduleId);
         if (existing != null) {
             try {
-                if (json.readTree(existing).path("inputRevision").asLong(-1)
-                        == ((Number) row.get("schedule_revision")).longValue()) return false;
-            } catch (Exception ignored) {
-                // 오래된/깨진 발표 데이터는 아래에서 같은 일정 키에 안전하게 덮어쓴다.
+                json.readTree(existing);
+                return false;
+            } catch (Exception broken) {
+                // 깨진 발표 데이터만 아래에서 같은 일정 키에 안전하게 덮어쓴다.
+                redis.delete(PREFIX + scheduleId);
             }
-            redis.delete(PREFIX + scheduleId);
         }
         try {
             var outcome =
@@ -400,7 +411,10 @@ public class RoadClosureDemoSupport {
         redis.delete(PREFIX + scheduleId);
     }
 
-    /** 일정 전용 Redis 값만 평가 스냅샷에 얹는다. 다른 일정·실제 교통 상태는 수정하지 않는다. */
+    /**
+     * 일정 전용 Redis 값만 평가 스냅샷에 얹는다. 다른 일정·실제 교통 상태는 수정하지 않는다. 통제는 일정마다 한 번이라 [inputRevision] 은 보지 않는다
+     * — 제안 경로로 바꿔도 막힌 도로는 그대로 막혀 있어야 한다(2026-09-26).
+     */
     public RouteEvidenceAssembler.Snapshot overlay(
             long scheduleId,
             long inputRevision,
@@ -417,7 +431,6 @@ public class RoadClosureDemoSupport {
             if (!event.path("demo").asBoolean()
                     || !"DEMO_TOPIS".equals(event.path("source").asText())
                     || event.path("scheduleId").asLong() != scheduleId
-                    || event.path("inputRevision").asLong(-1) != inputRevision
                     || !Instant.parse(event.path("validUntil").asText()).isAfter(now)
                     || candidates.stream().noneMatch(c -> crosses(c, id, pair))) return snapshot;
             var states = new LinkedHashMap<>(snapshot.states());

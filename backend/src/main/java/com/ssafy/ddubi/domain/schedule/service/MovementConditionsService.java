@@ -268,8 +268,8 @@ public class MovementConditionsService {
      * 발표용 가짜 통제가 이 일정에 걸려 있으면 도로 칸에도 보여준다. 추천은 이 통제로 경로를 바꾸는데 도로 칸만 "확인된 통제 없음" 이면 화면이 서로 어긋난다.
      *
      * <p>문장은 실제 돌발 공지와 같은 모양에 "[시연]" 을 붙이고, 출처 칸(DEMO_TOPIS)으로 시연임을 남긴다. 판단 조건은 추천 쪽({@code
-     * RoadClosureDemoSupport#overlay})과 같다 — 같은 일정·같은 입력 버전·아직 유효·지금 경로의 버스 구간일 때만. 기능이 꺼져 있으면 키를
-     * 읽지도 않는다.
+     * RoadClosureDemoSupport#overlay})과 같다 — 같은 일정·아직 유효·지금 경로가 막힌 도로(두 정류장 사이)를 지날 때만. 통제는 일정마다 한
+     * 번이라 제안 경로로 바꿔 입력 버전이 올라가도 그대로다(2026-09-26). 기능이 꺼져 있으면 키를 읽지도 않는다.
      */
     private java.util.Optional<MovementConditionsResponse.RoadBlock> demoRoad(
             Schedule schedule, List<EdgeRef> edges, Instant now) {
@@ -278,8 +278,7 @@ public class MovementConditionsService {
         if (event == null
                 || !event.path("demo").asBoolean(false)
                 || !"DEMO_TOPIS".equals(event.path("source").asText())
-                || event.path("scheduleId").asLong(-1) != schedule.getId()
-                || event.path("inputRevision").asLong(-1) != schedule.getInputRevision())
+                || event.path("scheduleId").asLong(-1) != schedule.getId())
             return java.util.Optional.empty();
         Instant startsAt = instant(event.path("computedAt").asText(null));
         Instant until = instant(event.path("validUntil").asText(null));

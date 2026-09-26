@@ -39,15 +39,33 @@ class RoadClosureDemoAutoTriggerTest {
         verify(runner, times(1)).run(anyLong(), anyLong(), any());
     }
 
-    /** 앱이 먼저 걸었거나 서버가 재시작된 뒤: 같은 입력 버전의 통제가 있으면 다시 계산하지 않는다. */
+    /**
+     * 통제는 일정마다 한 번이다. 앱이 먼저 걸었거나, 서버가 재시작됐거나, 제안 경로로 바꿔 입력 버전이 올라갔어도 이미 걸린 통제가 있으면 다시 걸지
+     * 않는다(2026-09-26 제보: 바꾼 경로에 통제를 또 걸어 계속 막혔다).
+     */
     @Test
-    void skipsWhenTheSameRevisionIsAlreadyControlled() throws Exception {
+    void neverControlsTheSameScheduleTwice() throws Exception {
         when(demo.event(65))
                 .thenReturn(Optional.of(new ObjectMapper().readTree("{\"inputRevision\":1}")));
 
         trigger.run(one, now);
+        trigger.run(
+                List.of(new RoadClosureDemoAutoTrigger.Candidate(65, 1, 2)), now.plusSeconds(30));
 
         verify(runner, never()).run(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void acceptingTheProposalDoesNotStartAnotherDemo() {
+        when(demo.event(65)).thenReturn(Optional.empty());
+        when(runner.run(65, 1, now)).thenReturn(Map.of("state", "ALTERNATIVE_READY"));
+
+        trigger.run(one, now);
+        // 제안 경로로 바꿔 입력 버전이 2 가 됐다. 통제 키가 잠깐 안 보여도(예: 읽기 실패) 같은 일정은 다시 하지 않는다.
+        trigger.run(
+                List.of(new RoadClosureDemoAutoTrigger.Candidate(65, 1, 2)), now.plusSeconds(30));
+
+        verify(runner, times(1)).run(anyLong(), anyLong(), any());
     }
 
     /** 첫 계산이 덜 끝났거나 버스 위주가 아니면 몇 번만 다시 해 보고 평소 일정처럼 둔다. */

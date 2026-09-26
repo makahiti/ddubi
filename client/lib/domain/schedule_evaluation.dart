@@ -521,6 +521,15 @@ class ScheduleEvaluationV2 {
       proposedRouteId != null &&
       selectedRouteId != proposedRouteId;
 
+  /// 같은 경로에서 출발 시각을 1분 이상 바꾸자는 제안인가. 서버는 바뀐 게 없어도 늘 제안 출발 시각을 주므로,
+  /// 그 값만 보고 "제안한 출발 시각으로 바꾸기" 를 띄우면 "지금 경로 유지" 옆에 바꾸기 단추가 뜬다(2026-09-26 제보).
+  bool get departureChangeProposed {
+    final planned = plannedDepartAt;
+    final proposed = proposedDepartAt;
+    if (planned == null || proposed == null) return false;
+    return proposed.difference(planned).inSeconds.abs() >= 60;
+  }
+
   /// 발표용 도로 통제(시연)가 원인인 계산인가. 화면은 문장 대신 이름표 옆에 시연 을 한 번만 붙인다.
   bool get hasDemoCause => causes.any((cause) => cause.source == 'DEMO_TOPIS');
   final EvaluationQuality quality;

@@ -89,7 +89,8 @@ class RoadClosureDemoSupportTest {
                 .isEqualTo("blocked");
         assertThat(affected.reasons()).contains("DEMO_TOPIS_ROAD_CONTROL");
         assertThat(other).isEqualTo(original);
-        assertThat(edited).isEqualTo(original);
+        // 통제는 일정마다 한 번이라 입력 버전이 바뀌어도(제안 경로로 바꿈) 그대로 얹힌다(2026-09-26).
+        assertThat(edited.states()).containsKey("BUS:100:1:2");
     }
 
     /**
@@ -151,6 +152,29 @@ class RoadClosureDemoSupportTest {
                                         result(sameRoad, 850),
                                         result(subway, 900))))
                 .contains(result(bus, 800));
+    }
+
+    /**
+     * 경기 버스는 같은 서울 정류장을 "GBIS.122000008" 처럼 적는다. 표시를 떼지 않으면 같은 도로를 지나는 3030번이 다른 도로로 보여 통제를 피해
+     * 갔다(2026-09-26 제보).
+     */
+    @Test
+    void gyeonggiBusOnTheSameStopsIsTheSameRoad() {
+        assertThat(
+                        RoadClosureDemoSupport.stopPair(
+                                "BUS:GBIS.208000026:GBIS.122000008:GBIS.121000015"))
+                .isEqualTo("122000008:121000015");
+        assertThat(RoadClosureDemoSupport.stopPair("BUS:100100024:122000008:121000015"))
+                .isEqualTo("122000008:121000015");
+
+        var seoul = candidate(0, TransportMode.BUS, "BUS:100100024:122000008:121000015");
+        var gyeonggi =
+                candidate(1, TransportMode.BUS, "BUS:GBIS.208000026:GBIS.122000008:GBIS.121000015");
+        assertThat(
+                        RoadClosureDemoSupport.initialBusChoice(
+                                List.of(seoul, gyeonggi),
+                                List.of(result(seoul, 800), result(gyeonggi, 850))))
+                .isEmpty();
     }
 
     @Test
