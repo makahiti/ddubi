@@ -17,6 +17,7 @@ from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import Settings
 from request_budget import BudgetExceeded, RequestBudget, RetryScheduled, RetryWait
 from topis_notice_policy import plan_topis_notice
+from traffic_incident_poll_policy import plan_traffic_incident
 
 from sources.base import KST, PollBatch, Record, SourceSpec, now_kst
 from sources.subway_schedule import SkippedNonService, pause_until
@@ -236,6 +237,7 @@ def collect(name, settings: Settings, client):
     bus_candidates = []
     bus_plan = None
     topis_plan = plan_topis_notice(now, settings.extra) if name == "topis_notice" else None
+    incident_plan = plan_traffic_incident(now, settings.extra) if name == "traffic_incident" else None
     targets = []
     if name.startswith("bus_"):
         targets = (
@@ -265,7 +267,13 @@ def collect(name, settings: Settings, client):
         targets = module.select_city_areas(areas, requested.split(",") if requested else None)
     expected = len(targets) if targets else (2 if name == "subway_arrival" else 1)
     planned_interval = (
-        bus_plan.interval_seconds if bus_plan else topis_plan.interval_seconds if topis_plan else default_interval
+        bus_plan.interval_seconds
+        if bus_plan
+        else topis_plan.interval_seconds
+        if topis_plan
+        else incident_plan.interval_seconds
+        if incident_plan
+        else default_interval
     )
     interval = max(planned_interval, settings.interval_seconds or 0)
     if bus_candidates:
@@ -373,7 +381,13 @@ def collect(name, settings: Settings, client):
         reported_complete = result.get("isComplete")
         complete = name == "topis_notice" or (not bool(result.get("hasMore")) and reported_complete is not False)
         status = "SUCCESS" if complete else "PARTIAL"
-        scope_key = f"{topis_plan.scope}:recent-{result.get('pageSize', 100)}" if topis_plan else "all-current"
+        scope_key = (
+            f"{topis_plan.scope}:recent-{result.get('pageSize', 100)}"
+            if topis_plan
+            else incident_plan.scope
+            if incident_plan
+            else "all-current"
+        )
         batch = PollBatch(
             [to_record(name, row) for row in result["items"]],
             status=status,

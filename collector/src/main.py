@@ -26,6 +26,7 @@ from sources.base import SourceSpec, now_kst
 from sources.subway_schedule import SkippedNonService, pause_until
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from topis_notice_policy import plan_topis_notice
+from traffic_incident_poll_policy import plan_traffic_incident
 
 log = logging.getLogger("collector")
 
@@ -212,16 +213,20 @@ def main() -> int:
         settings, settings.source
     )
     topis_dynamic = settings.source == "topis_notice"
+    incident_dynamic = settings.source == "traffic_incident"
+    time_window_dynamic = topis_dynamic or incident_dynamic
     interval = settings.interval_seconds or (
         plan_topis_notice(now_kst(), settings.extra).interval_seconds
         if topis_dynamic
+        else plan_traffic_incident(now_kst(), settings.extra).interval_seconds
+        if incident_dynamic
         else 300
         if settings.source == "bus_arrival" and pooled_bus
         else int(settings.extra.get("BUS_LOCATION_DENSE_INTERVAL_SECONDS", "150"))
         if pooled_bus
         else spec.default_interval_seconds
     )
-    if settings.source != "weather" and not pooled_bus and not topis_dynamic:
+    if settings.source != "weather" and not pooled_bus and not time_window_dynamic:
         interval = max(interval, spec.default_interval_seconds)
     log.info(
         "start source=%s topic=%s interval=%ss kafka=%s run_once=%s",
@@ -256,6 +261,11 @@ def main() -> int:
             if topis_dynamic:
                 interval = max(
                     plan_topis_notice(now_kst(), settings.extra).interval_seconds,
+                    settings.interval_seconds or 0,
+                )
+            elif incident_dynamic:
+                interval = max(
+                    plan_traffic_incident(now_kst(), settings.extra).interval_seconds,
                     settings.interval_seconds or 0,
                 )
             cycle_started = time.monotonic()
@@ -298,7 +308,7 @@ def main() -> int:
                     exit_code = 1
             if settings.run_once:
                 break
-            if (pooled_bus or topis_dynamic) and not waiting_for_retry:
+            if (pooled_bus or time_window_dynamic) and not waiting_for_retry:
                 # Time-window policies use start-to-start cadence. In particular,
                 # a 100-route bus scan must not add the full interval again after
                 # that work completes.

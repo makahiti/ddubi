@@ -30,7 +30,7 @@ Kafka: transport.raw / city.raw
 | 지하철 위치 | `subway_location` | 현재 운행 중인 열차 위치 | 16개 호선 | 1시간 | 384 | `transport.raw` |
 | 지하철 알림 | `subway_alert` | 지연·무정차·운행 변경 알림 | 최근 1,000행 | 15분 | 96 | `transport.raw` |
 | 실시간 도시 | `city_realtime` | 인구·교통·주차·따릉이·기상·행사 | 장소 121개 | 5분 | 34,848 | `city.raw` |
-| 교통 돌발 | `traffic_incident` | 사고·공사·도로 통제 | 서울시 전역 | 15분 | 보통 96 | `city.raw` |
+| 교통 돌발 | `traffic_incident` | 사고·공사·도로 통제 | 서울시 전역 | 평일 첨두 5분, 주간 10분, 심야 15분 | 평일 약 171 | `city.raw` |
 | TOPIS 공지 | `topis_notice` | 교통통제·버스 우회·교통 공지 | 최근 100행 | 평일 첨두 5분, 그 외 주간 10분, 야간 1시간 | 평일 158, 주말 119 | `city.raw` |
 | 날씨 | `weather` | 기온·강수·습도·바람 등 초단기실황 | 서울 격자 14개 | 10분 | 2,016 | `city.raw` |
 
