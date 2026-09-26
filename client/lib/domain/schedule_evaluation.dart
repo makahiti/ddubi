@@ -514,6 +514,15 @@ class ScheduleEvaluationV2 {
   final bool departureMissed;
   final String? selectedRouteId;
   final String? proposedRouteId;
+
+  /// 이번 제안이 지금 선택과 다른 경로인가. 같은 경로에서 출발 시각만 바뀌는 제안과 적용 단추 자리가 다르다.
+  bool get routeChangeProposed =>
+      selectedRouteId != null &&
+      proposedRouteId != null &&
+      selectedRouteId != proposedRouteId;
+
+  /// 발표용 도로 통제(시연)가 원인인 계산인가. 화면은 문장 대신 이름표 옆에 시연 을 한 번만 붙인다.
+  bool get hasDemoCause => causes.any((cause) => cause.source == 'DEMO_TOPIS');
   final EvaluationQuality quality;
   final EvaluationSearch? search;
 

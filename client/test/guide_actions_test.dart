@@ -28,7 +28,17 @@ ScheduleEvaluationV2 _evaluation(String id) {
 }
 
 /// 안내 조회에는 늘 같은 답을 준다. 이 검사의 관심은 버튼 줄이라 안내 내용은 고정한다.
-Dio _dio({void Function()? onGuideRequest}) =>
+ScheduleEvaluationV2 _evaluationWith(Map<String, dynamic> overrides) {
+  final json = jsonDecode(_fixtureRaw) as Map<String, dynamic>;
+  json['evaluationId'] = 'eval-1';
+  json.addAll(overrides);
+  return ScheduleEvaluationV2.fromJson(json);
+}
+
+Dio _dio({
+  void Function()? onGuideRequest,
+  Map<String, dynamic> delay = const {'status': 'NO_CONFIRMED_DELAY'},
+}) =>
     Dio(BaseOptions(baseUrl: 'https://example.test/api/v1'))
       ..interceptors.add(
         InterceptorsWrapper(
@@ -50,7 +60,7 @@ Dio _dio({void Function()? onGuideRequest}) =>
                     'headline': '08:00 출발 · 08:46 도착 예정',
                     'routeSummary': '도보로 역까지 이동한 뒤 지하철을 이용하세요.',
                     'routeSteps': <Map<String, dynamic>>[],
-                    'delay': {'status': 'NO_CONFIRMED_DELAY'},
+                    'delay': delay,
                   },
                 },
               ),
@@ -102,9 +112,10 @@ void main() {
     required _FakeRepository repository,
     Future<void> Function()? onStartJourney,
     Dio? dio,
+    ScheduleEvaluationV2? evaluation,
   }) async {
     final headline = ValueNotifier<ScheduleEvaluationV2?>(
-      _evaluation('eval-1'),
+      evaluation ?? _evaluation('eval-1'),
     );
     await tester.pumpWidget(
       MaterialApp(
@@ -268,5 +279,72 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requests, 2);
+  });
+
+  // ------------------------------------------------------------------
+  // 제안 적용 단추는 적용되는 것 옆에 둔다 (2026-09-26 제보)
+  // ------------------------------------------------------------------
+
+  final future = DateTime.now().add(const Duration(hours: 2)).toUtc();
+
+  testWidgets('경로가 바뀌는 제안은 안내 카드가 아니라 제안 경로 카드에서 적용한다', (tester) async {
+    await pumpActions(
+      tester,
+      repository: _FakeRepository(latest: _evaluation('eval-1')),
+      evaluation: _evaluationWith({
+        'selectedRouteId': 1,
+        'proposedRouteId': 2,
+        'proposedDepartAt': future.toIso8601String(),
+      }),
+    );
+
+    expect(find.byKey(const Key('acceptEvaluationButton')), findsNothing);
+    expect(find.text('이 제안 적용'), findsNothing);
+  });
+
+  testWidgets('같은 경로에서 출발 시각만 바뀌면 안내 카드에서 바꾼다', (tester) async {
+    await pumpActions(
+      tester,
+      repository: _FakeRepository(latest: _evaluation('eval-1')),
+      evaluation: _evaluationWith({
+        'selectedRouteId': 1,
+        'proposedRouteId': 1,
+        'proposedDepartAt': future.toIso8601String(),
+      }),
+    );
+
+    expect(find.text('제안한 출발 시각으로 바꾸기'), findsOneWidget);
+  });
+
+  // 문장마다 "[시연]" 이 붙어 시연 문구만 있는 것처럼 보였고, 밑에 영문 출처 이름이 그대로 보였다.
+  testWidgets('시연 원인이면 이름표 옆에 시연을 한 번만 붙이고 출처는 한국어로 쓴다', (tester) async {
+    await pumpActions(
+      tester,
+      repository: _FakeRepository(latest: _evaluation('eval-1')),
+      dio: _dio(
+        delay: {
+          'status': 'DISRUPTED',
+          'reason': '신사역8번출구 → 신사역 구간 도로 통제로 145번 등 버스 운행에 차질이 있어요.',
+          'source': 'seoul.traffic_incident',
+          'confirmed': true,
+        },
+      ),
+      evaluation: _evaluationWith({
+        'causes': [
+          {
+            'eventId': 'DEMO-TOPIS-68-1',
+            'source': 'DEMO_TOPIS',
+            'segmentIds': ['BUS:100100024:122000008:121000015'],
+            'effect': 'BLOCKED',
+            'confirmed': true,
+          },
+        ],
+      }),
+    );
+
+    expect(find.byKey(const Key('guideDemoLabel')), findsOneWidget);
+    expect(find.text('서울시 교통 돌발정보'), findsOneWidget);
+    expect(find.text('seoul.traffic_incident'), findsNothing);
+    expect(find.textContaining('[시연]'), findsNothing);
   });
 }

@@ -126,6 +126,79 @@ class RoadClosureDemoSupportTest {
                 .doesNotContain("가짜");
     }
 
+    /**
+     * 도로 통제는 두 정류장 사이 도로를 막는다. 같은 도로를 번호만 다른 버스로 가는 경로는 대안이 아니다(2026-09-26 제보: 145번을 막았더니 3030번으로
+     * 같은 길을 가는 경로가 "새 경로" 로 나왔다).
+     */
+    @Test
+    void sameRoadOnAnotherBusIsNotAnAlternative() {
+        var bus = candidate(0, TransportMode.BUS, "BUS:145:1:2");
+        var sameRoad = candidate(1, TransportMode.BUS, "BUS:3030:1:2");
+        var subway = candidate(2, TransportMode.SUBWAY, "SUB:2:3:4");
+
+        assertThat(RoadClosureDemoSupport.stopPair("BUS:145:1:2")).isEqualTo("1:2");
+        assertThat(RoadClosureDemoSupport.stopPair("SUB:2:3:4")).isNull();
+        assertThat(
+                        RoadClosureDemoSupport.initialBusChoice(
+                                List.of(bus, sameRoad),
+                                List.of(result(bus, 800), result(sameRoad, 850))))
+                .isEmpty();
+        assertThat(
+                        RoadClosureDemoSupport.initialBusChoice(
+                                List.of(bus, sameRoad, subway),
+                                List.of(
+                                        result(bus, 800),
+                                        result(sameRoad, 850),
+                                        result(subway, 900))))
+                .contains(result(bus, 800));
+    }
+
+    @Test
+    void overlayBlocksEveryBusOnTheSameRoad() throws Exception {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.get("demo:topis:road-control:schedule:7"))
+                .thenReturn(
+                        "{\"source\":\"DEMO_TOPIS\",\"demo\":true,\"scheduleId\":7,\"inputRevision\":3,"
+                                + "\"segmentId\":\"BUS:145:1:2\",\"stopPair\":\"1:2\",\"eventId\":\"DEMO-TOPIS-7-3\","
+                                + "\"status\":\"blocked\",\"computedAt\":\"2026-09-24T00:00:00Z\","
+                                + "\"validUntil\":\"2026-09-24T01:00:00Z\"}");
+        var support =
+                new RoadClosureDemoSupport(
+                        true, mock(JdbcTemplate.class), redis, new ObjectMapper());
+        var routes =
+                List.of(
+                        candidate(0, TransportMode.BUS, "BUS:145:1:2"),
+                        candidate(1, TransportMode.BUS, "BUS:3030:1:2"),
+                        candidate(2, TransportMode.BUS, "BUS:147:5:6"));
+
+        var affected =
+                support.overlay(
+                        7,
+                        3,
+                        new RouteEvidenceAssembler.Snapshot(Map.of(), List.of()),
+                        routes,
+                        now);
+
+        assertThat(affected.states()).containsKeys("BUS:145:1:2", "BUS:3030:1:2");
+        assertThat(affected.states()).doesNotContainKey("BUS:147:5:6");
+    }
+
+    @Test
+    void messageSaysOtherBusesTooWhenTheRoadIsShared() {
+        var route = candidate(0, TransportMode.BUS, "BUS:145:1:2");
+        var other = candidate(1, TransportMode.BUS, "BUS:3030:1:2");
+
+        assertThat(
+                        RoadClosureDemoSupport.place(route, "BUS:145:1:2", List.of(route, other))
+                                .message())
+                .isEqualTo("A → B 구간 도로 통제로 노선번 등 버스 운행에 차질이 있어요.");
+        assertThat(RoadClosureDemoSupport.place(route, "BUS:145:1:2", List.of(route)).message())
+                .isEqualTo("A → B 구간 도로 통제로 노선번 버스 운행에 차질이 있어요.");
+    }
+
     private RouteCandidate candidate(int index, TransportMode mode, String id) {
         return candidate(index, mode, id, List.of("A", "B"));
     }

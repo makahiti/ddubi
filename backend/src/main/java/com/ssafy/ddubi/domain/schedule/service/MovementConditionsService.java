@@ -284,10 +284,19 @@ public class MovementConditionsService {
         Instant startsAt = instant(event.path("computedAt").asText(null));
         Instant until = instant(event.path("validUntil").asText(null));
         String segmentId = event.path("segmentId").asText("");
+        // 통제는 도로(두 정류장 사이) 단위다. 같은 도로를 지나는 다른 번호 버스를 골라도 통제가 보인다.
+        String pair = event.path("stopPair").asText(null);
         if (startsAt == null
                 || until == null
                 || !until.isAfter(now)
-                || edges.stream().noneMatch(edge -> edge.segmentId().equals(segmentId)))
+                || edges.stream()
+                        .noneMatch(
+                                edge ->
+                                        edge.segmentId().equals(segmentId)
+                                                || pair != null
+                                                        && pair.equals(
+                                                                RoadClosureDemoSupport.stopPair(
+                                                                        edge.segmentId()))))
             return java.util.Optional.empty();
         // 실제 돌발 공지처럼 구간·원인·영향을 보여주고, 앞에 "[시연]" 만 붙인다(2026-09-25 요청).
         String message = RoadClosureDemoSupport.displayMessage(event);

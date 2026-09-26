@@ -366,11 +366,57 @@ void main() {
     expect(content.title, startsWith('지금 나가면'));
   });
 
+  // 2026-09-26 제보: 여유 34분인데 "도로 통제가 예상돼 서둘러 나가는 게 좋아요" 가 떴다.
+  // 다른 경로를 제안하면 피해 간다고, 여유가 넉넉하면 제시간에 닿는다고 말한다.
+  Future<ScheduleEvaluationV2> withCause({
+    required String proposedRouteId,
+    required int spareMinutes,
+  }) async {
+    final raw = await _raw('keep');
+    final arrival = DateTime.parse(raw['estimatedArrivalAt'] as String);
+    raw['causes'] = [demoRoad];
+    raw['selectedRouteId'] = 'route-1';
+    raw['proposedRouteId'] = proposedRouteId;
+    raw.remove('latenessSeconds');
+    raw['arriveBy'] = arrival
+        .add(Duration(minutes: spareMinutes))
+        .toUtc()
+        .toIso8601String();
+    return ScheduleEvaluationV2.fromJson(raw);
+  }
+
+  test('원인 때문에 다른 경로를 제안하면 "피해 다른 경로로 안내해요" 라고 말한다', () async {
+    final content = DepartureHeadlineContent.of(
+      await withCause(proposedRouteId: 'route-2', spareMinutes: 34),
+      now,
+    );
+
+    expect(content.detail, startsWith('도로 통제를 피해 다른 경로로 안내해요.'));
+    expect(content.label, startsWith('[시연] '));
+    expect(content.detail, isNot(contains('서둘러')));
+  });
+
+  test('같은 경로에 여유가 넉넉하면 서두르라고 하지 않는다', () async {
+    final roomy = DepartureHeadlineContent.of(
+      await withCause(proposedRouteId: 'route-1', spareMinutes: 34),
+      now,
+    );
+    final tight = DepartureHeadlineContent.of(
+      await withCause(proposedRouteId: 'route-1', spareMinutes: 5),
+      now,
+    );
+
+    expect(roomy.detail, startsWith('도로 통제가 예상되지만 제시간에 도착할 수 있어요.'));
+    expect(tight.detail, startsWith('도로 통제가 예상돼 서둘러 나가는 게 좋아요.'));
+  });
+
   test('원인 이름의 조사를 받침에 맞춘다', () {
     expect(const HeadlineCause('도로 통제').subject, '도로 통제가');
     expect(const HeadlineCause('교통 지연').subject, '교통 지연이');
     expect(const HeadlineCause('도로 통제').instrument, '도로 통제로');
     expect(const HeadlineCause('교통 지연').instrument, '교통 지연으로');
+    expect(const HeadlineCause('도로 통제').object, '도로 통제를');
+    expect(const HeadlineCause('교통 지연').object, '교통 지연을');
   });
 
   test('참고·대기·주의 카드는 여유와 관계없이 성격별 색을 쓴다', () {

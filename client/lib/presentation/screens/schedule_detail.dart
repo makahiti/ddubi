@@ -294,30 +294,47 @@ class ScheduleDetailScreen extends StatefulWidget {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            finished
-                                ? '당시 선택한 경로와\n실제 기록을 볼 수 있어요.'
-                                : route == null
-                                ? '추천 출발 시간을 확인 중이에요.'
-                                : '지금 선택한 경로와\n새로 계산한 결과를 비교해 보세요.',
-                            key: const Key('scheduleCompareHeadline'),
-                            style: const TextStyle(
-                              fontSize: 19,
-                              height: 1.28,
-                              fontWeight: FontWeight.w900,
-                              color: DdubiColors.navy,
-                            ),
+                          // 상황에 맞는 한 줄. 예전에는 끝남·취소가 아니면 늘 "비교해 보세요" 라서, 도착
+                          // 시간이 지난 일정에도 그대로 떴다(2026-09-26 제보).
+                          ValueListenableBuilder<ScheduleEvaluationV2?>(
+                            valueListenable: headline,
+                            builder: (context, evaluation, _) {
+                              final (title, note) = ScheduleCompareBanner.of(
+                                finished: finished,
+                                hasRoute: route != null,
+                                arriveBy: schedule.arriveBy,
+                                departedAt: schedule.actualDepartAt,
+                                evaluation: evaluation,
+                                now: DateTime.now(),
+                              );
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    key: const Key('scheduleCompareHeadline'),
+                                    style: const TextStyle(
+                                      fontSize: 19,
+                                      height: 1.28,
+                                      fontWeight: FontWeight.w900,
+                                      color: DdubiColors.navy,
+                                    ),
+                                  ),
+                                  if (note != null) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      note,
+                                      key: const Key('scheduleCompareNote'),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF68808B),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              );
+                            },
                           ),
-                          if (!finished) ...[
-                            const SizedBox(height: 4),
-                            const Text(
-                              '출발 판단과 실시간 반영 여부는 최신 평가에서 확인해 주세요.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF68808B),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
@@ -428,6 +445,19 @@ class ScheduleDetailScreen extends StatefulWidget {
                 api: recommendationApi,
                 scheduleId: schedule.id,
                 headline: headline,
+                // 경로가 바뀌는 제안은 "새로 제안된 경로" 카드 안에서 적용한다(2026-09-26 제보:
+                // 아래 안내 카드의 "이 제안 적용" 이 어떤 경로를 적용하는지 알기 어려웠다).
+                proposalAction:
+                    finished || repository is! ScheduleEvaluationRepository
+                    ? null
+                    : () => ProposalAcceptButton(
+                        repository: repository as ScheduleEvaluationRepository,
+                        scheduleId: schedule.id,
+                        headline: headline,
+                        label: '이 경로로 바꾸기',
+                        doneMessage: '제안한 경로로 바꿨어요.',
+                        buttonKey: const Key('acceptProposedRouteButton'),
+                      ),
                 onSelected: recommendationApi == null
                     ? null
                     : (savedRoute, displayRank, evaluated) async {
@@ -1047,6 +1077,7 @@ class _LiveSavedRouteList extends StatefulWidget {
     required this.scheduleId,
     required this.headline,
     required this.onSelected,
+    this.proposalAction,
   });
 
   final List<SavedRouteSummary> initial;
@@ -1054,6 +1085,9 @@ class _LiveSavedRouteList extends StatefulWidget {
   final RecommendationApi? api;
   final String scheduleId;
   final ValueNotifier<ScheduleEvaluationV2?> headline;
+
+  /// "새로 제안된 경로" 카드 안에 넣을 적용 단추. 없으면 단추를 그리지 않는다(끝난 일정 등).
+  final Widget Function()? proposalAction;
 
   /// 목록에서 보이던 순번과 평가 결과를 같이 넘긴다. 상세 화면이 서버 rankNo 와 경로 API
   /// 원본 시간을 따로 보여주면 같은 경로인데 다른 숫자가 나온다.
@@ -1172,6 +1206,7 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
     unavailable: _unavailable,
     estimates: _estimates,
     evaluation: _evaluation,
+    proposalAction: widget.proposalAction,
     onSelected: widget.onSelected == null
         ? null
         : (route, displayRank, evaluated) async {
@@ -1188,6 +1223,48 @@ class _LiveSavedRouteListState extends State<_LiveSavedRouteList> {
   );
 }
 
+/// 일정 상세 맨 위 "이 일정에 맞춰" 카드의 한 줄. 상황마다 할 일이 다르다.
+///
+/// ```
+/// 끝남·취소           당시 선택한 경로와 실제 기록을 볼 수 있어요.
+/// 경로 계산 전        추천 출발 시간을 확인 중이에요.
+/// 출발함              이동 중이에요.                       도착하면 도착 완료를 눌러 주세요.
+/// 도착 시간 지남      도착 시간이 지난 일정이에요.          다녀오셨다면 도착 완료를 눌러 주세요.
+/// 다른 경로 제안      새로 제안된 경로가 있어요.            아래 경로 카드에서 비교하고 바꿀 수 있어요.
+/// 출발 시각 제안      출발 시각을 다시 제안했어요.          아래 안내에서 확인하고 바꿀 수 있어요.
+/// 그 밖               지금 경로 그대로 가면 돼요.           새 정보가 들어오면 자동으로 다시 계산해요.
+/// ```
+class ScheduleCompareBanner {
+  const ScheduleCompareBanner._();
+
+  static (String, String?) of({
+    required bool finished,
+    required bool hasRoute,
+    required DateTime arriveBy,
+    required DateTime? departedAt,
+    required ScheduleEvaluationV2? evaluation,
+    required DateTime now,
+  }) {
+    if (finished) return ('당시 선택한 경로와\n실제 기록을 볼 수 있어요.', null);
+    if (departedAt != null) return ('이동 중이에요.', '도착하면 도착 완료를 눌러 주세요.');
+    if (now.isAfter(arriveBy)) {
+      return ('도착 시간이 지난 일정이에요.', '다녀오셨다면 도착 완료를 눌러 주세요.');
+    }
+    if (!hasRoute) return ('추천 출발 시간을 확인 중이에요.', null);
+    if (evaluation != null && evaluation.routeChangeProposed) {
+      return ('새로 제안된 경로가 있어요.', '아래 경로 카드에서 비교하고 바꿀 수 있어요.');
+    }
+    final planned = evaluation?.plannedDepartAt;
+    final proposed = evaluation?.proposedDepartAt;
+    if (planned != null &&
+        proposed != null &&
+        proposed.difference(planned).inMinutes.abs() >= 1) {
+      return ('출발 시각을 다시 제안했어요.', '아래 안내에서 확인하고 바꿀 수 있어요.');
+    }
+    return ('지금 경로 그대로 가면 돼요.', '새 정보가 들어오면 자동으로 다시 계산해요.');
+  }
+}
+
 /// 저장된 경로 하나에 대응하는 평가 결과를 찾는다. 없으면 null 이고 카드는 원본 값만 보여준다.
 class _SavedRouteList extends StatelessWidget {
   const _SavedRouteList({
@@ -1196,10 +1273,14 @@ class _SavedRouteList extends StatelessWidget {
     required this.onSelected,
     this.estimates = const [],
     this.evaluation,
+    this.proposalAction,
   });
 
   /// 이번 평가 결과 전체. 카드에 쓸 시간과 출처를 여기서만 꺼낸다.
   final ScheduleEvaluationV2? evaluation;
+
+  /// "새로 제안된 경로" 카드 안의 적용 단추.
+  final Widget Function()? proposalAction;
 
   final SavedRouteDisplay display;
   final bool unavailable;
@@ -1250,6 +1331,10 @@ class _SavedRouteList extends StatelessWidget {
               route: routes[i],
               displayRank: routes[i].displayRank ?? i + 1,
               estimate: _estimateFor(routes[i].routeId),
+              selectedEstimate: estimates
+                  .where((estimate) => estimate.selected)
+                  .firstOrNull,
+              proposalAction: proposalAction,
               evaluated: RouteEvaluatedNumbers.of(
                 evaluation,
                 routes[i].routeId,
@@ -1285,7 +1370,36 @@ class _SavedRouteTile extends StatelessWidget {
     required this.onTap,
     this.estimate,
     this.evaluated = RouteEvaluatedNumbers.empty,
+    this.selectedEstimate,
+    this.proposalAction,
   });
+
+  /// 지금 선택된 경로의 평가. 제안 카드가 "무엇보다 나은지" 를 말할 때 쓴다.
+  final EvaluationCandidateEstimate? selectedEstimate;
+
+  /// 이 카드가 제안 경로일 때 안에 넣을 적용 단추.
+  final Widget Function()? proposalAction;
+
+  bool get _proposed => !route.selected && estimate?.proposed == true;
+
+  /// 지금 선택된 경로가 통제 구간을 지나 막혔는가.
+  bool get _blocked => route.selected && estimate?.assessment == 'BLOCKED';
+
+  /// 제안 경로를 고르면 무엇이 좋아지는지 한 줄로. 예: "15:55 도착 예상 · 통제 구간을 피해 가요"
+  String? get _proposalReason {
+    final arrival = estimate?.estimatedArrivalAt;
+    final parts = <String>[
+      if (arrival != null) '${formatClockCompact(arrival)} 도착 예상',
+    ];
+    final selectedArrival = selectedEstimate?.estimatedArrivalAt;
+    if (selectedEstimate?.assessment == 'BLOCKED') {
+      parts.add('통제 구간을 피해 가요');
+    } else if (arrival != null && selectedArrival != null) {
+      final gain = selectedArrival.difference(arrival).inMinutes;
+      if (gain >= 1) parts.add('지금 경로보다 $gain분 빨라요');
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
 
   /// 이번 평가가 이 경로에 계산한 시간·출처. 상세와 지도에 그대로 넘겨 같은 숫자를 쓰게 한다.
   final RouteEvaluatedNumbers evaluated;
@@ -1372,7 +1486,13 @@ class _SavedRouteTile extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (route.selected)
+                      if (_blocked)
+                        const StatusBadge(
+                          '통제 구간을 지나요',
+                          tone: DdubiColors.red,
+                          icon: Icons.block_rounded,
+                        )
+                      else if (route.selected)
                         const StatusBadge('선택됨', tone: DdubiColors.green)
                       else if (estimate?.proposed == true)
                         const StatusBadge(
@@ -1400,6 +1520,34 @@ class _SavedRouteTile extends StatelessWidget {
                       color: Color(0xFF6E8193),
                     ),
                   ),
+                  if (_blocked) ...[
+                    const SizedBox(height: 4),
+                    const Text(
+                      '이 경로는 지금 통제로 막혔어요. 아래 새 경로를 확인해 주세요.',
+                      key: Key('selectedRouteBlockedNote'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: DdubiColors.red,
+                      ),
+                    ),
+                  ],
+                  if (_proposed && _proposalReason != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _proposalReason!,
+                      key: const Key('proposedRouteReason'),
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: DdubiColors.blue,
+                      ),
+                    ),
+                  ],
+                  if (_proposed && proposalAction != null) ...[
+                    const SizedBox(height: 10),
+                    proposalAction!(),
+                  ],
                 ],
               ),
             ),

@@ -114,6 +114,27 @@ public class EvaluationNotificationPlanner {
 
     private Planned lateness(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
                              Result selected, Result fastest) {
+        // 지금 경로가 통제로 막히면 그 경로에는 도착 예정이 없다. 예전에는 그 빈 값 때문에
+        // "도착 시각을 계산하지 못했어요" 가 나갔는데, 다른 경로는 이미 계산돼 있었다(2026-09-26 제보).
+        // 막혔으면 막혔다고 말하고, 다른 경로로 언제 닿는지를 알린다.
+        if (selected.assessment() == Assessment.BLOCKED) {
+            String key = shortKey("ON_TIME_UNLIKELY", selected.journeyKey());
+            boolean alternative = fastest != null && !fastest.journeyKey().equals(selected.journeyKey())
+                    && fastest.estimatedArrivalAt() != null && !late(fastest.assessment());
+            if (alternative && !fastest.estimatedArrivalAt().isAfter(job.arriveBy())) {
+                return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
+                        "지금 경로가 막혔어요",
+                        "다른 경로로 가면 " + at(fastest.estimatedArrivalAt()) + " 도착 예상 · 목표 " + at(job.arriveBy()),
+                        key), key);
+            }
+            return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
+                    "제시간 도착이 어려울 수 있어요",
+                    alternative
+                            ? "지금 경로가 막혔어요 · 다른 경로도 " + at(fastest.estimatedArrivalAt()) + " 도착 예상 · 목표 "
+                                    + at(job.arriveBy())
+                            : "지금 경로가 막혔어요 · 앱에서 다른 경로를 확인해 주세요",
+                    key), key);
+        }
         boolean hasAlternative = betterRouteExists(selected, fastest);
         String body = selected.estimatedArrivalAt() == null
                 ? "도착 시각을 계산하지 못했어요 · 앱에서 경로를 다시 확인해 주세요"

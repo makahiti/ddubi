@@ -125,7 +125,7 @@ public class RecommendationGuideService {
 
         List<RecommendationGuideResponse.RouteStep> steps = steps(evaluation);
         // 발표용 통제도 실제 통제와 같은 길로 안내 문장을 만든다. 생성 AI 에는 실제 돌발 공지와 같은 모양의 사실(구간·버스 번호)만
-        // 보내고, 사용자에게 보이는 문장 앞에만 "[시연]" 을 붙인다. 예전에는 AI 를 건너뛰고 "가짜 도로 통제" 문장을 그대로 보여 줬다.
+        // 보낸다. 시연 표시는 앱이 카드 이름표 옆에 한 번만 붙인다(2026-09-26: 문장마다 "[시연]" 이 붙어 시연 문구만 있는 것처럼 보였다).
         boolean syntheticDemo =
                 evaluation.causes().stream().anyMatch(cause -> "DEMO_TOPIS".equals(cause.source()));
         CauseDetail detail = cause(scheduleId, evaluation.causes(), now);
@@ -138,11 +138,17 @@ public class RecommendationGuideService {
                                 .map(RecommendationGuideResponse.RouteStep::instruction)
                                 .reduce((left, right) -> left + " → " + right)
                                 .orElse("이동 경로를 확인하고 있어요.");
+        // 시연 통제로 경로가 바뀌면 제안 경로는 그 도로를 지나지 않는다(RoadClosureDemoSupport 가 그런 대안이 있을 때만 통제를 건다).
+        // 이 사실이 없으면 AI 가 "경로가 달라졌으니 바꾸세요" 같은 뻔한 말만 썼다.
+        String factReason =
+                syntheticDemo && "ROUTE_CHANGED".equals(change.type()) && delay.reason() != null
+                        ? delay.reason() + " 제안 경로는 이 통제 구간을 지나지 않아요."
+                        : delay.reason();
         var facts =
                 new GmsRecommendationGuideClient.Facts(
                         change,
                         new GmsRecommendationGuideClient.DelayFact(
-                                delay.status(), delay.reason(), delay.source(), delay.confirmed()));
+                                delay.status(), factReason, delay.source(), delay.confirmed()));
         GmsRecommendationGuideClient.GeneratedCopy generated = null;
         boolean owner = false;
         String copyKey =
@@ -173,10 +179,6 @@ public class RecommendationGuideService {
                 generated == null
                         ? fallbackRecommendation(change, delay)
                         : generated.recommendationReason();
-        if (syntheticDemo) {
-            delayReason = demoLabel(delayReason);
-            recommendationReason = demoLabel(recommendationReason);
-        }
         RecommendationGuideResponse response =
                 new RecommendationGuideResponse(
                         "recommendation-guide-v1",
@@ -518,12 +520,6 @@ public class RecommendationGuideService {
                     from + "에서 " + (route.isEmpty() ? "지하철" : route) + " 탑승 후 " + to + "에서 하차";
             default -> from + "에서 " + to + "까지 이동";
         };
-    }
-
-    /** 시연 문장 앞에 "[시연]" 을 한 번만 붙인다. */
-    static String demoLabel(String text) {
-        if (text == null || text.isBlank()) return text;
-        return text.startsWith("[시연]") ? text : "[시연] " + text;
     }
 
     private CauseDetail cause(

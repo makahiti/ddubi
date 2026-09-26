@@ -183,7 +183,7 @@ class DepartureHeadlineContent {
         detail: cause == null
             ? _marginDetail(evaluation, arrival)
             : _join(
-                '${cause.subject} 예상돼 서둘러 나가는 게 좋아요.',
+                _causeAdvice(evaluation, cause, spare),
                 _marginDetail(evaluation, arrival),
               ),
         tone: DepartureHeadlineTone.ready,
@@ -226,7 +226,7 @@ class DepartureHeadlineContent {
           ),
         ),
         detail: _join(
-          cause == null ? '' : '${cause.subject} 예상돼 서둘러 나가는 게 좋아요.',
+          cause == null ? '' : _causeAdvice(evaluation, cause, spare),
           evaluation.guidance.isProviderEstimate
               ? '기본 경로 기준 예상이에요. 실시간 정보가 들어오면 더 정확해져요.'
               : reason == null
@@ -378,6 +378,26 @@ class DepartureHeadlineContent {
           : cause.label('${cause.instrument} 늦을 것 같아요'),
       clockSuffix: departNow ? '에 나가도 늦어요' : '에 나가세요',
     );
+  }
+
+  /// 원인이 있을 때 할 일을 한 문장으로. 여유가 넉넉한데 "서둘러" 라고 하지 않는다(2026-09-26 제보:
+  /// 여유 34분인데 "서둘러 나가는 게 좋아요" 가 떴다).
+  ///
+  /// - 다른 경로를 제안하면: "도로 통제를 피해 다른 경로로 안내해요."
+  /// - 여유가 10분 안이면: "도로 통제가 예상돼 서둘러 나가는 게 좋아요."
+  /// - 그 밖: "도로 통제가 예상되지만 제시간에 도착할 수 있어요."
+  static String _causeAdvice(
+    ScheduleEvaluationV2 evaluation,
+    HeadlineCause cause,
+    int? spare,
+  ) {
+    if (evaluation.routeChangeProposed) {
+      return '${cause.object} 피해 다른 경로로 안내해요.';
+    }
+    if (spare != null && spare < 10) {
+      return '${cause.subject} 예상돼 서둘러 나가는 게 좋아요.';
+    }
+    return '${cause.subject} 예상되지만 제시간에 도착할 수 있어요.';
   }
 
   /// 발표용 통제가 원인이면 앞에 "[시연]" 을 붙인다. 원인이 없거나 실제 원인이면 그대로.
@@ -852,6 +872,9 @@ class HeadlineCause {
 
   /// "도로 통제가" / "교통 지연이"
   String get subject => '$name${_hasFinalConsonant(name) ? '이' : '가'}';
+
+  /// "도로 통제를" / "교통 지연을"
+  String get object => '$name${_hasFinalConsonant(name) ? '을' : '를'}';
 
   /// "도로 통제로" / "교통 지연으로" (받침 ㄹ 뒤에는 "로")
   String get instrument {

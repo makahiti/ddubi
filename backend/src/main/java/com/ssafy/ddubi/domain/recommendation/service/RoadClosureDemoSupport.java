@@ -116,10 +116,18 @@ public class RoadClosureDemoSupport {
                 .toList();
     }
 
+    /**
+     * 대안은 막을 도로(정류장 쌍)를 아예 지나지 않아야 한다. 예전에는 버스 번호가 다른 같은 도로(145번 대신 3030번)도 대안으로 쳐서, 통제 뒤 "새 경로" 가
+     * 버스만 바뀐 같은 길로 나왔다(2026-09-26 제보).
+     */
     private static boolean hasDistinctAlternative(
             RouteCandidate selected, List<RouteCandidate> all, Map<String, Result> byKey) {
-        Set<String> selectedEdges = Set.copyOf(seoulBusEdges(selected));
-        if (selectedEdges.isEmpty()) return false;
+        Set<String> selectedPairs =
+                seoulBusEdges(selected).stream()
+                        .map(RoadClosureDemoSupport::stopPair)
+                        .filter(java.util.Objects::nonNull)
+                        .collect(Collectors.toSet());
+        if (selectedPairs.isEmpty()) return false;
         return all.stream()
                 .filter(other -> other != selected)
                 .anyMatch(
@@ -128,8 +136,9 @@ public class RoadClosureDemoSupport {
                                                 .equals(RouteEvidenceAssembler.key(selected))
                                         && ConditionalDeparturePolicy.usable(
                                                 byKey.get(RouteEvidenceAssembler.key(other)))
-                                        && selectedEdges.stream()
-                                                .anyMatch(id -> !allEdges(other).contains(id)));
+                                        && selectedPairs.stream()
+                                                .anyMatch(
+                                                        pair -> !stopPairs(other).contains(pair)));
     }
 
     private static Set<String> allEdges(RouteCandidate c) {
@@ -137,6 +146,28 @@ public class RoadClosureDemoSupport {
                 .flatMap(s -> RouteEvidenceAssembler.edges(s).stream())
                 .map(e -> e.segmentId())
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * 서울 버스 인접 구간 번호 "BUS:{노선}:{앞 정류장}:{뒤 정류장}" 에서 "{앞 정류장}:{뒤 정류장}". 같은 두 정류장 사이는 같은 도로라서, 도로 통제는
+     * 그 사이를 지나는 모든 버스를 함께 막는다. 모양이 다르면 null.
+     */
+    public static String stopPair(String segmentId) {
+        if (segmentId == null || !segmentId.startsWith("BUS:")) return null;
+        String[] parts = segmentId.split(":");
+        return parts.length == 4 ? parts[2] + ":" + parts[3] : null;
+    }
+
+    private static Set<String> stopPairs(RouteCandidate c) {
+        return allEdges(c).stream()
+                .map(RoadClosureDemoSupport::stopPair)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    /** 이 후보가 막힌 도로를 지나는가. 정류장 쌍을 모르는 예전 키는 구간 번호 그대로 본다. */
+    private static boolean crosses(RouteCandidate c, String segmentId, String pair) {
+        return pair == null ? allEdges(c).contains(segmentId) : stopPairs(c).contains(pair);
     }
 
     /**
@@ -218,7 +249,7 @@ public class RoadClosureDemoSupport {
                                                                                     && ConditionalDeparturePolicy
                                                                                             .usable(
                                                                                                     r)))
-                                    .noneMatch(c -> !allEdges(c).contains(id)));
+                                    .noneMatch(c -> !crosses(c, id, stopPair(id))));
             if (possible.isEmpty())
                 throw new BusinessException(ErrorCode.INVALID_STATE, "이 버스 구간을 피하는 대안이 없습니다.");
             Instant arriveBy =
@@ -238,9 +269,11 @@ public class RoadClosureDemoSupport {
             event.put("eventId", "DEMO-TOPIS-" + scheduleId + "-" + row.get("schedule_revision"));
             event.put("roadLinkId", "DEMO-" + possible.get(0));
             event.put("segmentId", possible.get(0));
+            // 막는 단위는 도로(정류장 쌍)다. 이 두 정류장 사이를 지나는 버스는 번호와 관계없이 모두 막힌다.
+            if (stopPair(possible.get(0)) != null) event.put("stopPair", stopPair(possible.get(0)));
             // 화면·알림·안내 문장이 실제 통제처럼 읽히도록 막힌 구간의 정류장과 버스 번호를 남긴다.
             // 문장 앞의 "[시연]" 은 보여주는 쪽(displayMessage)이 붙인다.
-            Place place = place(selected, possible.get(0));
+            Place place = place(selected, possible.get(0), cache.search().candidates());
             if (place.routeName() != null) event.put("routeName", place.routeName());
             if (place.fromStop() != null) event.put("fromStop", place.fromStop());
             if (place.toStop() != null) event.put("toStop", place.toStop());
@@ -264,11 +297,18 @@ public class RoadClosureDemoSupport {
         }
     }
 
-    /** 막힌 구간의 버스 번호와 앞뒤 정류장. 모르면 null 이고, 문장은 아는 만큼만 만든다. */
-    public record Place(String routeName, String fromStop, String toStop) {
+    /**
+     * 막힌 구간의 버스 번호와 앞뒤 정류장. 모르면 null 이고, 문장은 아는 만큼만 만든다. [shared] 는 같은 두 정류장 사이를 다른 버스도 지나는가다 — 도로를
+     * 막으면 그 버스들도 함께 막히므로 "145번 등 버스" 라고 쓴다.
+     */
+    public record Place(String routeName, String fromStop, String toStop, boolean shared) {
+        public Place(String routeName, String fromStop, String toStop) {
+            this(routeName, fromStop, toStop, false);
+        }
+
         /** "[시연]" 을 뺀 본문. 실제 돌발 공지처럼 구간·원인·영향을 한 문장에 담는다. */
         public String message() {
-            String bus = routeName == null ? "버스" : routeName + "번 버스";
+            String bus = routeName == null ? "버스" : routeName + (shared ? "번 등 버스" : "번 버스");
             if (fromStop == null || toStop == null)
                 return "버스 경로 구간 도로 통제로 " + bus + " 운행에 차질이 있어요.";
             return fromStop + " → " + toStop + " 구간 도로 통제로 " + bus + " 운행에 차질이 있어요.";
@@ -280,6 +320,27 @@ public class RoadClosureDemoSupport {
      * 맞으면(경기 버스 등) 그 구간의 승차·하차 정류장으로 대신한다.
      */
     static Place place(RouteCandidate selected, String segmentId) {
+        return place(selected, segmentId, List.of());
+    }
+
+    /** [candidates] 에서 같은 두 정류장 사이를 지나는 다른 노선이 있으면 [Place#shared] 를 켠다. */
+    static Place place(RouteCandidate selected, String segmentId, List<RouteCandidate> candidates) {
+        Place place = placeOnSelected(selected, segmentId);
+        String pair = stopPair(segmentId);
+        if (pair == null || place.routeName() == null) return place;
+        boolean shared =
+                candidates.stream()
+                        .flatMap(c -> c.segments().stream())
+                        .filter(s -> s.mode() == TransportMode.BUS)
+                        .flatMap(s -> RouteEvidenceAssembler.edges(s).stream())
+                        .anyMatch(
+                                e ->
+                                        pair.equals(stopPair(e.segmentId()))
+                                                && !e.segmentId().equals(segmentId));
+        return new Place(place.routeName(), place.fromStop(), place.toStop(), shared);
+    }
+
+    private static Place placeOnSelected(RouteCandidate selected, String segmentId) {
         if (selected != null) {
             for (var segment : selected.segments()) {
                 if (segment.mode() != TransportMode.BUS) continue;
@@ -352,15 +413,21 @@ public class RoadClosureDemoSupport {
             if (raw == null) return snapshot;
             JsonNode event = json.readTree(raw);
             String id = event.path("segmentId").asText();
+            String pair = event.path("stopPair").asText(null);
             if (!event.path("demo").asBoolean()
                     || !"DEMO_TOPIS".equals(event.path("source").asText())
                     || event.path("scheduleId").asLong() != scheduleId
                     || event.path("inputRevision").asLong(-1) != inputRevision
                     || !Instant.parse(event.path("validUntil").asText()).isAfter(now)
-                    || candidates.stream().noneMatch(c -> allEdges(c).contains(id)))
-                return snapshot;
+                    || candidates.stream().noneMatch(c -> crosses(c, id, pair))) return snapshot;
             var states = new LinkedHashMap<>(snapshot.states());
+            // 도로를 막는다: 같은 두 정류장 사이를 지나는 모든 버스 구간에 같은 사건을 얹는다. 사건 번호가 같아
+            // 원인은 하나로 묶인다. 정류장 쌍이 없던 예전 키는 저장된 구간 하나만 막는다.
             states.put(id, event);
+            if (pair != null)
+                for (var candidate : candidates)
+                    for (String edge : allEdges(candidate))
+                        if (pair.equals(stopPair(edge))) states.put(edge, event);
             var reasons = new ArrayList<>(snapshot.reasons());
             reasons.add("DEMO_TOPIS_ROAD_CONTROL");
             return new RouteEvidenceAssembler.Snapshot(states, reasons, snapshot.roads());

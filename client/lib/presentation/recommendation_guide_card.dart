@@ -225,30 +225,58 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
                   children: [
                     // 이 안내는 "지금 선택된 경로" 가 아니라 "가장 최근 계산 결과" 를 설명한다.
                     // 말머리를 달지 않으면 바로 위 경로 카드와 같은 이야기로 읽힌다.
-                    Container(
-                      key: const Key('guideScopeLabel'),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        // 끝난 일정에서는 과거형이다. 다녀온 일정에 "이 일정에 맞춰 … 제안해요" 가
-                        // 현재형으로 남아 있으면 아직 할 일이 있는 것처럼 읽힌다.
-                        widget.pastTense
-                            ? '이 일정에 맞춰 안내했어요'
-                            : guide?.generatedBy?.startsWith('GMS:') == true
-                            ? 'AI 교통 안내'
-                            : '교통 상황 안내',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF2F4A7D),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        Container(
+                          key: const Key('guideScopeLabel'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            // 끝난 일정에서는 과거형이다. 다녀온 일정에 "이 일정에 맞춰 … 제안해요" 가
+                            // 현재형으로 남아 있으면 아직 할 일이 있는 것처럼 읽힌다.
+                            widget.pastTense
+                                ? '이 일정에 맞춰 안내했어요'
+                                : guide?.generatedBy?.startsWith('GMS:') == true
+                                ? 'AI 교통 안내'
+                                : '교통 상황 안내',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF2F4A7D),
+                            ),
+                          ),
                         ),
-                      ),
+                        // 시연 통제가 원인이면 여기 한 번만 "시연" 을 붙인다. 문장마다 "[시연]" 을 붙였더니
+                        // 카드에 시연 문구만 있는 것처럼 보였다(2026-09-26 제보). 문장은 실제와 같다.
+                        if (widget.headline.value?.hasDemoCause == true)
+                          Container(
+                            key: const Key('guideDemoLabel'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF1D6),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Text(
+                              '시연',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF9A5B00),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     ..._summary(guide),
@@ -452,6 +480,18 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
   ///
   /// 모르는 값이면 null 을 돌려주고 아무것도 그리지 않는다. 서버가 나중에 유형을
   /// 늘렸을 때 앱이 영어 코드를 그대로 보여주는 일이 없어야 한다.
+  /// 출처 이름을 사람의 말로. 서버의 출처 값(영문 코드)을 그대로 보여 주지 않는다(2026-09-26 제보).
+  /// 모르는 출처는 보여 주지 않는다.
+  static String? sourceLabel(String? source) {
+    if (source == null || source.isEmpty) return null;
+    if (source == 'DEMO_TOPIS' || source.contains('traffic_incident')) {
+      return '서울시 교통 돌발정보';
+    }
+    if (source.contains('subway')) return '지하철 운행 알림';
+    if (source.toLowerCase().contains('topis')) return '서울시 교통정보';
+    return null;
+  }
+
   static String? _changeLabel(String? changeType) => switch (changeType) {
     'ROUTE_CHANGED' => '다른 경로 제안',
     'DEPARTURE_TIME_CHANGED' => '출발시각 변경 제안',
@@ -518,9 +558,9 @@ class _RecommendationGuideCardState extends State<RecommendationGuideCard> {
                     color: tone,
                   ),
                 ),
-                if (delay.source != null)
+                if (sourceLabel(delay.source) != null)
                   Text(
-                    delay.source!,
+                    sourceLabel(delay.source)!,
                     style: const TextStyle(
                       fontSize: 11,
                       color: Color(0xFF8A99A8),
@@ -648,72 +688,10 @@ class _GuideActionsState extends State<_GuideActions> {
     }
   }
 
-  /// "이 제안 적용".
-  ///
-  /// 버튼이 들고 있던 계산 번호를 그대로 보내면 거의 실패한다 — 출발이 가까우면 서버가
-  /// 1분마다 계산을 새로 하고, 수락은 최신 번호와 같을 때만 통과한다. 안내를 읽고 누르는
-  /// 그 사이에 이미 번호가 달라져 있다(2026-09-22 제보). 그래서 누른 순간에 최신 계산을
-  /// 다시 읽어 그 번호로 보낸다.
-  ///
-  /// 대신 사용자가 읽지 않은 제안을 대신 적용하지는 않는다. 그 사이 제안 시각이 바뀌었으면
-  /// 화면만 새 값으로 바꾸고, 확인한 뒤 다시 누르게 한다.
-  Future<void> _accept(DateTime shown) async {
-    setState(() {
-      _busy = true;
-      _notice = null;
-    });
-    try {
-      final latest = await widget.repository.latestEvaluation(
-        widget.scheduleId,
-      );
-      if (mounted) widget.headline.value = latest;
-      final id = latest.evaluationId;
-      final proposed = latest.proposedDepartAt;
-      if (id == null ||
-          id.isEmpty ||
-          proposed == null ||
-          !latest.canAcceptAt(DateTime.now())) {
-        _say('지금은 이 제안을 적용할 수 없어요. 계산이 끝난 뒤 다시 눌러 주세요.');
-        return;
-      }
-      if (proposed != shown) {
-        _say('제안한 출발 시각이 바뀌었어요. 새 시각을 확인하고 다시 눌러 주세요.');
-        return;
-      }
-      await widget.repository.acceptEvaluation(widget.scheduleId, id);
-      await _reload();
-      _say('제안한 출발 시각을 적용했어요.');
-    } on Object catch (failure) {
-      _say(failureMessage(failure));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  /// 실패 이유를 나눠 적는다.
-  ///
-  /// 무엇이 잘못됐든 "요청을 처리하지 못했어요" 하나만 보여 주면 사용자는 다시 눌러야
-  /// 할지 기다려야 할지 알 수 없다. 특히 계산이 바뀌어 거절된 경우는 할 일이 분명하므로
-  /// 그대로 적는다.
+  /// 실패 이유를 나눠 적는다. 본문은 [guideActionFailureMessage].
   @visibleForTesting
-  static String failureMessage(Object failure) {
-    if (failure is! ScheduleEvaluationFailure) {
-      return '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.';
-    }
-    return switch (failure.kind) {
-      EvaluationFailureKind.staleEvaluation =>
-        '계산이 방금 새로 됐어요. 바뀐 제안을 확인하고 다시 눌러 주세요.',
-      // 서버가 이유를 문장으로 준다(예: 검증 중인 제안은 적용할 수 없다).
-      EvaluationFailureKind.validation => failure.message,
-      EvaluationFailureKind.authentication => '로그인이 만료됐어요. 다시 로그인한 뒤 시도해 주세요.',
-      EvaluationFailureKind.notFound => '이 일정의 계산을 찾지 못했어요. 다시 계산해 주세요.',
-      EvaluationFailureKind.rateLimited => '요청이 너무 잦아요. 잠시 뒤 다시 눌러 주세요.',
-      EvaluationFailureKind.dependencyUnavailable =>
-        '지금은 서버가 응답하지 못해요. 잠시 뒤 다시 시도해 주세요.',
-      EvaluationFailureKind.network => '연결이 불안정해 요청을 보내지 못했어요.',
-      _ => '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.',
-    };
-  }
+  static String failureMessage(Object failure) =>
+      guideActionFailureMessage(failure);
 
   @override
   Widget build(
@@ -730,28 +708,29 @@ class _GuideActionsState extends State<_GuideActions> {
           evaluation?.state == EvaluationState.pending ||
           evaluation?.state == EvaluationState.running;
       final proposed = evaluation?.proposedDepartAt;
-      final canAccept =
-          evaluation != null &&
+      // 경로가 바뀌는 제안은 "새로 제안된 경로" 카드 안의 "이 경로로 바꾸기" 로 적용한다. 여기에도
+      // 단추가 있으면 초록색 "선택된 추천 경로" 바로 아래라 그 경로가 적용되는 것처럼 읽혔다
+      // (2026-09-26 제보). 이 카드에는 같은 경로에서 출발 시각만 바뀌는 제안만 남긴다.
+      final departureOnly =
           proposed != null &&
-          evaluation.canAcceptAt(DateTime.now());
+          evaluation != null &&
+          !evaluation.routeChangeProposed;
       final departed = evaluation?.actualDepartAt != null;
       final journey = widget.onStartJourney;
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (proposed != null)
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: const Key('acceptEvaluationButton'),
-                onPressed: _busy || !canAccept ? null : () => _accept(proposed),
-                icon: const Icon(Icons.check_rounded, size: 18),
-                label: const Text('이 제안 적용'),
-              ),
+          if (departureOnly) ...[
+            ProposalAcceptButton(
+              repository: widget.repository,
+              scheduleId: widget.scheduleId,
+              headline: widget.headline,
+              label: '제안한 출발 시각으로 바꾸기',
+              doneMessage: '제안한 출발 시각을 적용했어요.',
             ),
-          if (proposed != null && (active || journey != null))
-            const SizedBox(height: 8),
+            if (active || journey != null) const SizedBox(height: 8),
+          ],
           Row(
             children: [
               if (active)
@@ -812,6 +791,176 @@ class _GuideActionsState extends State<_GuideActions> {
             Text(
               _notice!,
               key: const Key('guideActionNotice'),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF2F4A7D)),
+            ),
+          ],
+        ],
+      );
+    },
+  );
+}
+
+/// 단추 실패 이유를 나눠 적는다.
+///
+/// 무엇이 잘못됐든 "요청을 처리하지 못했어요" 하나만 보여 주면 사용자는 다시 눌러야
+/// 할지 기다려야 할지 알 수 없다. 특히 계산이 바뀌어 거절된 경우는 할 일이 분명하므로
+/// 그대로 적는다. 교통 안내 카드의 단추 줄과 [ProposalAcceptButton] 이 같이 쓴다.
+String guideActionFailureMessage(Object failure) {
+  if (failure is! ScheduleEvaluationFailure) {
+    return '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.';
+  }
+  return switch (failure.kind) {
+    EvaluationFailureKind.staleEvaluation =>
+      '계산이 방금 새로 됐어요. 바뀐 제안을 확인하고 다시 눌러 주세요.',
+    // 서버가 이유를 문장으로 준다(예: 검증 중인 제안은 적용할 수 없다).
+    EvaluationFailureKind.validation => failure.message,
+    EvaluationFailureKind.authentication => '로그인이 만료됐어요. 다시 로그인한 뒤 시도해 주세요.',
+    EvaluationFailureKind.notFound => '이 일정의 계산을 찾지 못했어요. 다시 계산해 주세요.',
+    EvaluationFailureKind.rateLimited => '요청이 너무 잦아요. 잠시 뒤 다시 눌러 주세요.',
+    EvaluationFailureKind.dependencyUnavailable =>
+      '지금은 서버가 응답하지 못해요. 잠시 뒤 다시 시도해 주세요.',
+    EvaluationFailureKind.network => '연결이 불안정해 요청을 보내지 못했어요.',
+    _ => '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.',
+  };
+}
+
+/// 이번 계산의 제안(경로·출발 시각)을 적용하는 단추.
+///
+/// 경로가 바뀌는 제안은 "새로 제안된 경로" 카드 안에, 출발 시각만 바뀌는 제안은 교통 안내 카드에
+/// 둔다. 어느 쪽이든 서버에는 같은 "이번 계산의 제안 적용" 을 보낸다.
+///
+/// 버튼이 들고 있던 계산 번호를 그대로 보내면 거의 실패한다 — 출발이 가까우면 서버가
+/// 1분마다 계산을 새로 하고, 수락은 최신 번호와 같을 때만 통과한다. 안내를 읽고 누르는
+/// 그 사이에 이미 번호가 달라져 있다(2026-09-22 제보). 그래서 누른 순간에 최신 계산을
+/// 다시 읽어 그 번호로 보낸다.
+///
+/// 대신 사용자가 읽지 않은 제안을 대신 적용하지는 않는다. 그 사이 제안 시각이 바뀌었으면
+/// 화면만 새 값으로 바꾸고, 확인한 뒤 다시 누르게 한다.
+class ProposalAcceptButton extends StatefulWidget {
+  const ProposalAcceptButton({
+    super.key,
+    required this.repository,
+    required this.scheduleId,
+    required this.headline,
+    required this.label,
+    required this.doneMessage,
+    this.buttonKey = const Key('acceptEvaluationButton'),
+  });
+
+  final ScheduleEvaluationRepository repository;
+  final String scheduleId;
+  final ValueNotifier<ScheduleEvaluationV2?> headline;
+  final String label;
+  final String doneMessage;
+  final Key buttonKey;
+
+  @override
+  State<ProposalAcceptButton> createState() => _ProposalAcceptButtonState();
+}
+
+class _ProposalAcceptButtonState extends State<ProposalAcceptButton> {
+  bool _busy = false;
+  String? _notice;
+  String? _noticeFor;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.headline.addListener(_onEvaluation);
+  }
+
+  @override
+  void dispose() {
+    widget.headline.removeListener(_onEvaluation);
+    super.dispose();
+  }
+
+  /// 계산이 바뀌면 지난 문구를 지운다.
+  void _onEvaluation() {
+    if (_notice == null || !mounted) return;
+    final id = widget.headline.value?.evaluationId;
+    if (id == null || id == _noticeFor) return;
+    setState(() {
+      _notice = null;
+      _noticeFor = null;
+    });
+  }
+
+  void _say(String? message) {
+    if (!mounted) return;
+    setState(() {
+      _notice = message;
+      _noticeFor = widget.headline.value?.evaluationId;
+    });
+  }
+
+  Future<void> _accept(DateTime shown) async {
+    setState(() {
+      _busy = true;
+      _notice = null;
+    });
+    try {
+      final latest = await widget.repository.latestEvaluation(
+        widget.scheduleId,
+      );
+      if (mounted) widget.headline.value = latest;
+      final id = latest.evaluationId;
+      final proposed = latest.proposedDepartAt;
+      if (id == null ||
+          id.isEmpty ||
+          proposed == null ||
+          !latest.canAcceptAt(DateTime.now())) {
+        _say('지금은 이 제안을 적용할 수 없어요. 계산이 끝난 뒤 다시 눌러 주세요.');
+        return;
+      }
+      if (proposed != shown) {
+        _say('제안한 출발 시각이 바뀌었어요. 새 시각을 확인하고 다시 눌러 주세요.');
+        return;
+      }
+      await widget.repository.acceptEvaluation(widget.scheduleId, id);
+      try {
+        final after = await widget.repository.latestEvaluation(
+          widget.scheduleId,
+        );
+        if (mounted) widget.headline.value = after;
+      } on Object {
+        // 다시 읽기 실패는 알리지 않는다. 적용은 성공했고 정기 조회가 곧 같은 값을 가져온다.
+      }
+      _say(widget.doneMessage);
+    } on Object catch (failure) {
+      _say(guideActionFailureMessage(failure));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => ValueListenableBuilder<ScheduleEvaluationV2?>(
+    valueListenable: widget.headline,
+    builder: (context, evaluation, _) {
+      final proposed = evaluation?.proposedDepartAt;
+      if (proposed == null) return const SizedBox.shrink();
+      final canAccept =
+          evaluation != null && evaluation.canAcceptAt(DateTime.now());
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: widget.buttonKey,
+              onPressed: _busy || !canAccept ? null : () => _accept(proposed),
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: Text(widget.label),
+            ),
+          ),
+          if (_notice != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _notice!,
+              key: const Key('proposalAcceptNotice'),
               style: const TextStyle(fontSize: 12, color: Color(0xFF2F4A7D)),
             ),
           ],

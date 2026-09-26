@@ -277,6 +277,13 @@ class MovementConditionsServiceTest {
         when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
                 .thenReturn(event.formatted(2, "BUS:999:X:Y", "BUS:999:X:Y"));
         assertThat(service.get(7L, 3L, now).roadBlock().source()).isNotEqualTo("DEMO_TOPIS");
+
+        // 통제는 도로(두 정류장 사이) 단위다. 다른 번호 버스의 구간이라도 같은 두 정류장 사이면 이 경로에도 통제가 보인다(2026-09-26).
+        when(redis.value(MovementConditionsService.DEMO_ROAD_CONTROL_PREFIX + 3))
+                .thenReturn(
+                        event.formatted(2, "BUS:999:A:B", "BUS:999:A:B")
+                                .replace("\"status\"", "\"stopPair\":\"A:B\",\"status\""));
+        assertThat(service.get(7L, 3L, now).roadBlock().source()).isEqualTo("DEMO_TOPIS");
     }
 
     @Test

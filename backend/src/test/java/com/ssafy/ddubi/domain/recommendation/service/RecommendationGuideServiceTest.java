@@ -530,7 +530,8 @@ class RecommendationGuideServiceTest {
 
     /**
      * 발표용 통제도 실제 통제처럼 안내한다(2026-09-25 요청: "시연 붙고 뒤에 실제처럼"). 생성 AI 에는 실제 돌발 공지와 같은 모양의 사실(구간 문장, 실제
-     * 돌발과 같은 출처 이름)만 보내고, 보이는 문장 앞에만 "[시연]" 을 붙인다. 예전에는 AI 를 건너뛰고 "가짜 도로 통제" 문장을 그대로 보여 줬다.
+     * 돌발과 같은 출처 이름, 제안 경로가 그 구간을 피한다는 사실)만 보낸다. 시연 표시는 앱이 카드에 한 번만 붙이므로 문장에는 붙이지 않는다 (2026-09-26:
+     * 문장마다 "[시연]" 이 붙어 시연 문구만 있는 것처럼 보였다).
      */
     @Test
     void demoRoadControlReadsLikeARealNoticeWithDemoLabel() throws Exception {
@@ -554,10 +555,11 @@ class RecommendationGuideServiceTest {
 
         var facts = org.mockito.ArgumentCaptor.forClass(GmsRecommendationGuideClient.Facts.class);
         verify(rig.gms()).generate(facts.capture());
-        assertThat(facts.getValue().delay().reason()).isEqualTo(notice);
+        assertThat(facts.getValue().delay().reason())
+                .isEqualTo(notice + " 제안 경로는 이 통제 구간을 지나지 않아요.");
         assertThat(facts.getValue().delay().source()).isEqualTo("seoul.traffic_incident");
-        assertThat(result.recommendationReason()).isEqualTo("[시연] AI 사유 문장");
-        assertThat(result.delay().reason()).isEqualTo("[시연] " + notice);
+        assertThat(result.recommendationReason()).isEqualTo("AI 사유 문장");
+        assertThat(result.delay().reason()).isEqualTo(notice);
         assertThat(result.delay().source()).isEqualTo("seoul.traffic_incident");
         assertThat(result.delay().reason() + result.recommendationReason()).doesNotContain("가짜");
     }
