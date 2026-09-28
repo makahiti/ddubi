@@ -13,7 +13,13 @@ import '../schedule_evaluation_card.dart';
 import 'map.dart';
 import 'shared.dart';
 
-class RouteResultsScreen extends StatelessWidget {
+/// 추천 결과 화면.
+///
+/// 조회를 [State] 에서 한 번만 시작한다. 예전에는 `build()` 안에서 곧바로
+/// `evaluateOrSearch()` 를 불렀는데, Flutter 는 키보드가 올라오거나 화면이 돌아가는 등
+/// 여러 이유로 `build()` 를 다시 부른다. 그때마다 새 요청이 나갔고 서버는 요청마다
+/// 카카오 대중교통·도보 API 를 불렀다. 분당 호출 제한에 걸릴 수 있다(BE 지적, 2026-09-22).
+class RouteResultsScreen extends StatefulWidget {
   const RouteResultsScreen({
     super.key,
     required this.repository,
@@ -25,18 +31,62 @@ class RouteResultsScreen extends StatelessWidget {
   final RecommendationApi api;
   final RouteSearchCondition? condition;
   final ValueChanged<int>? go;
+
+  @override
+  State<RouteResultsScreen> createState() => _RouteResultsScreenState();
+}
+
+class _RouteResultsScreenState extends State<RouteResultsScreen> {
+  /// 화면이 다시 그려져도 같은 Future 를 본다. 검색 조건이 바뀔 때만 새로 만든다.
+  late Future<RouteEvaluationResult> _result;
+
+  @override
+  void initState() {
+    super.initState();
+    _result = _request();
+  }
+
+  @override
+  void didUpdateWidget(RouteResultsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 조건이 그대로면 다시 부르지 않는다. 같은 화면에 머무는 동안은 요청이 한 번이다.
+    if (!_sameRequest(oldWidget.condition, widget.condition)) {
+      setState(() {
+        _result = _request();
+      });
+    }
+  }
+
+  /// 같은 조회인지 값으로 비교한다.
+  ///
+  /// 객체가 같은지(identity)로 보면 안 된다. 화면을 다시 만들면서 같은 내용의 조건을 새로
+  /// 만들어 넘기는 경우가 있고, 그때 또 서버를 부르면 이 수정의 의미가 없어진다.
+  static bool _sameRequest(RouteSearchCondition? a, RouteSearchCondition? b) {
+    if (a == null || b == null) return a == b;
+    return a.origin.lat == b.origin.lat &&
+        a.origin.lng == b.origin.lng &&
+        a.destination.lat == b.destination.lat &&
+        a.destination.lng == b.destination.lng &&
+        a.plannedDepartAt == b.plannedDepartAt &&
+        a.desiredArrivalAt == b.desiredArrivalAt;
+  }
+
+  Future<RouteEvaluationResult> _request() {
+    final condition = widget.condition;
+    return condition == null
+        ? widget.repository.routes().then(RouteEvaluationResult.candidates)
+        : widget.api.evaluateOrSearch(condition);
+  }
+
   @override
   Widget build(BuildContext c) => AppPage(
     title: '추천 결과',
     webTitle: '추천 경로',
     webSubtitle: '도착 시간과 이동 조건을 기준으로 가장 알맞은 경로를 안내해요.',
-    index: go == null ? null : 1,
-    onNav: go,
-    actions: const [IconButton(onPressed: null, icon: Icon(Icons.refresh))],
+    index: widget.go == null ? null : 1,
+    onNav: widget.go,
     child: FutureBuilder<RouteEvaluationResult>(
-      future: condition == null
-          ? repository.routes().then(RouteEvaluationResult.candidates)
-          : api.evaluateOrSearch(condition!),
+      future: _result,
       builder: (c, s) {
         if (s.hasError) {
           return const DataLoadError(message: '추천 경로를 불러오지 못했어요.');
@@ -49,15 +99,17 @@ class RouteResultsScreen extends StatelessWidget {
           return ListView(
             padding: screenPadding,
             children: [
-              if (condition != null) ...[
-                _RouteSearchSummary(condition: condition!),
+              if (widget.condition != null) ...[
+                _RouteSearchSummary(condition: widget.condition!),
                 const SizedBox(height: 12),
               ],
               ScheduleEvaluationSummary(evaluation: result.evaluation!),
             ],
           );
         }
-        final routes = result.candidates;
+        // 평가 결과가 없을 때도 화면에는 한 개만 남긴다. 후보를 늘어놓아도 고를 근거가
+        // 없고, 여기 숫자는 우리 계산이 아니라 경로 API 원본이다(목록은 그 시간이 짧은 순).
+        final routes = result.candidates.take(1).toList(growable: false);
         if (routes.isEmpty) {
           return const Center(child: Text('표시할 경로 후보가 없어요.'));
         }
@@ -79,8 +131,8 @@ class RouteResultsScreen extends StatelessWidget {
         key: const Key('mobileRouteResultsLayout'),
         padding: screenPadding,
         children: [
-          if (condition != null) ...[
-            _RouteSearchSummary(condition: condition!),
+          if (widget.condition != null) ...[
+            _RouteSearchSummary(condition: widget.condition!),
             const SizedBox(height: 12),
           ],
           _candidateGuide,
@@ -102,8 +154,8 @@ class RouteResultsScreen extends StatelessWidget {
         key: const Key('webRouteResultsLayout'),
         padding: screenPadding,
         children: [
-          if (condition != null) ...[
-            _RouteSearchSummary(condition: condition!),
+          if (widget.condition != null) ...[
+            _RouteSearchSummary(condition: widget.condition!),
             const SizedBox(height: 16),
           ],
           Row(
@@ -115,7 +167,7 @@ class RouteResultsScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-          Text('경로 후보', style: Theme.of(context).textTheme.titleLarge),
+          Text('경로', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           Wrap(
             key: const Key('webRouteResultsGrid'),
@@ -140,14 +192,14 @@ class RouteResultsScreen extends StatelessWidget {
   void _openRouteMap(BuildContext context, RouteOption route) => openPage(
     context,
     RouteMapScreen(
-      repository: repository,
+      repository: widget.repository,
       selectedRoute: route,
-      condition: condition,
+      condition: widget.condition,
     ),
   );
 
   static const _candidateGuide = TtubeeGuideCard(
-    '서버 평가 기능이 준비 중이라 경로 후보만 보여드려요.',
+    '서버 평가 기능이 준비 중이라 경로 API 가 알려 준 경로만 보여드려요.',
     compact: true,
     character: TtubeeEntrance(
       asset: 'assets/images/ttubee/route-guide.png',
@@ -163,12 +215,12 @@ class RouteResultsScreen extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         StatusBadge(
-          '단순 경로 후보',
+          '원본 경로 기준',
           tone: DdubiColors.blue,
           icon: Icons.lightbulb_outline,
         ),
         SizedBox(height: 10),
-        Text('출발 추천과 예상 도착은 서버 평가 결과가 준비된 뒤 표시합니다.'),
+        Text('여기 시간은 경로 API 가 준 값이에요. 출발 추천과 예상 도착은 서버 평가 결과가 준비된 뒤 표시합니다.'),
       ],
     ),
   );
@@ -194,6 +246,7 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
   PlaceLocation? _destination;
   late DateTime _plannedDepartAt;
   bool _departureConfirmed = false;
+  bool _locating = false;
   late DateTime _desiredArrivalAt;
   late final TextEditingController _departure;
   late final TextEditingController _arrival;
@@ -341,7 +394,7 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
   );
 
   Widget _placeField(bool departure) {
-    return PlaceSearchField(
+    final field = PlaceSearchField(
       key: Key(departure ? 'routeDepartureField' : 'routeDestinationField'),
       label: departure ? '출발지' : '도착지',
       value: departure ? _origin : _destination,
@@ -354,6 +407,64 @@ class _RouteSearchScreenState extends State<RouteSearchScreen> {
         }
       }),
     );
+    if (!departure) return field;
+    // 일정과 달리 경로 찾기는 "지금 여기서" 가 가장 흔한 출발지다. 그때마다 주소를
+    // 검색해 고르게 하는 것은 번거롭다(2026-09-22 요청).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        field,
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const Key('routeUseCurrentLocation'),
+            onPressed: _locating ? null : _useCurrentLocation,
+            icon: _locating
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location, size: 18),
+            label: Text(_locating ? '위치를 확인하는 중...' : '현재 위치로 설정'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 지금 위치를 출발지로 넣는다.
+  ///
+  /// 못 구하면 그렇다고 알리고 아무것도 바꾸지 않는다. 임의의 좌표로 채우면 엉뚱한
+  /// 곳에서 출발하는 경로가 만들어진다.
+  Future<void> _useCurrentLocation() async {
+    setState(() => _locating = true);
+    try {
+      if (!await AppPermissionController.hasLocationPermission()) {
+        final allowed =
+            await AppPermissionController.requestLocationPermission();
+        if (!allowed) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('위치 권한이 필요해요. 더보기에서 켜주세요.')),
+          );
+          return;
+        }
+      }
+      final here = await AppPermissionController.currentLocation();
+      if (!mounted) return;
+      if (here == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('지금 위치를 확인하지 못했어요. 주소로 검색해 주세요.')),
+        );
+        return;
+      }
+      setState(() {
+        _origin = PlaceLocation(name: '현재 위치', lat: here.lat, lng: here.lng);
+      });
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
   }
 
   Future<void> _pickArrival() async {

@@ -10,6 +10,7 @@ import os
 from datetime import date
 
 from common.archive_source import read_archive_events
+from common.traffic_incident_ai import enrich_rows
 from common.traffic_incident_enrichment import VerifiedLinkMaster, normalize_incident
 from common.traffic_incident_policy import policy
 from pyspark import StorageLevel
@@ -25,13 +26,15 @@ def _normalize_partition(rows, master, stale_seconds, direct_tolerance_meters, n
             event = json.loads(item.rawEventJson)
         except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
             continue
-        yield normalize_incident(
+        normalized = normalize_incident(
             event,
             master,
             stale_seconds,
             direct_tolerance_meters,
             nearby_max_meters,
         )
+        # 과거 재학습 시 AI 결과의 생성시각을 소급하지 않는다. 원본 Silver 백필은 기본값으로 남긴다.
+        yield enrich_rows([normalized])[0]
 
 
 def _incident_events(spark, input_root, start, end):

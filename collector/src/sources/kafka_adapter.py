@@ -10,10 +10,14 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
+from bus_collection_policy import BusCollectionPlan, plan_bus_collection
 from bus_crosswalk import POLICY as BUS_ID_POLICY
 from bus_crosswalk import BusCrosswalk
+from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import Settings
-from request_budget import RequestBudget, RetryScheduled
+from request_budget import BudgetExceeded, RequestBudget, RetryScheduled, RetryWait
+from topis_notice_policy import plan_topis_notice
+from traffic_incident_poll_policy import plan_traffic_incident
 
 from sources.base import KST, PollBatch, Record, SourceSpec, now_kst
 from sources.subway_schedule import SkippedNonService, pause_until
@@ -27,7 +31,7 @@ POLICIES = {
     "subway_arrival": ("SUBWAY_API_KEY", "subway.arrival", 360, "transport"),
     "subway_location": ("SUBWAY_API_KEY", "subway.position", 3600, "transport"),
     "subway_alert": ("SUBWAY_ALERT_API_KEY", "subway.alert", 900, "transport"),
-    "city_realtime": ("CITY_REALTIME_API_KEY", "city.realtime", 21600, "city"),
+    "city_realtime": ("CITY_REALTIME_API_KEY", "city.realtime", 300, "city"),
     "topis_notice": ("TOPIS_NOTICE_API_KEY", "topis.notice", 900, "city"),
     "traffic_incident": ("TRAFFIC_INCIDENT_API_KEY", "traffic.incident", 900, "city"),
 }
@@ -52,6 +56,74 @@ def _limit_bus_targets(targets, raw_limit=None):
     if not 1 <= limit <= DEFAULT_BUS_ROUTE_LIMIT:
         raise ValueError(f"BUS_ROUTE_LIMIT must be between 1 and {DEFAULT_BUS_ROUTE_LIMIT}")
     return targets[:limit]
+
+
+def _bus_budget_limit(name: str, settings: Settings) -> int:
+    variable = "BUS_ARRIVAL_DAILY_BUDGET_PER_KEY" if name == "bus_arrival" else "BUS_LOCATION_DAILY_BUDGET_PER_KEY"
+    return int(settings.extra.get(variable, settings.extra.get("API_DAILY_LIMIT", "900")))
+
+
+def _claim_bus_budget(name, settings, candidates, interval, expected, allow_retry):
+    path = settings.extra.get(
+        "API_BUDGET_PATH", str(Path(__file__).resolve().parents[2] / "data" / "request_budget.sqlite3")
+    )
+    pool_variable = "BUS_ARRIVAL_QUOTA_POOL" if name == "bus_arrival" else "BUS_LOCATION_QUOTA_POOL"
+    default_pool = "data-go-kr:15000314" if name == "bus_arrival" else "data-go-kr:15000332"
+    pool = settings.extra.get(pool_variable, default_pool)
+    limit = _bus_budget_limit(name, settings)
+    budgets = [(slot, key, RequestBudget(path, key, limit, namespace=f"{pool}:{slot}")) for slot, key in candidates]
+    if len(budgets) > 1:
+        # Cadence belongs to the dataset, not to either credential. A shared
+        # schedule prevents A/B calls from bunching when the time window changes.
+        schedule = RequestBudget(path, "schedule", 1_000_000, namespace=f"{pool}:schedule")
+        if not schedule.claim_cycle(name, interval, 0):
+            return None, None
+        for slot, key, budget in sorted(budgets, key=lambda item: (item[2].used(), item[0])):
+            if budget.used() + expected <= limit:
+                log.info("source=%s quotaPool=%s keySlot=%s plannedRequests=%d", name, pool, slot, expected)
+                return key, budget
+        raise BudgetExceeded(f"All credentials exhausted for {pool}")
+
+    waits = []
+    exceeded = []
+    # Balance actual charged calls, not cycle count. Whole-route cycles stay on
+    # one credential so diagnostics and partial failures remain attributable.
+    for slot, key, budget in sorted(budgets, key=lambda item: (item[2].used(), item[0])):
+        try:
+            if budget.claim_cycle(
+                name,
+                interval,
+                expected,
+                allow_retry=allow_retry,
+            ):
+                log.info("source=%s quotaPool=%s keySlot=%s plannedRequests=%d", name, pool, slot, expected)
+                return key, budget
+        except RetryWait as exc:
+            waits.append(exc)
+        except BudgetExceeded as exc:
+            exceeded.append(exc)
+    if waits:
+        raise min(waits, key=lambda exc: exc.wait_seconds)
+    if len(exceeded) == len(budgets):
+        raise BudgetExceeded(f"All credentials exhausted for {pool}")
+    return None, None
+
+
+def make_request_budget(name: str, settings: Settings, key: str) -> RequestBudget:
+    """소스별 호출 한도와 quota namespace를 동일하게 생성한다."""
+    path = settings.extra.get(
+        "API_BUDGET_PATH", str(Path(__file__).resolve().parents[2] / "data" / "request_budget.sqlite3")
+    )
+    if name == "city_realtime":
+        limit = int(settings.extra.get("CITY_REALTIME_DAILY_BUDGET", "40000"))
+        namespace = settings.extra.get("CITY_REALTIME_QUOTA_POOL", "seoul-open-data:OA-21285")
+    elif name == "topis_notice":
+        limit = int(settings.extra.get("TOPIS_NOTICE_DAILY_BUDGET", "500"))
+        namespace = settings.extra.get("TOPIS_NOTICE_QUOTA_POOL", "seoul-open-data:OA-22861")
+    else:
+        limit = int(settings.extra.get("API_DAILY_LIMIT", "900"))
+        namespace = ""
+    return RequestBudget(path, key, limit, namespace=namespace)
 
 
 def _time(value, fallback):
@@ -160,7 +232,12 @@ def collect(name, settings: Settings, client):
     )
     module = importlib.import_module(f"sources.{name}")
     key_name, _, default_interval, _ = POLICIES[name]
-    key = settings.api_key(key_name)
+    key = None
+    budget = None
+    bus_candidates = []
+    bus_plan = None
+    topis_plan = plan_topis_notice(now, settings.extra) if name == "topis_notice" else None
+    incident_plan = plan_traffic_incident(now, settings.extra) if name == "traffic_incident" else None
     targets = []
     if name.startswith("bus_"):
         targets = (
@@ -169,6 +246,14 @@ def collect(name, settings: Settings, client):
             else module.load_bus_route_ids()
         )
         targets = _limit_bus_targets(targets, settings.extra.get("BUS_ROUTE_LIMIT"))
+        bus_candidates = bus_key_candidates(settings, name)
+        pooled = bus_dense_policy_enabled(settings, name)
+        bus_plan = (
+            plan_bus_collection(name, targets, now, settings.extra)
+            if pooled
+            else BusCollectionPlan(list(targets), default_interval, "configured-routes")
+        )
+        targets = bus_plan.targets
     elif name == "subway_location":
         targets = (
             [item.strip() for item in settings.extra["SUBWAY_LINES"].split(",") if item.strip()]
@@ -181,15 +266,34 @@ def collect(name, settings: Settings, client):
         requested = settings.extra.get("CITY_AREA_IDENTIFIERS")
         targets = module.select_city_areas(areas, requested.split(",") if requested else None)
     expected = len(targets) if targets else (2 if name == "subway_arrival" else 1)
-    budget = RequestBudget(
-        settings.extra.get(
-            "API_BUDGET_PATH", str(Path(__file__).resolve().parents[2] / "data" / "request_budget.sqlite3")
-        ),
-        key,
-        int(settings.extra.get("API_DAILY_LIMIT", "900")),
+    planned_interval = (
+        bus_plan.interval_seconds
+        if bus_plan
+        else topis_plan.interval_seconds
+        if topis_plan
+        else incident_plan.interval_seconds
+        if incident_plan
+        else default_interval
     )
-    interval = max(default_interval, settings.interval_seconds or 0)
-    if not budget.claim_cycle(name, interval, expected, allow_retry=name == "bus_location"):
+    interval = max(planned_interval, settings.interval_seconds or 0)
+    if bus_candidates:
+        # With multiple credentials the normal dense wakeup is already the
+        # retry path. Keep the legacy delayed retry only for one-key installs.
+        key, budget = _claim_bus_budget(
+            name,
+            settings,
+            bus_candidates,
+            interval,
+            expected,
+            allow_retry=name == "bus_location" and len(bus_candidates) == 1,
+        )
+        if budget is None:
+            log.info("source=%s cooldown active; no API request", name)
+            return PollBatch(status="RATE_LIMITED", scope_key=name, error_code="POLL_COOLDOWN")
+    else:
+        key = settings.api_key(key_name)
+        budget = make_request_budget(name, settings, key)
+    if not bus_candidates and not budget.claim_cycle(name, interval, expected, allow_retry=name == "bus_location"):
         log.info("source=%s cooldown active; no API request", name)
         return PollBatch(status="RATE_LIMITED", scope_key=name, error_code="POLL_COOLDOWN")
     hook = budget.before_request
@@ -205,10 +309,12 @@ def collect(name, settings: Settings, client):
                 ],
                 complete_snapshot=result["routeCount"] == len(targets),
                 page_count=result["routeCount"],
-                scope_key="configured-routes",
+                scope_key=bus_plan.scope if bus_plan else "configured-routes",
             )
         if name == "bus_location":
             result = module.fetch_all_bus_locations(key, targets, client=client, requests_per_second=1)
+            if result.get("noResultRouteIds"):
+                log.info("source=bus_location no_result_routes=%d", len(result["noResultRouteIds"]))
             return PollBatch(
                 [
                     to_record(name, row, route, crosswalk)
@@ -217,7 +323,7 @@ def collect(name, settings: Settings, client):
                 ],
                 complete_snapshot=result["routeCount"] == len(targets),
                 page_count=result["routeCount"],
-                scope_key="configured-routes",
+                scope_key=bus_plan.scope if bus_plan else "configured-routes",
             )
         if name == "subway_arrival":
             result = module.fetch_all_subway_arrivals(key, client=client)
@@ -258,28 +364,53 @@ def collect(name, settings: Settings, client):
         if name == "subway_alert":
             result = module.fetch_alerts(key, page_size=1000, client=client)
         elif name == "topis_notice":
-            result = module.fetch_notices(key, page_size=1000, fetch_all=False, client=client)
+            result = module.fetch_notices(
+                key,
+                page_size=int(settings.extra.get("TOPIS_NOTICE_PAGE_SIZE", "100")),
+                fetch_all=False,
+                client=client,
+            )
         else:
             result = module.fetch_incidents(key, page_size=1000, fetch_all=True, client=client)
-        if result.get("hasMore"):
-            log.warning("source=%s response may have more rows; first 1000 only", name)
+        if result.get("hasMore") and name != "topis_notice":
+            log.warning(
+                "source=%s response may have more rows; first %s only",
+                name,
+                result.get("pageSize") or len(result.get("items", [])),
+            )
         reported_complete = result.get("isComplete")
-        complete = not bool(result.get("hasMore")) and (reported_complete is not False or name == "topis_notice")
+        complete = name == "topis_notice" or (not bool(result.get("hasMore")) and reported_complete is not False)
         status = "SUCCESS" if complete else "PARTIAL"
-        return PollBatch(
+        scope_key = (
+            f"{topis_plan.scope}:recent-{result.get('pageSize', 100)}"
+            if topis_plan
+            else incident_plan.scope
+            if incident_plan
+            else "all-current"
+        )
+        batch = PollBatch(
             [to_record(name, row) for row in result["items"]],
             status=status,
             complete_snapshot=complete,
             page_count=int(result.get("requestCount") or 1),
-            scope_key="all-current",
+            scope_key=scope_key,
             error_code=None if complete else "PAGE_SCOPE_PARTIAL",
         )
+        # The complete set travels in one event so downstream can distinguish an
+        # actual zero from a missing/late row. Oversized sets remain unavailable.
+        if name == "traffic_incident" and complete:
+            snapshot = {"items": result["items"], "rowCount": len(result["items"]), "completeSnapshot": True}
+            if len(json.dumps(snapshot, ensure_ascii=False).encode("utf-8")) <= 800_000:
+                batch.snapshot = snapshot
+            else:
+                log.warning("source=traffic_incident complete snapshot exceeds Kafka event limit")
+        return batch
     except Exception as exc:
         if name == "bus_location":
             from sources.bus_location import BusLocationError
 
             if isinstance(exc, BusLocationError):
-                if exc.retryable and not settings.run_once:
+                if exc.retryable and not settings.run_once and len(bus_candidates) <= 1:
                     retry_at = budget.schedule_retry(name, 300, expected)
                     if retry_at is not None:
                         raise RetryScheduled(

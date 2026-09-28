@@ -1,6 +1,7 @@
 import 'package:ddubi/data/mock_repository.dart';
 import 'package:ddubi/domain/models.dart';
 import 'package:ddubi/presentation/screens.dart';
+import 'package:ddubi/domain/auth.dart';
 import 'package:ddubi/services/app_api.dart';
 import 'package:ddubi/services/recommendation_api.dart';
 import 'package:dio/dio.dart';
@@ -59,6 +60,7 @@ Future<GoRouter> _pumpDetail(
           recommendationApi: _NoRecommendationApi(),
           scheduleId: schedule.id,
           arrivalApi: ArrivalApi(Dio()),
+          userApi: UserApi(Dio(), AuthSessionStore()),
           initialSchedule: schedule,
         ),
       ),
@@ -106,8 +108,11 @@ void main() {
   testWidgets('이미 취소된 일정을 다시 취소해도(서버 멱등 204) 오류 없이 목록으로 돌아간다', (tester) async {
     final repository = _CancelRepository();
     final schedule = (await repository.schedules()).first;
-    await repository.cancelSchedule(schedule.id);
     await _pumpDetail(tester, repository, schedule);
+
+    // 화면을 연 뒤 서버 쪽에서 먼저 취소된 경쟁 상황이다. 열기 전에 Mock 목록에서
+    // 지워버리면 상세 화면 자체가 없어져 멱등 취소 동작을 시험할 수 없다.
+    await repository.cancelSchedule(schedule.id);
 
     await _cancelFromDetail(tester);
 

@@ -98,6 +98,46 @@ class BusLocationTest(unittest.TestCase):
             with self.assertRaisesRegex(BusLocationError, r"오류\(22\)"):
                 fetch_bus_location("key", "100100118", client=client)
 
+    def test_fetch_treats_no_result_code_as_empty_route(self) -> None:
+        # 운행 차량이 없는 노선은 headerCd 4 와 null 목록을 준다. 오류가 아니라 0대로 읽어야 한다.
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"msgHeader": {"headerCd": "4", "headerMsg": "결과가 없습니다."}, "msgBody": {"itemList": None}},
+            )
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            result = fetch_bus_location("key", "100100118", client=client)
+
+        self.assertEqual(result["msgBody"]["itemList"], [])
+
+    def test_fetch_all_keeps_other_routes_when_one_route_has_no_result(self) -> None:
+        # 2026-09-24 01:32·09:33 KST: 노선 하나의 headerCd 4 때문에 나머지 노선까지 회차가 통째로 버려졌다.
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.params["busRouteId"] == "100100124":
+                return httpx.Response(200, json={"msgHeader": {"headerCd": "4"}})
+            return httpx.Response(200, json=SAMPLE_JSON)
+
+        route_ids = ["100100118", "100100124", "100100183"]
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            result = fetch_all_bus_locations("key", route_ids, client=client, requests_per_second=25)
+
+        self.assertEqual(result["routeCount"], 3)
+        self.assertEqual(result["vehicleCount"], 2)
+        self.assertEqual(result["noResultRouteIds"], ["100100124"])
+        self.assertEqual(result["routeResults"]["100100124"]["msgBody"]["itemList"], [])
+
+    def test_fetch_all_still_stops_on_key_or_quota_error(self) -> None:
+        # 결과 없음만 건너뛴다. 키·한도 오류는 모든 노선에 똑같이 나므로 계속 실패로 알린다.
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.params["busRouteId"] == "100100124":
+                return httpx.Response(200, json={"msgHeader": {"headerCd": "7"}})
+            return httpx.Response(200, json=SAMPLE_JSON)
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            with self.assertRaisesRegex(BusLocationError, r"노선=100100124: .*오류\(7\)"):
+                fetch_all_bus_locations("key", ["100100118", "100100124"], client=client, requests_per_second=25)
+
     def test_save_json_uses_utf8_and_preserves_korean(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bus_location.json"

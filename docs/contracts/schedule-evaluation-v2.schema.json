@@ -11,56 +11,78 @@
             "string",
             "null"
           ],
-          "format": "date-time"
+          "description": "사용자 표시용 Asia/Seoul 업무시각. UTC 접미사나 오프셋을 붙이지 않는다.",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "plannedDepartAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "effectiveDepartAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "arriveBy": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "originalEstimatedArrivalAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "targetArriveAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "proposedDepartAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
         },
         "estimatedArrivalAt": {
           "type": [
             "string",
             "null"
           ],
-          "format": "date-time"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
+        },
+        "actualDepartAt": {
+          "type": ["string", "null"],
+          "description": "STOPPED에서 서버가 최초 기록한 실제 출발 Asia/Seoul 업무시각",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
+        },
+        "frozen": {"type": "boolean"},
+        "departureEstimate": {
+          "type": ["object", "null"],
+          "description": "STOPPED에서 선택 경로를 실제 출발 시각으로 재평가한 저장 결과. null이면 계산 전/이전 기록",
+          "properties": {
+            "status": {"enum": ["READY", "UNAVAILABLE"]},
+            "actualDepartAt": {"type": "string", "format": "date-time"},
+            "estimatedArrivalAt": {"type": ["string", "null"], "format": "date-time"},
+            "durationSeconds": {"type": ["integer", "null"], "minimum": 0},
+            "computedAt": {"type": "string", "format": "date-time"},
+            "routeKey": {"type": ["string", "null"]},
+            "reason": {"type": ["string", "null"]}
+          },
+          "required": ["status", "actualDepartAt", "estimatedArrivalAt", "durationSeconds", "computedAt", "routeKey", "reason"],
+          "additionalProperties": false
         },
         "computedAt": {
           "type": [
@@ -151,7 +173,8 @@
         "state": {
           "enum": [
             "READY",
-            "STALE"
+            "STALE",
+            "STOPPED"
           ]
         },
         "decision": {
@@ -569,14 +592,14 @@
               },
               "departAt": {
                 "type": "string",
-                "format": "date-time"
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
               },
               "estimatedArrivalAt": {
                 "type": [
                   "string",
                   "null"
                 ],
-                "format": "date-time"
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
               },
               "durationSeconds": {
                 "type": [
@@ -655,7 +678,13 @@
             "string",
             "null"
           ]
-        }
+        },
+        "actualDepartAt": {
+          "type": ["string", "null"],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?$"
+        },
+        "estimatedArrivalAt": {"type": "null"},
+        "frozen": {"type": "boolean"}
       },
       "required": [
         "schemaVersion",

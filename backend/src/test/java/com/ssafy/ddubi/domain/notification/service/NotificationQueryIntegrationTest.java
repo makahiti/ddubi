@@ -1,5 +1,8 @@
 package com.ssafy.ddubi.domain.notification.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.ssafy.ddubi.domain.notification.dto.response.NotificationListResponse;
 import com.ssafy.ddubi.domain.notification.dto.response.NotificationReadResponse;
 import com.ssafy.ddubi.domain.notification.entity.Notification;
@@ -14,7 +17,9 @@ import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,31 +28,20 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 /**
  * 알림 조회·읽음 (NTF-001~004).
  *
- * 고정하는 것: 도메인 규칙 1(소유권), 규칙 9(억제해도 행은 남는다),
- * 일정 삭제 후에도 알림 이력이 유지되는 FK SET NULL 동작.
+ * <p>고정하는 것: 도메인 규칙 1(소유권), 규칙 9(억제해도 행은 남는다), 일정 삭제 후에도 알림 이력이 유지되는 FK SET NULL 동작.
  */
 class NotificationQueryIntegrationTest extends IntegrationTestSupport {
 
     private static final Pageable FIRST_PAGE =
             PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-    @Autowired
-    private NotificationQueryService notificationQueryService;
-    @Autowired
-    private NotificationRepository notificationRepository;
-    @Autowired
-    private ScheduleRepository scheduleRepository;
-    @Autowired
-    private UserRepository userRepository;
+    @Autowired private NotificationQueryService notificationQueryService;
+    @Autowired private NotificationRepository notificationRepository;
+    @Autowired private ScheduleRepository scheduleRepository;
+    @Autowired private UserRepository userRepository;
 
     private User owner;
     private Long strangerId;
@@ -55,20 +49,23 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
     @BeforeEach
     void setUp() {
         owner = userRepository.save(User.builder().email("owner@ddubi.com").nickname("주인").build());
-        strangerId = userRepository.save(
-                User.builder().email("other@ddubi.com").nickname("남").build()).getId();
+        strangerId =
+                userRepository
+                        .save(User.builder().email("other@ddubi.com").nickname("남").build())
+                        .getId();
     }
 
     private Notification save(NotificationType type, NotificationStatus status, Schedule schedule) {
-        return notificationRepository.save(Notification.builder()
-                .user(owner)
-                .schedule(schedule)
-                .type(type)
-                .title(type.name() + " 제목")
-                .body("본문")
-                .status(status)
-                .sentAt(status == NotificationStatus.SENT ? LocalDateTime.now() : null)
-                .build());
+        return notificationRepository.save(
+                Notification.builder()
+                        .user(owner)
+                        .schedule(schedule)
+                        .type(type)
+                        .title(type.name() + " 제목")
+                        .body("본문")
+                        .status(status)
+                        .sentAt(status == NotificationStatus.SENT ? BusinessTime.now() : null)
+                        .build());
     }
 
     private Notification save(NotificationType type) {
@@ -76,15 +73,24 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
     }
 
     private Schedule saveSchedule() {
-        return scheduleRepository.save(Schedule.builder()
-                .user(owner)
-                .title("회의")
-                .origin(new LocationSnapshot("강남역", new BigDecimal("37.4979526"), new BigDecimal("127.0276241")))
-                .destination(new LocationSnapshot("광화문", new BigDecimal("37.5716229"), new BigDecimal("126.9767879")))
-                .arriveBy(LocalDateTime.now().plusDays(1).withNano(0))
-                .importance(Importance.NORMAL)
-                .considerLastTrip(false)
-                .build());
+        return scheduleRepository.save(
+                Schedule.builder()
+                        .user(owner)
+                        .title("회의")
+                        .origin(
+                                new LocationSnapshot(
+                                        "강남역",
+                                        new BigDecimal("37.4979526"),
+                                        new BigDecimal("127.0276241")))
+                        .destination(
+                                new LocationSnapshot(
+                                        "광화문",
+                                        new BigDecimal("37.5716229"),
+                                        new BigDecimal("126.9767879")))
+                        .arriveBy(BusinessTime.now().plusDays(1).withNano(0))
+                        .importance(Importance.NORMAL)
+                        .considerLastTrip(false)
+                        .build());
     }
 
     // ------------------------------------------------------------------
@@ -125,8 +131,9 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
         save(NotificationType.DEPART_SOON);
         save(NotificationType.LAST_TRIP);
 
-        NotificationListResponse result = notificationQueryService.list(
-                owner.getId(), false, NotificationType.LAST_TRIP, FIRST_PAGE);
+        NotificationListResponse result =
+                notificationQueryService.list(
+                        owner.getId(), false, NotificationType.LAST_TRIP, FIRST_PAGE);
 
         assertThat(result.content()).hasSize(1);
         assertThat(result.content().get(0).type()).isEqualTo(NotificationType.LAST_TRIP);
@@ -138,8 +145,9 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
         save(NotificationType.DEPART_SOON);
         save(NotificationType.LAST_TRIP);
 
-        NotificationListResponse filtered = notificationQueryService.list(
-                owner.getId(), false, NotificationType.LAST_TRIP, FIRST_PAGE);
+        NotificationListResponse filtered =
+                notificationQueryService.list(
+                        owner.getId(), false, NotificationType.LAST_TRIP, FIRST_PAGE);
 
         assertThat(filtered.content()).hasSize(1);
         assertThat(filtered.unreadCount()).as("목록은 1건이어도 뱃지는 2").isEqualTo(2);
@@ -150,7 +158,10 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
     void listIsScopedToOwner() {
         save(NotificationType.DEPART_SOON);
 
-        assertThat(notificationQueryService.list(strangerId, false, null, FIRST_PAGE).totalElements())
+        assertThat(
+                        notificationQueryService
+                                .list(strangerId, false, null, FIRST_PAGE)
+                                .totalElements())
                 .isZero();
     }
 
@@ -235,12 +246,15 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
     @DisplayName("전체 읽음은 남의 알림을 건드리지 않는다")
     void markAllReadIsScopedToOwner() {
         save(NotificationType.DEPART_SOON);
-        Notification others = notificationRepository.save(Notification.builder()
-                .user(userRepository.findById(strangerId).orElseThrow())
-                .type(NotificationType.DEPART_SOON)
-                .title("남의 알림").body("본문")
-                .status(NotificationStatus.SENT)
-                .build());
+        Notification others =
+                notificationRepository.save(
+                        Notification.builder()
+                                .user(userRepository.findById(strangerId).orElseThrow())
+                                .type(NotificationType.DEPART_SOON)
+                                .title("남의 알림")
+                                .body("본문")
+                                .status(NotificationStatus.SENT)
+                                .build());
 
         notificationQueryService.markAllRead(owner.getId());
 
@@ -262,7 +276,8 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
     @DisplayName("일정을 지워도 알림 이력은 남고 scheduleId 만 null 이 된다 (FK SET NULL)")
     void notificationSurvivesScheduleDeletion() {
         Schedule schedule = saveSchedule();
-        Long notificationId = save(NotificationType.DEPART_SOON, NotificationStatus.SENT, schedule).getId();
+        Long notificationId =
+                save(NotificationType.DEPART_SOON, NotificationStatus.SENT, schedule).getId();
         assertThat(notificationQueryService.get(owner.getId(), notificationId).scheduleId())
                 .isEqualTo(schedule.getId());
 
@@ -271,6 +286,7 @@ class NotificationQueryIntegrationTest extends IntegrationTestSupport {
         scheduleRepository.flush();
 
         assertThat(notificationQueryService.get(owner.getId(), notificationId).scheduleId())
-                .as("알림 행은 남고 연결만 끊긴다").isNull();
+                .as("알림 행은 남고 연결만 끊긴다")
+                .isNull();
     }
 }

@@ -578,22 +578,50 @@ class _BenchLeg extends StatelessWidget {
   );
 }
 
+/// 소개 화면의 미리보기 카드.
+///
+/// 여기 적힌 시각은 기능을 설명하려고 꾸민 값이다. 실제 계산 결과가 아니므로 "예시" 라고
+/// 밝힌다 — 밝히지 않으면 사용자가 자기 일정의 추천으로 읽는다.
 class _DepartureCards extends StatelessWidget {
   const _DepartureCards();
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
     children: const [
-      _DepartureCard(
-        Icons.schedule_rounded,
-        '추천 출발',
-        '17:35',
-        Color(0xFF08A79D),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _DepartureCard(
+            Icons.schedule_rounded,
+            '추천 출발',
+            '17:35',
+            Color(0xFF08A79D),
+          ),
+          SizedBox(width: 8),
+          _DepartureCard(
+            Icons.eco_rounded,
+            '여유 출발',
+            '17:25',
+            Color(0xFF3C657E),
+          ),
+          SizedBox(width: 8),
+          _DepartureCard(
+            Icons.flag_rounded,
+            '도착 예상',
+            '18:20',
+            Color(0xFF9B53A4),
+          ),
+        ],
       ),
-      SizedBox(width: 8),
-      _DepartureCard(Icons.eco_rounded, '여유 출발', '17:25', Color(0xFF3C657E)),
-      SizedBox(width: 8),
-      _DepartureCard(Icons.flag_rounded, '도착 예상', '18:20', Color(0xFF9B53A4)),
+      SizedBox(height: 6),
+      Text(
+        '예시 화면이에요',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF5D7B86),
+        ),
+      ),
     ],
   );
 }

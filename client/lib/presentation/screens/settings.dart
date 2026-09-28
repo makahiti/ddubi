@@ -12,7 +12,6 @@ import '../../domain/auth.dart';
 import '../../domain/models.dart';
 import '../../services/app_api.dart';
 import '../help_inquiry_screen.dart';
-import '../more_page_widgets.dart';
 import '../widgets.dart';
 import '../../core/diagnostics/developer_diagnostics.dart';
 import '../../core/config/app_environment.dart';
@@ -45,6 +44,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _photoAccessExplained = false;
   bool? _locationAllowed;
   bool? _notificationAllowed;
+
+  /// 저장 직후의 아침 브리핑 시각. 서버 값을 다시 읽기 전까지 화면이 되돌아가지 않게 둔다.
+  String? _briefingTime;
+  String? _nightBriefingTime;
+  bool _nightBriefingBusy = false;
+  bool _briefingBusy = false;
+
+  /// 저장 직후의 이동 기록 저장 동의. 서버 값을 다시 읽기 전까지 스위치가 되돌아가지 않게 둔다.
+  bool? _historyConsent;
+  bool _historyConsentBusy = false;
 
   @override
   void initState() {
@@ -132,9 +141,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: _mobileAccountCard(context, user),
             ),
             const SizedBox(height: 2),
-            _weeklyStampBoardCard(context),
+            const SizedBox(height: 14),
+            _briefingCard(context, user),
+            const SizedBox(height: 12),
+            _nightBriefingCard(context, user),
             const SizedBox(height: 14),
             _mobileServiceStatus(context),
+            const SizedBox(height: 14),
+            _historyConsentCard(user),
             const SizedBox(height: 14),
             _travelHistoryPreview(context),
             const SizedBox(height: 14),
@@ -260,10 +274,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _permissionCard(),
                 const SizedBox(height: 16),
-                _weeklyStampBoardCard(context),
+                _briefingCard(context, user),
+                const SizedBox(height: 12),
+                _nightBriefingCard(context, user),
                 const SizedBox(height: 16),
                 _serviceStatus(context),
                 const SizedBox(height: 16),
+                _historyConsentCard(user),
+                const SizedBox(height: 14),
                 _travelHistoryPreview(context),
                 const SizedBox(height: 16),
                 _accountActionsCard(context),
@@ -931,6 +949,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _locationAllowed = allowed);
   }
 
+  /// 알림 권한을 요청한다.
+  ///
+  /// 안드로이드는 알림 권한 창을 한 번 거절당하면 **다시 띄우지 않는다.** 그때 요청하면
+  /// 창 없이 거부로 돌아오므로, 화면만 갱신하면 사용자 눈에는 버튼이 고장 난 것처럼
+  /// 보인다(2026-09-21 확인). 요청해도 안 되면 설정 화면을 열어 직접 켜게 안내한다.
   Future<void> _changeNotificationPermission() async {
     if (_notificationAllowed == true) {
       await AppPermissionController.openSettings();
@@ -938,28 +961,195 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     final allowed =
         await AppPermissionController.requestNotificationPermission();
-    if (mounted) setState(() => _notificationAllowed = allowed);
+    if (!mounted) return;
+    setState(() => _notificationAllowed = allowed);
+    if (allowed) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        key: Key('notificationPermissionBlocked'),
+        content: Text('알림이 꺼져 있어요. 설정에서 켜주세요.'),
+      ),
+    );
+    await AppPermissionController.openSettings();
   }
 
-  Widget _weeklyStampBoardCard(BuildContext context) => const Card(
-    key: Key('weeklyStampBoardCard'),
-    child: Padding(
-      padding: EdgeInsets.all(16),
-      child: Row(
+  /// 아침 브리핑 시각.
+  ///
+  /// 서버는 이 값이 비어 있으면 "브리핑을 받지 않겠다" 는 뜻으로 보고 대상에서 뺀다.
+  /// 앱에 정하는 곳이 없어서 지금까지 모든 사용자가 비어 있었고, 아침 브리핑이 한 번도
+  /// 나가지 않았다(2026-09-21 확인).
+  Widget _briefingCard(BuildContext context, UserProfile user) {
+    final time = _briefingTime ?? user.briefingTime;
+    return InfoCard(
+      key: const Key('briefingCard'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.workspace_premium_outlined, color: Color(0xFF10B8A5)),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '도장판은 실제 미션 데이터 연동 후 제공될 예정이에요.',
-              key: Key('stampBoardPreparing'),
-              style: TextStyle(color: Color(0xFF64708B), fontSize: 13),
-            ),
+          const SectionHeader('아침 브리핑'),
+          const SizedBox(height: 6),
+          const Text(
+            '정한 시각에 그날 남은 일정을 한 번에 알려드려요.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  time == null ? '받지 않음' : '$time 에 받기',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: DdubiColors.navy,
+                  ),
+                ),
+              ),
+              if (time != null)
+                TextButton(
+                  key: const Key('briefingClearButton'),
+                  onPressed: _briefingBusy ? null : () => _saveBriefing(''),
+                  child: const Text('끄기'),
+                ),
+              OutlinedButton(
+                key: const Key('briefingPickButton'),
+                onPressed: _briefingBusy ? null : () => _pickBriefingTime(time),
+                child: Text(time == null ? '시각 정하기' : '변경'),
+              ),
+            ],
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
+
+  /// 밤 브리핑 시각.
+  ///
+  /// 아침 브리핑은 "오늘 남은" 일정을 알린다. 그래서 저녁 시각으로 맞춰 두면 그날 일정이
+  /// 이미 끝나 있어 아무것도 오지 않는다. 내일을 미리 보는 것은 성격이 다른 알림이라
+  /// 시각을 따로 둔다.
+  Widget _nightBriefingCard(BuildContext context, UserProfile user) {
+    final time = _nightBriefingTime ?? user.nightBriefingTime;
+    return InfoCard(
+      key: const Key('nightBriefingCard'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('밤 브리핑'),
+          const SizedBox(height: 6),
+          const Text(
+            '정한 시각에 내일 일정을 미리 알려드려요.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  time == null ? '받지 않음' : '$time 에 받기',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: DdubiColors.navy,
+                  ),
+                ),
+              ),
+              if (time != null)
+                TextButton(
+                  key: const Key('nightBriefingClearButton'),
+                  onPressed: _nightBriefingBusy
+                      ? null
+                      : () => _saveNightBriefing(''),
+                  child: const Text('끄기'),
+                ),
+              OutlinedButton(
+                key: const Key('nightBriefingPickButton'),
+                onPressed: _nightBriefingBusy
+                    ? null
+                    : () => _pickNightBriefingTime(time),
+                child: Text(time == null ? '시각 정하기' : '변경'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickNightBriefingTime(String? current) async {
+    final parts = (current ?? '21:00').split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.tryParse(parts.first) ?? 21,
+        minute: int.tryParse(parts.last) ?? 0,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final value =
+        '${picked.hour.toString().padLeft(2, '0')}:'
+        '${picked.minute.toString().padLeft(2, '0')}';
+    await _saveNightBriefing(value);
+  }
+
+  /// 빈 문자열을 보내면 서버가 값을 지워 "밤 브리핑 안 받음" 이 된다.
+  Future<void> _saveNightBriefing(String value) async {
+    setState(() => _nightBriefingBusy = true);
+    try {
+      final updated = await widget.userApi.update(nightBriefingTime: value);
+      if (!mounted) return;
+      setState(() => _nightBriefingTime = updated.nightBriefingTime);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value.isEmpty ? '밤 브리핑을 끕니다.' : '$value 에 내일 일정을 알려드릴게요.',
+          ),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('밤 브리핑 설정을 저장하지 못했어요.')));
+    } finally {
+      if (mounted) setState(() => _nightBriefingBusy = false);
+    }
+  }
+
+  Future<void> _pickBriefingTime(String? current) async {
+    final parts = (current ?? '07:00').split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.tryParse(parts.first) ?? 7,
+        minute: int.tryParse(parts.last) ?? 0,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final value =
+        '${picked.hour.toString().padLeft(2, '0')}:'
+        '${picked.minute.toString().padLeft(2, '0')}';
+    await _saveBriefing(value);
+  }
+
+  /// 빈 문자열을 보내면 서버가 값을 지워 "브리핑 안 받음" 이 된다.
+  Future<void> _saveBriefing(String value) async {
+    setState(() => _briefingBusy = true);
+    try {
+      final updated = await widget.userApi.update(briefingTime: value);
+      if (!mounted) return;
+      setState(() => _briefingTime = updated.briefingTime);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value.isEmpty ? '아침 브리핑을 끕니다.' : '$value 에 아침 브리핑을 보내드릴게요.',
+          ),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('아침 브리핑 설정을 저장하지 못했어요.')));
+    } finally {
+      if (mounted) setState(() => _briefingBusy = false);
+    }
+  }
 
   Widget _mobileServiceStatus(BuildContext context) => _settingsCard(
     color: const Color(0xFFFFFCFA),
@@ -971,11 +1161,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Opacity(
             opacity: .92,
             child: Image.asset(
-              'assets/images/ttubee/concerned.png',
+              'assets/images/ttubee/route-guide.png',
               width: 88,
               height: 88,
               fit: BoxFit.contain,
-              semanticLabel: '서비스 상태를 안내하는 뚜비',
+              semanticLabel: '일정별 교통 상황을 안내하는 뚜비',
             ),
           ),
         ),
@@ -984,22 +1174,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionHeader('서비스 연결 안내'),
+              // 제목·아이콘·그림을 들어가는 화면(일정별 교통 상황)과 맞춘다. 예전에는
+              // 제목이 '서비스 연결 안내' 이고 연결 끊김 아이콘에 걱정하는 뚜비까지 붙어
+              // 있어서, 기능 안내가 아니라 고장 알림으로 보였다.
+              const SectionHeader('일정별 교통 상황'),
               const SizedBox(height: 10),
               const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    Icons.cloud_off_outlined,
-                    color: Color(0xFFFF6B35),
+                    Icons.directions_transit_outlined,
+                    color: DdubiColors.blue,
                     size: 20,
                   ),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      '일정별 최신 교통 상황을 확인하세요.',
+                      '등록한 일정마다 교통 상황을 확인할 수 있어요.',
                       style: TextStyle(
-                        color: Color(0xFFFF5A2A),
+                        color: DdubiColors.navy,
                         fontSize: 13,
                         fontWeight: FontWeight.w800,
                       ),
@@ -1009,7 +1202,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 7),
               const Text(
-                '등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.',
+                '앞으로 갈 일정마다 그 일정의 이동 변수(날씨·혼잡도·도로 통제·지하철)를 볼 수 있어요.',
                 style: TextStyle(
                   color: Color(0xFF64708B),
                   fontSize: 12,
@@ -1042,26 +1235,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ),
   );
 
-  // ignore: unused_element
-  Future<void> _showStampBoardGuide(BuildContext context) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => const StampBoardGuideSheet(),
-      );
-
-  // ignore: unused_element
-  Future<void> _showStampBoardDetails(BuildContext context) =>
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => const StampBoardDetailSheet(),
-      );
-
   Widget _logoutCard(BuildContext context) => Material(
     color: const Color(0xFFFFF3F5),
     borderRadius: BorderRadius.circular(19),
@@ -1091,6 +1264,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     ),
   );
+
+  /// 이동 기록 저장 동의 스위치.
+  ///
+  /// 서버는 이 계정 동의와 도착 보고에 실린 동의가 **둘 다** 참일 때만 실제 도착 시각을 저장하고,
+  /// 저장한 시각이 있어야 정시·빠듯·지연을 판정한다. 그래서 이 스위치가 꺼져 있으면 이동 기록이
+  /// 전부 "판정 없음" 으로 남고 리포트의 정시율도 0% 로 보인다. 앱에 이 스위치가 아예 없어서
+  /// 사용자가 켤 방법이 없던 것이 그 증상의 원인이었다(2026-09-22 확인).
+  ///
+  /// 끄더라도 이미 저장된 기록은 서버가 지우지 않는다. 문구에서 그렇게 약속하지 않는다.
+  Widget _historyConsentCard(UserProfile user) {
+    final value = _historyConsent ?? user.historyConsented;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: SwitchListTile(
+        key: const Key('historyConsentSwitch'),
+        value: value,
+        onChanged: _historyConsentBusy ? null : _saveHistoryConsent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 17, vertical: 6),
+        title: const Text(
+          '이동 기록 저장',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text(
+          '도착 완료를 누를 때 도착 시각을 함께 남겨요. 켜야 정시·빠듯·지연을 판정하고 리포트에 쓸 수 있어요. 끄면 이후 기록만 판정하지 않고, 이미 남긴 기록은 그대로 둬요.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveHistoryConsent(bool value) async {
+    setState(() => _historyConsentBusy = true);
+    try {
+      final updated = await widget.userApi.update(historyConsent: value);
+      if (!mounted) return;
+      setState(() => _historyConsent = updated.historyConsented);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(value ? '앞으로 도착 시각을 함께 남길게요.' : '이제 도착 시각은 남기지 않아요.'),
+        ),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이동 기록 저장 설정을 저장하지 못했어요.')));
+    } finally {
+      if (mounted) setState(() => _historyConsentBusy = false);
+    }
+  }
 
   /// 개발자 옵션. 켜면 일정 상세의 이동 예측 카드에 모델 버전·적용 여부·원본 코드가 붙는다.
   /// 디버그 빌드는 기본 켜짐, 릴리스는 기본 꺼짐이며 앱을 다시 시작하면 빌드 기본값으로 돌아간다.
@@ -1277,15 +1501,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader('서비스 연결 안내'),
+        const SectionHeader('일정별 교통 상황'),
         const SizedBox(height: 10),
         const StatusBadge(
-          '일정별 최신 교통 상황을 확인하세요.',
-          tone: DdubiColors.orange,
-          icon: Icons.cloud_off_outlined,
+          '등록한 일정마다 교통 상황을 확인할 수 있어요.',
+          tone: DdubiColors.blue,
+          icon: Icons.directions_transit_outlined,
         ),
         const SizedBox(height: 6),
-        const Text('등록한 일정의 평가 결과와 정보 갱신 시각을 확인할 수 있어요.'),
+        const Text('앞으로 갈 일정마다 그 일정의 이동 변수(날씨·혼잡도·도로 통제·지하철)를 볼 수 있어요.'),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerRight,
@@ -1858,53 +2082,6 @@ class _MoreMenuRow extends StatelessWidget {
         const SizedBox(width: 6),
         const Icon(Icons.chevron_right_rounded, color: Color(0xFF425273)),
       ],
-    ),
-  );
-}
-
-// ignore: unused_element
-class _SettingsAccountAction extends StatelessWidget {
-  const _SettingsAccountAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFFF2F8FC),
-    borderRadius: BorderRadius.circular(14),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        height: 54,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: const Color(0xFF17243F), size: 20),
-            const SizedBox(width: 7),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Color(0xFF17243F),
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(width: 3),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFF62708B),
-              size: 18,
-            ),
-          ],
-        ),
-      ),
     ),
   );
 }

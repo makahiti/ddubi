@@ -9,7 +9,7 @@
 # 무엇을 하지 않는가
 #   지우지 않는다. 되돌릴 수 있게 두 곳에 남긴다 — git stash 와 ~/deploy-backup/<시각>.
 #   배포와 무관한 미추적 파일은 건드리지 않는다. 운영 자료가 거기 들어 있다
-#   (예: backend/transit-master/reference-library, infra/nginx/html/.well-known).
+#   (예: backend/transit-master/reference-library, infra/nginx/web).
 #
 # 되돌리는 법
 #   git stash list            # "배포 자동 보관 …" 이름표를 찾는다

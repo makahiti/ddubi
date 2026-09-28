@@ -21,7 +21,7 @@ class ApiDdubiRepository implements DdubiRepository {
   Future<Schedule?> scheduleById(String id) => _schedules.scheduleById(id);
 
   @override
-  Future<void> addSchedule(Schedule schedule) =>
+  Future<Schedule> addSchedule(Schedule schedule) =>
       _schedules.addSchedule(schedule);
 
   @override
@@ -48,12 +48,19 @@ class ApiDdubiRepository implements DdubiRepository {
       _repeats.repeatScheduleById(id);
 
   @override
-  Future<void> updateRepeatSchedule(RepeatScheduleRule rule) =>
-      _repeats.updateRepeatSchedule(rule);
+  Future<void> updateRepeatSchedule(
+    RepeatScheduleRule rule, {
+    DateTime? effectiveFrom,
+  }) => _repeats.updateRepeatSchedule(rule, effectiveFrom: effectiveFrom);
 
   @override
-  Future<void> deactivateRepeatSchedule(String id) =>
-      _repeats.deactivateRepeatSchedule(id);
+  Future<void> deactivateRepeatSchedule(
+    String id, {
+    bool cancelFutureInstances = false,
+  }) => _repeats.deactivateRepeatSchedule(
+    id,
+    cancelFutureInstances: cancelFutureInstances,
+  );
 
   @override
   Future<List<RouteOption>> routes({RouteSearchCondition? condition}) {

@@ -8,7 +8,6 @@
 |---|---|---|---|---|
 | 수집 원본(raw 이벤트) | **Kafka** 토픽 `city.raw`, `transport.raw` | **21일** 또는 파티션당 용량 상한(city.raw 1GiB, transport.raw **4GiB**, 2026-09-09 상향) 중 먼저 오는 것 | Kafka 가 자동 | `docs/contracts/topics.yaml` → `infra/scripts/create-topics.sh` |
 | 수집 원본 아카이브 | **HDFS** `/ddubi/archive/<토픽>/date=/hour=/*.parquet` | **영구** (지우지 않음) | 없음 | `ARCHIVE_URI`, `ARCHIVE_TOPICS`, `ARCHIVE_FLUSH_MINUTES=60`, `ARCHIVE_MAX_BYTES=128MB` |
-| 구간 판정 이력 | Kafka `segment.status` + HDFS 아카이브 | Kafka 24시간, HDFS 영구 | Kafka 자동 + 아카이버 | topics.yaml, 5절 |
 | Spark 체크포인트 | HDFS `/ddubi/checkpoints/<잡>` | 잡이 사는 동안. 잡을 새로 시작하려면 폴더를 지운다 | 인프라 | `SPARK_CHECKPOINT_DIR` |
 | 기준선 파일(weather) | HDFS `/ddubi/baseline/weather` | 마지막 배치 결과 1개(덮어씀) | 배치가 덮어씀 | `BASELINE_OUTPUT_URI` |
 | 최신값 | **Redis** (`weather:latest:*`, `transit:*`) | 키마다 TTL(수 분~수 시간). 메모리 384MB, 넘치면 TTL 있는 키부터 퇴출 | Redis 자동 | `docs/contracts/redis-keys.yaml` |
@@ -27,14 +26,16 @@
 
 ## 3. 용량 — 지금 얼마나 쓰고, 언제 차나
 
-**2026-09-09 실측 (weather 수집기만 가동)**
+**2026-09-23 실측 (수집기 9종·Spark 스트리밍 4개 가동)**
 
 | 항목 | 값 |
 |---|---|
-| HDFS 아카이브 | 4.2MB (9/1~9/9), 하루 약 0.5MB. 시간당 파일 1개(약 7~14KB) |
-| HDFS 전체 용량 | 663GB(두 서버 디스크 합), 사용 20MB |
-| 서버 디스크(/) | 서버1 309GB 중 16GB 사용(6%), 서버2 비슷 |
-| Kafka 데이터 | 61MB |
+| Kafka 유입 | 하루 약 85만 건(transport.raw 가 대부분), 저장 3.1GB. 21일 보존·transport.raw 파티션당 4GiB 상한 안 |
+| HDFS 사용 | 7.4GB(아카이브 + Silver + 체크포인트, 복제 2 포함) / 309GB. 9/18 2.2GB 에서 닷새에 5GB 늘었다(버스 백필 182MB·Silver 스트림·아카이브 누적) |
+| 서버 디스크(/) | 서버1 26GB(9%), 서버2 97GB(32%, 도커 이미지·CI 캐시·MySQL 8GB 포함) |
+| MySQL | 8.2GB(버스 참고자료 표 하나가 8GB), 백업 파일 약 210MB/일 |
+
+**2026-09-09 실측 (weather 수집기만 가동, 참고)**: HDFS 아카이브 4.2MB(하루 0.5MB), Kafka 61MB, 디스크 6%.
 
 **실시간 수집기가 켜지면** 유입이 크게 늘어납니다. 추정식은 `건/사이클 × 사이클/일 × 건당 크기`입니다. 예를 들어 지하철 열차 위치를 30초마다 300건(건당 약 400B) 받으면 하루 약 350MB 가 Kafka 에 들어오고, Parquet(snappy)로는 대략 1/5~1/10 인 35~70MB/일이 HDFS 에 쌓입니다. 이 추정은 **켜진 뒤 일주일 실측으로 반드시 갱신**합니다. 확인 명령:
 ```
@@ -49,16 +50,16 @@ docker exec hdfs-namenode hdfs dfs -du -s -h /ddubi/archive/transport.raw/date=$
 | 수집기 | 하루 호출 | 하루 레코드(추정) | Kafka 용량(추정) |
 |---|---|---|---|
 | 지하철 도착(전체 역, 6분) | 480 | 약 30만 | 약 150MB |
-| 실시간 도시데이터(121장소, 6시간) | 484 | 484 (건당 수십 KB) | 30~50MB |
+| 실시간 도시데이터(121장소, 5분) | 34,848 | 34,848 (건당 수십 KB) | 약 2.1~3.6GB |
 | 버스 도착·위치(노선 100개, 8시간) | 600 | 약 2만 | 10MB 미만 |
 | 지하철 위치(16호선, 1시간) | 384 | 약 2만 | 10MB 미만 |
-| 지하철 알림·교통 돌발·TOPIS 공지(15분) | 288 | 수천 | 소량 |
+| 지하철 알림·교통 돌발·TOPIS 공지 | 시간대별 주기(돌발 평일 약 171회) | 수천 | 소량 |
 | 날씨(14격자, 10분) | 2,016 | 2,016 | 1MB 미만 |
-| **합계** | 약 4,250 | **약 35만** | **약 200MB/일** |
+| **합계** | 도시데이터만 34,848 이상 | 기존 실시간 소스에 도시 34,848건 추가 | **도시데이터만 약 2.1~3.6GB/일** |
 
-**Kafka 의 두 상한 중 어느 것이 먼저 걸리나.** 토픽은 파티션 3개입니다. `transport.raw` 에 하루 200MB 가 들어오면 21일치가 약 4.2GB 인데 파티션당 1GiB(토픽 3GiB)로는 약 15일 만에 용량 상한이 먼저 걸립니다. 그래서 2026-09-09 에 transport.raw 를 **파티션당 4GiB(토픽 12GiB)** 로 올렸습니다. `city.raw` 는 날씨·도시데이터·예보를 합쳐도 21일치 약 1GB 라 1GiB 를 유지합니다. 아카이버가 정상이면 원본은 HDFS 에 있어 상한이 걸려도 유실은 없지만, 재처리로 Kafka 에서 다시 읽을 수 있는 기간이 줄어드는 것을 막기 위한 조치입니다.
+**Kafka 의 두 상한 중 어느 것이 먼저 걸리나.** 토픽은 파티션 3개입니다. `transport.raw` 에 하루 200MB 가 들어오면 21일치가 약 4.2GB 인데 파티션당 1GiB(토픽 3GiB)로는 약 15일 만에 용량 상한이 먼저 걸립니다. 그래서 2026-09-09 에 transport.raw 를 **파티션당 4GiB(토픽 12GiB)** 로 올렸습니다. 도시데이터를 5분마다 수집하면 `city.raw`는 기존 파티션당 1GiB 상한에 시간보다 먼저 도달해 Kafka 재처리 기간이 하루 안팎으로 줄 수 있습니다. 아카이버가 정상이면 원본은 HDFS에 남지만, 21일 Kafka 보존이 필요하면 운영 실측 뒤 `city.raw`의 `retentionBytes`를 별도로 올려야 합니다.
 
-**디스크 수명(대략)**: 하루 100MB 가 HDFS 에 쌓여도(복제 2 → 두 서버에 각 100MB) 서버 디스크 293GB 여유는 8년치입니다. 프로젝트 기간 안에는 용량보다 **Kafka 1GiB 상한**과 **Redis 384MB** 가 먼저 문제가 됩니다.
+**디스크 수명(대략)**: 5분 도시데이터 원본은 압축 전 Kafka 기준 하루 약 2.1~3.6GB로 추정한다. HDFS Parquet 압축률과 실제 이벤트 크기를 배포 후 일주일간 측정해 보존 기간을 다시 계산해야 한다. 현재는 **Kafka city.raw의 파티션당 1GiB 상한**이 먼저 문제가 될 가능성이 높다.
 
 **HDFS 파생 데이터(Silver)와 수집 상태 토픽.** 원본 아카이브(`/ddubi/archive`) 외에 전처리 결과(Silver)와 수집 상태 토픽도 HDFS 를 씁니다. 모두 원본(Kafka·아카이브)에서 다시 만들 수 있는 파생 데이터라, 유실돼도 재생성할 수 있습니다.
 
@@ -68,6 +69,15 @@ docker exec hdfs-namenode hdfs dfs -du -s -h /ddubi/archive/transport.raw/date=$
 | `/ddubi/silver/bus/realtime-v1` | 버스 Silver(실시간, 앞으로) | realtime 스트림 | 배포 이후분, 계속 쌓임 |
 | `/ddubi/silver/bus/backfill-v1` | 버스 Silver(과거 백필) | bus_silver 배치(일회용) | 9-10~9-16, 약 182M. 읽을 때 realtime-v1 과 합쳐 씀 |
 | `/ddubi/archive/source.poll-status` | 수집 사이클 상태(정상 빈 응답·실패·제한·생략) | 아카이버 | 토픽 504h·1GiB, archive:true (2026-09-17 추가) |
+| `/ddubi/silver/city/realtime-v1` | 도시 실시간 Silver(인구·도로) | city-realtime 스트림 | `CITY_SILVER_OUTPUT_URI` 를 채운 서버에서만 쓴다. 지금 서버1은 비어 있어 Redis 만 갱신 |
+| `TOPIS_SILVER_OUTPUT_URI` · `TRAFFIC_INCIDENT_SILVER_OUTPUT_URI` | TOPIS 공지·교통 돌발 Silver | topis · traffic-incident 스트림 | 경로를 채울 때만 쓴다. 지금은 둘 다 Redis 만 |
+| `/ddubi/master/<대응표>/version=…` | 버스 구간 대응표(날씨 격자·도로·도시 영역·구간) | export_bus_*_mapping 배치 | 버전 폴더가 쌓인다. 옛 버전 정리 규칙은 아래 문단 |
+
+**Silver 경로의 용량 계획(2026-09-23).** 위 경로는 전부 "지우지 않는" 쪽으로 쌓입니다. 원본 아카이브와 달리 계약에 보존 기간이 없고, 다시 만들 수 있는 파생 자료입니다. 그래서 규칙을 이렇게 둡니다.
+- **원본(`/ddubi/archive`)만 영구**입니다. Silver·derived·master 는 파생 자료라 원본에서 다시 만들 수 있으므로, 디스크가 모자라면 이 경로를 먼저 정리합니다.
+- 지금은 정리하지 않습니다. HDFS 7.4GB/309GB 이고, Silver 가 하루 수백 MB 씩 늘어도 프로젝트 기간 안에 문제가 되지 않습니다.
+- 정리가 필요해지는 기준은 4절의 "HDFS 용량 사용률 70%" 알림입니다. 그때 가장 오래된 Silver 날짜 폴더나 옛 대응표 `version=` 폴더부터 `hdfs dfs -rm -r` 로 지웁니다(휴지통을 거치므로 24시간 안에 되살릴 수 있습니다, 7-1절).
+- 새 Silver 경로를 켤 때(프로필을 켤 때)는 이 표에 한 줄을 넣고, 하루에 얼마나 쌓이는지 첫 주에 한 번 잽니다.
 
 ## 4. 용량 감시 — 무엇을 보고 언제 움직이나
 
@@ -89,7 +99,7 @@ Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니�
 4. 아카이브 압축률 개선(snappy → zstd) 또는 오래된 월을 별도 저장소로 옮기기. 프로젝트 기간에는 필요하지 않을 것으로 봅니다.
 5. 디스크 증설. 마지막 수단입니다.
 
-## 5. 새 토픽을 추가할 때 (예: segment.status)
+## 5. 새 토픽을 추가할 때 (예: source.poll-status)
 
 토픽 추가는 "만들기"만이 아니라 아카이브·감시까지 이어져야 원본 보존 원칙이 지켜집니다.
 
@@ -99,9 +109,7 @@ Grafana `DDUBI 파이프라인` 대시보드와 알림(Mattermost)으로 봅니�
 4. 확인: 첫 시간 정각 뒤 `hdfs dfs -ls /ddubi/archive/<토픽>/date=오늘` 에 파일이 생기고, Grafana "토픽별 유입"·"누적 메시지" 패널의 정규식에 토픽 이름이 들어 있는지 봅니다(`infra/monitoring/grafana/dashboards/json/ddubi-pipeline.json`).
 5. 재처리(replay)도 그 토픽 폴더를 읽을 수 있는지 `--dry-run` 으로 한 번 확인합니다.
 
-`segment.status`는 `archive: true`이며 기본 `ARCHIVE_TOPICS`에도 포함된다. 운영 반영 시 아카이버를
-재생성하고 첫 시간 정각 뒤 HDFS 행 수와 Kafka offset을 대조한다. Kafka 자체 보존은 24시간이므로
-아카이버가 빠진 채 판정 잡만 켜지 않도록 한다.
+`segment.status` 는 2026-09-23 dt 결정으로 segment-observations·segment-status 잡을 폐기했다(앞으로도 쓸 계획 없음). 토픽·아카이브 목록·판정 잡을 모두 뺐다. 이 절의 절차는 2026-09-17 `source.poll-status` 추가 때 실제로 밟은 순서다.
 
 ## 6. 원본이 온전한지 확인하는 법
 
@@ -155,6 +163,14 @@ docker restart mysqld-exporter
 2. **서버1 일일 tar 백업** — `infra/scripts/backup-namenode.sh` 가 매일 04:20(KST, 크론 UTC 19:20) 네임노드 컨테이너의 `current/` 를 서버1 `~/backups/hdfs-name/namenode-<날짜>.tar.gz` 로 묶어 7일 보존합니다(16MB 안팎). 결과는 같은 폴더 `backup.log` 에 한 줄씩 남고, 가장 새 fsimage 가 26시간을 넘으면 WARN 을 함께 적습니다.
 
 복구는 서버2 의 **예비 네임노드**(`hdfs-namenode-standby`, hdfs-standby 프로필, 평소 꺼져 있음)를 `infra/scripts/failover-namenode.sh` 로 켜서 사본으로 시작하는 것입니다. 사람이 "서버1 이 정말 죽었다" 를 확인한 뒤 명령 한 줄로 실행하며, 최대 1시간치 파일 이름표를 잃지만 그 파일들은 Kafka 21일 보관에서 다시 아카이브할 수 있습니다. 자세한 절차와 되돌리기는 [runbooks/hdfs-namenode-metadata-loss.md](runbooks/hdfs-namenode-metadata-loss.md) 에 있습니다.
+
+### 7-1. 손으로 잘못 지운 HDFS 파일 되살리기 (휴지통, 2026-09-21 적용)
+
+- 네임노드 `core-site.xml` 의 `fs.trash.interval=1440` 으로 HDFS 휴지통이 켜져 있습니다. 사람이 `hdfs dfs -rm` / `-rm -r` 로 지운 것은 바로 사라지지 않고 **원래 경로 그대로** `/user/root/.Trash/Current/` 아래로 옮겨집니다. 예: `/ddubi/archive/city.raw/date=2026-09-20` 을 지우면 `/user/root/.Trash/Current/ddubi/archive/city.raw/date=2026-09-20` 에 있습니다.
+- 되살리기: `hdfs dfs -mv /user/root/.Trash/Current/<원래 경로> /<원래 경로>`. 휴지통 안 파일은 24시간마다 돌아가는 청소기가 시각 이름 폴더로 옮긴 뒤 다시 24시간이 지나면 실제로 지우므로, **지운 뒤 24~48시간 안**에만 되살릴 수 있습니다.
+- 휴지통을 거치지 않는 것: 아카이버(WebHDFS)와 Spark 프로그램이 API 로 하는 삭제, 그리고 `-skipTrash` 를 붙인 명령. 자동화된 삭제는 전과 같고, 사람의 실수만 막는 장치입니다.
+- 공간: 휴지통에 있는 동안은 원래 파일의 공간을 그대로 차지합니다. 큰 폴더를 지워 공간을 바로 비워야 하면 `-skipTrash` 를 씁니다. 지금 HDFS 사용량(2.2GB/309GB)에서는 문제가 되지 않습니다.
+- 적용 방법(참고): 이 값은 네임노드와 shell 만 읽으므로 설정을 바꾸면 네임노드 컨테이너만 `--force-recreate` 합니다. 2026-09-21 실측 세이프모드 44초, Spark 잡·아카이버 재시작 0.
 
 ## 8. 이 문서를 갱신해야 하는 때
 

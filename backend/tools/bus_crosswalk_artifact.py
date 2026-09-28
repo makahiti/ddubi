@@ -1,4 +1,4 @@
-"""검증된 수도권 마스터의 인접 순번을 전 서비스용 대응표로 내보낸다.
+"""검증된 버스 마스터의 인접 순번을 전 서비스용 대응표로 내보낸다.
 
 표시 이름·좌표 근접으로 ID를 추측하지 않는다. 입력 artifact의 SHA와 버전을 묶고,
 노선 순번이 연속하지 않은 곳은 edge를 생성하지 않아 누락을 숨기지 않는다.
@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 POLICY = "canonical-adjacent-v2"
-NAMESPACES = {"SEOUL_BUS", "GBIS", "INCHEON_PUBLIC_CSV"}
+NAMESPACES = {"SEOUL_BUS", "GBIS", "INCHEON_PUBLIC_CSV", "BUSAN_GTFS"}
 
 
 def component(namespace, value):

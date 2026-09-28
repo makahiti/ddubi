@@ -12,14 +12,13 @@ import org.springframework.stereotype.Service;
 
 /**
  * 접근·이탈 WALK를 검증된 제휴 결과로 교체한다. 환승 WALK와 provider 총시간은 중복 가산하지 않는다. 카카오 경로 끝점 또는 검증된 공식 좌표를 사용하고 출처를
- * 구별한다. API 또는 좌표 검증이 실패하면 기존 WALK 시간과 실패 근거를 반환한다. 총시간은 구간 합으로 다시 만든다. 캐시는 한 평가 안에서만 유지하고 좌표
- * 반올림/장기 TTL은 실측 전 적용하지 않는다.
+ * 구별한다. API 또는 좌표 검증이 실패하면 기존 WALK 시간과 실패 근거를 반환한다. 총시간은 구간 합으로 다시 만든다. 동일 좌표 요청은 한 평가 안에서 캐시하지만 후보
+ * 수에 따른 인위적인 호출 횟수 제한은 두지 않는다. 외부 제공자의 timeout·429·오류는 클라이언트 경계에서 실패 근거로 보존한다.
  */
 @Service
 public class WalkingEnrichmentService {
     private final WalkingRouteClient client;
     private final boolean enabled;
-    private final int budget;
     private final double maxMeters;
     private final List<WalkingEndpointResolver.MasterPoint> points;
     private final WalkingCoordinateArtifact artifact;
@@ -30,10 +29,23 @@ public class WalkingEnrichmentService {
             WalkingRouteClient client,
             ObjectMapper json,
             boolean enabled,
-            int budget,
             double maxMeters,
             String path) {
-        this(client, json, enabled, budget, maxMeters, path, false);
+        this(client, json, enabled, maxMeters, path, false);
+    }
+
+    /**
+     * 이전 테스트·내부 호출부의 생성자 호환용이다. ignoredCallLimit 값은 더 이상 저장하거나 적용하지 않는다. 운영 설정에는 이 인자가 없으며 모든 신규 좌표
+     * 요청을 호출한다.
+     */
+    public WalkingEnrichmentService(
+            WalkingRouteClient client,
+            ObjectMapper json,
+            boolean enabled,
+            int ignoredCallLimit,
+            double maxMeters,
+            String path) {
+        this(client, json, enabled, maxMeters, path, false);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -41,15 +53,13 @@ public class WalkingEnrichmentService {
             WalkingRouteClient client,
             ObjectMapper json,
             @Value("${ddubi.walking.enabled:true}") boolean enabled,
-            @Value("${ddubi.walking.max-calls:10}") int budget,
             @Value("${ddubi.walking.endpoint-max-meters:0}") double maxMeters,
             @Value("${ddubi.walking.master-coordinate-path:}") String path,
             @Value("${ddubi.walking.provider-endpoints:true}") boolean providerEndpoints) {
-        if (budget < 0 || budget > 32 || maxMeters < 0 || !Double.isFinite(maxMeters))
+        if (maxMeters < 0 || !Double.isFinite(maxMeters))
             throw new IllegalArgumentException("도보 정책 범위 오류");
         this.client = client;
         this.enabled = enabled;
-        this.budget = budget;
         this.maxMeters = maxMeters;
         List<WalkingEndpointResolver.MasterPoint> loaded = List.of();
         WalkingCoordinateArtifact coordinateArtifact = null;
@@ -72,6 +82,18 @@ public class WalkingEnrichmentService {
         points = List.copyOf(loaded);
         artifact = coordinateArtifact;
         this.providerEndpoints = providerEndpoints;
+    }
+
+    /** provider 끝점 정책을 직접 주입하는 이전 테스트의 호환용이며 ignoredCallLimit은 적용하지 않는다. */
+    public WalkingEnrichmentService(
+            WalkingRouteClient client,
+            ObjectMapper json,
+            boolean enabled,
+            int ignoredCallLimit,
+            double maxMeters,
+            String path,
+            boolean providerEndpoints) {
+        this(client, json, enabled, maxMeters, path, providerEndpoints);
     }
 
     @com.fasterxml.jackson.annotation.JsonInclude(
@@ -114,7 +136,28 @@ public class WalkingEnrichmentService {
 
     public record Prepared(List<RouteCandidate> candidates, Evidence evidence) {}
 
-    /** 후보 재검색이 일어나도 한 일정 평가의 도보 예산과 동일 요청 결과는 공유한다. */
+    /**
+     * 일정에 고정 저장할 도보 결과의 수명을 일정 종료시각까지 맞춘다. 카카오 응답 직후의 짧은 유효시간은 응답 검증용이지, 정적인 도보 구간을 매분 다시 호출하라는 의미가
+     * 아니다. 실제 카카오 시간이 한 구간에도 적용되지 않았다면 실패 결과에 임의 유효기간을 붙이지 않는다.
+     */
+    public Prepared retainUntil(Prepared prepared, Instant scheduleEndsAt) {
+        Objects.requireNonNull(prepared);
+        Objects.requireNonNull(scheduleEndsAt);
+        Evidence current = prepared.evidence();
+        boolean applied =
+                current.legs().stream()
+                        .anyMatch(leg -> "KAKAO_WALKING_API".equals(leg.durationSource()));
+        Evidence retained =
+                new Evidence(
+                        current.legs(),
+                        current.fallbackReasons(),
+                        current.apiCalls(),
+                        applied ? scheduleEndsAt : null,
+                        current.candidateFallbackReasons());
+        return new Prepared(prepared.candidates(), retained);
+    }
+
+    /** 후보 재검색이 일어나도 동일 좌표 요청 결과를 공유한다. calls는 제한값이 아니라 실제 외부 호출 횟수 진단값이다. */
     public static final class Session {
         private final Map<WalkingRouteClient.Request, WalkingRouteClient.Evidence> cache =
                 new HashMap<>();
@@ -193,7 +236,8 @@ public class WalkingEnrichmentService {
                 boolean accessMissing = !originalRoles.containsValue(Role.ACCESS_WALK);
                 boolean egressMissing = !originalRoles.containsValue(Role.EGRESS_WALK);
                 if (enabled) {
-                    if (accessMissing)
+                    if (accessMissing) {
+                        var firstRide = transit.get(0);
                         inputSteps.add(
                                 0,
                                 syntheticWalk(
@@ -201,15 +245,22 @@ public class WalkingEnrichmentService {
                                                         .mapToInt(RouteSegment::sequence)
                                                         .min()
                                                         .orElse(1)
-                                                - 1));
-                    if (egressMissing)
+                                                - 1,
+                                        "출발지",
+                                        endpointName(firstRide.fromName(), "첫 승차 지점")));
+                    }
+                    if (egressMissing) {
+                        var lastRide = transit.get(transit.size() - 1);
                         inputSteps.add(
                                 syntheticWalk(
                                         route.segments().stream()
                                                         .mapToInt(RouteSegment::sequence)
                                                         .max()
                                                         .orElse(0)
-                                                + 1));
+                                                + 1,
+                                        endpointName(lastRide.toName(), "마지막 하차 지점"),
+                                        "도착지"));
+                    }
                 } else if (accessMissing || egressMissing) {
                     routeReasons.add("WALK_DISABLED");
                 }
@@ -220,6 +271,8 @@ public class WalkingEnrichmentService {
                 Role role = roles.get(step.sequence());
                 long seconds = step.durationSeconds();
                 String source = "PUBLIC_TRANSIT_STEP";
+                // 지도용 좌표. 도보 API 가 실제 걷는 길을 주면 그것으로 바꾼다.
+                List<Coordinate> path = step.geometry();
                 EndpointEvidence endpoint = null;
                 String fallback = null;
                 if (role == Role.ACCESS_WALK || role == Role.EGRESS_WALK) {
@@ -255,7 +308,7 @@ public class WalkingEnrichmentService {
                                             "SHORTEST",
                                             EndpointEvidence.POLICY_VERSION);
                             var found = cache.get(request);
-                            if (found == null && session.calls < budget) {
+                            if (found == null) {
                                 session.calls++;
                                 try {
                                     found = client.route(request);
@@ -281,6 +334,9 @@ public class WalkingEnrichmentService {
                                     && found.validUntil().isAfter(asOf)) {
                                 seconds = found.seconds();
                                 source = "KAKAO_WALKING_API";
+                                // 시간과 같은 응답에서 온 좌표만 쓴다. 지도에 그려지는 선과
+                                // 화면에 적히는 시간이 서로 다른 조회 결과이면 안 된다.
+                                if (!found.path().isEmpty()) path = found.path();
                                 if (validUntil == null || found.validUntil().isBefore(validUntil))
                                     validUntil = found.validUntil();
                                 for (var point : coordinates)
@@ -289,11 +345,9 @@ public class WalkingEnrichmentService {
                                         validUntil = point.validUntil();
                             } else
                                 fallback =
-                                        found == null
-                                                ? "WALK_CALL_BUDGET_EXHAUSTED"
-                                                : found.reason() == null
-                                                        ? "WALK_INVALID_RESPONSE"
-                                                        : found.reason();
+                                        found.reason() == null
+                                                ? "WALK_INVALID_RESPONSE"
+                                                : found.reason();
                         } else fallback = resolved.evidence().reason();
                     }
                     if (fallback != null) {
@@ -304,9 +358,10 @@ public class WalkingEnrichmentService {
                 }
                 if ("EVALUATION_ENDPOINT_WALK".equals(step.providerRouteKey())
                         && !"KAKAO_WALKING_API".equals(source)) {
-                    // 원본에 없던 도보의 API 실패를 0초 성공으로 만들지 않는다.
+                    // 원본에 없던 도보의 API 실패를 0초 성공으로 만들지 않는다. 합성 구간 자체는
+                    // 남겨 두어 평가 조립기가 "끝점 시간 미확인"과 일반적인 provider 잔여시간을
+                    // 구분한다. 최종 시간은 아래 unassigned/provider total fallback이 보존한다.
                     routeReasons.add("WALK_ENDPOINT_DURATION_UNAVAILABLE");
-                    continue;
                 }
                 steps.add(
                         new RouteSegment(
@@ -321,7 +376,7 @@ public class WalkingEnrichmentService {
                                 seconds,
                                 step.stopNames(),
                                 step.vehicles(),
-                                step.geometry(),
+                                path,
                                 step.mapping()));
                 // 동일 카카오 후보에서 전개한 버스 대안도 서로 다른 증거 key를 유지한다.
                 metadata.add(
@@ -334,18 +389,24 @@ public class WalkingEnrichmentService {
                                 source,
                                 endpoint));
             }
-            // 사용자 정책: 총시간은 명시된 구간의 합으로 다시 만든다.
-            // provider 총시간의 미분류 몫은 배분하거나 대기로 가정하지 않는다.
+            // 명시된 구간 합이 provider 전체시간보다 짧으면 그 차이를 버리지 않는다.
+            // 이 값에는 응답에서 독립 step으로 분해되지 않은 접근·이탈 도보와 대기가 섞일 수
+            // 있으므로 어느 구간에 임의 배분하지 않고 unassigned로 보존한다. 반대로 별도 도보
+            // API가 provider 전체시간보다 긴 값을 주면 검증된 구간 합을 우선한다.
+            long segmentSeconds = steps.stream().mapToLong(RouteSegment::durationSeconds).sum();
+            long totalSeconds = Math.max(route.totalDurationSeconds(), segmentSeconds);
+            long unassignedSeconds = totalSeconds - segmentSeconds;
+            if (unassignedSeconds > 0) routeReasons.add("PROVIDER_TOTAL_COMPONENT_UNASSIGNED");
             output.add(
                     new RouteCandidate(
                             route.providerCandidateIndex(),
                             route.type(),
                             route.totalDistanceMeters(),
-                            steps.stream().mapToLong(RouteSegment::durationSeconds).sum(),
+                            totalSeconds,
                             route.transfers(),
                             route.fare(),
                             route.unassignedDistanceMeters(),
-                            0,
+                            unassignedSeconds,
                             steps));
             candidateReasons.put(
                     com.ssafy.ddubi.domain.recommendation.evaluation.RouteEvidenceAssembler.key(
@@ -363,21 +424,30 @@ public class WalkingEnrichmentService {
                         candidateReasons));
     }
 
-    private static RouteSegment syntheticWalk(int sequence) {
+    /**
+     * 원본 대중교통 후보에 빠진 양 끝 도보를 저장 가능한 구간으로 만든다. 도보 API가 성공하면 이 구간도 {@code route_segment}에 영속화되므로, DB의
+     * NOT NULL 계약에 맞춰 출발·도착 이름을 생성 시점부터 보존한다.
+     */
+    private static RouteSegment syntheticWalk(int sequence, String fromName, String toName) {
         return new RouteSegment(
                 sequence,
                 TransportMode.WALK,
                 null,
                 "EVALUATION_ENDPOINT_WALK",
                 null,
-                null,
-                null,
+                fromName,
+                toName,
                 0,
                 0,
                 List.of(),
                 List.of(),
                 List.of(),
                 null);
+    }
+
+    /** 제공자 응답에 정류장명이 없더라도 합성 도보의 DB 계약과 사용자 경로 설명을 함께 지킨다. */
+    private static String endpointName(String providerName, String fallback) {
+        return providerName == null || providerName.isBlank() ? fallback : providerName;
     }
 
     private static WalkingEndpointResolver.Endpoint providerEndpoint(

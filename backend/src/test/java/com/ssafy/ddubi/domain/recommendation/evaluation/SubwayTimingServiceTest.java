@@ -522,7 +522,7 @@ class SubwayTimingServiceTest {
     }
 
     @Test
-    void previewAppliesTimetableRegardlessOfProviderResidual() {
+    void providerResidualPreventsDuplicatedTimetableWaitAndKeepsProviderTotal() {
         var trip = trip("T1", call("A", 60, true), call("B", 300, true));
         var bus = mock(BusPreviewClient.class);
         var evidence = new RouteEvidenceAssembler(redis, json);
@@ -549,11 +549,15 @@ class SubwayTimingServiceTest {
                                 List.of(segment(1, "A", "B")));
                 var result =
                         preview.compare(List.of(route), snapshot, now, now, now.plusSeconds(2000));
-                boolean applied = true;
-                assertThat(result.subwayPredictions().get(0).applied()).isEqualTo(applied);
+                boolean applied = residual == 0;
+                if (applied) assertThat(result.subwayPredictions().get(0).applied()).isTrue();
+                else assertThat(result.subwayPredictions()).isEmpty();
                 assertThat(result.candidates().get(0).subwaySteps()).isEqualTo(applied ? 1 : 0);
                 assertThat(result.fastest().estimatedArrivalAt())
                         .isEqualTo(now.plusSeconds(applied ? 300 : 999 + residual));
+                if (!applied)
+                    assertThat(result.fastest().reasons())
+                            .contains("step-1:WAIT_TIME_COVERED_BY_PROVIDER_TOTAL");
             }
         verifyNoInteractions(bus);
     }

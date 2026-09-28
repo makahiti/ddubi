@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DDUBI subway train crosswalk evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "observations"],
+  "properties": {
+    "schemaVersion": {"const": "subway-train-observations-v1"},
+    "observations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/observation"}
+    }
+  },
+  "$defs": {
+    "providerId": {"type": "string", "pattern": "^[0-9A-Za-z_-]{1,60}$"},
+    "text": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventType",
+        "eventId",
+        "providerLineId",
+        "providerTrainId",
+        "providerStationId",
+        "matchedAt",
+        "direction",
+        "destination"
+      ],
+      "properties": {
+        "eventType": {"enum": ["subway.arrival", "subway.position"]},
+        "eventId": {"$ref": "#/$defs/text"},
+        "providerLineId": {"$ref": "#/$defs/providerId"},
+        "providerTrainId": {"$ref": "#/$defs/providerId"},
+        "providerStationId": {"$ref": "#/$defs/providerId"},
+        "matchedAt": {"type": "string", "format": "date-time"},
+        "direction": {"$ref": "#/$defs/text"},
+        "destination": {"$ref": "#/$defs/text"},
+        "trainType": {
+          "anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"eventType": {"const": "subway.arrival"}}},
+          "then": {"required": ["trainType"]}
+        }
+      ]
+    }
+  }
+}

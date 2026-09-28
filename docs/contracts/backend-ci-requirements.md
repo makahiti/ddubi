@@ -5,7 +5,12 @@
 
 ---
 
-## 확정 — dind + Testcontainers (2026-09-04)
+> **2026-09-23 갱신(백엔드·인프라 합의)**: CI 는 이제 아래 dind 방식이 아니라 **GitLab `services:` 방식**으로 돕니다.
+> dind 안에서 이미지를 잡마다 다시 받고 MySQL 을 세 번 띄우느라 잡 하나가 중간 17분이 걸렸기 때문입니다.
+> 실제 정의는 "대안" 절(지금은 현행)과 `.gitlab-ci.yml` backend-test 를 보면 되고, 아래 dind 절은 결정 기록으로 남깁니다.
+> 로컬 개발은 그대로 Testcontainers 로 돕니다.
+
+## 결정 기록 — dind + Testcontainers (2026-09-04, 2026-09-23 까지 사용)
 
 **백엔드 통합 테스트는 MySQL 8 + Redis 7 이 떠 있어야 돕니다.**
 
@@ -71,18 +76,21 @@ backend-test:
 > MySQL 시간대(`+09:00`)와 `utf8mb4` 는 `IntegrationTestSupport` 가 컨테이너를 띄울 때
 > 직접 지정하므로 CI 쪽에서 신경 쓸 것이 없습니다.
 
-### 대안 — 러너가 바뀌어 privileged 를 못 쓰게 되면
+### 현행(2026-09-23 부터) — GitLab services 로 MySQL·Redis 를 붙인다
 
 백엔드 코드가 이미 대비해 뒀습니다. `CI_MYSQL_HOST` / `CI_REDIS_HOST` 환경변수가 들어오면
-Testcontainers 대신 그 주소에 붙습니다. 그때는 `services:` 로 아래를 붙여주시면 됩니다.
+Testcontainers 대신 그 주소에 붙습니다. **2026-09-23 부터 CI 가 실제로 이 방식으로 돕니다**(dind 는 뺐습니다).
+`.gitlab-ci.yml` 의 backend-test 정의가 기준이고, 아래는 그 요약입니다.
 
 ```yaml
   services:
     - name: mysql:8.0
       alias: mysql
+      # IntegrationTestSupport 의 withCommand 와 같은 값이어야 한다. 한쪽만 바꾸면 CI 에서만 깨진다.
       command: ["--character-set-server=utf8mb4",
                 "--collation-server=utf8mb4_0900_ai_ci",
-                "--default-time-zone=+09:00"]
+                "--default-time-zone=+09:00",
+                "--max-allowed-packet=64M"]
     - name: redis:7-alpine
       alias: redis
   variables:
@@ -92,7 +100,13 @@ Testcontainers 대신 그 주소에 붙습니다. 그때는 `services:` 로 아�
     MYSQL_ROOT_PASSWORD: root
     CI_MYSQL_HOST: mysql
     CI_REDIS_HOST: redis
+    CI_MYSQL_ROOT_PASSWORD: root   # 격리 DB 를 만드는 테스트(support/IsolatedMySql)가 CREATE DATABASE 에 쓴다
 ```
+
+공용 DB 를 쓰지 않는 테스트(마이그레이션 한 장만 적용하거나 표를 직접 만드는 테스트)는
+`support/IsolatedMySql` 로 격리 DB 를 얻습니다. CI 에서는 services 의 MySQL 에 `ddubi_isolated_<난수>`
+데이터베이스를 새로 만들어 쓰고 끝나면 지웁니다. 로컬에서는 전처럼 Testcontainers 컨테이너를 띄웁니다.
+둘 다 없으면 건너뛰지 않고 실패합니다. 건너뛰면 DB 검증이 하나도 안 돌았는데 파이프라인이 초록불이 되기 때문입니다.
 
 ### 소요 시간 예상
 
@@ -127,6 +141,6 @@ Testcontainers 대신 그 주소에 붙습니다. 그때는 `services:` 로 아�
 ## 요약
 
 1. 위 **잡 정의를 그대로** 넣어주시면 됩니다. 백엔드 쪽 추가 작업은 없습니다
-2. `TESTCONTAINERS_HOST_OVERRIDE: "docker"` 를 빠뜨리지 말아 주세요 — 없으면 전부 실패합니다
+2. ~~`TESTCONTAINERS_HOST_OVERRIDE: "docker"` 를 빠뜨리지 말아 주세요~~ (2026-09-23 services 전환으로 해당 없음. 대신 services `command` 를 `IntegrationTestSupport` 와 같게 유지)
 3. 비밀값 주입은 필요 없습니다
 4. 이미지 빌드는 `backend/Dockerfile` 이 생긴 뒤 따로 요청드리겠습니다

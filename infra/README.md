@@ -31,16 +31,17 @@
 
 | 프로필 | 서비스 | 비고 |
 |---|---|---|
-| `core` | kafka, kafka-ui | 가장 먼저 띄운다 |
+| `core` | kafka | 가장 먼저 띄운다 |
+| `kafka-ui` | kafka-ui | Kafka 관리 화면. 필요할 때만 `--profile kafka-ui up -d kafka-ui` 로 켜고 다 보면 끈다(약 500MB, 2026-09-25 기본 배포에서 뺌) |
 | `data` | mysql, redis | |
 | `collect` | collector-weather, -bus-arrival, -bus-location, -subway-arrival, -subway-location, -subway-alert, -city-realtime, -traffic-incident, -topis-notice | 수집기 9개 전부. 배포 잡이 항상 켠다. 키가 비어 있는 수집기는 재시작을 반복하므로 서버 `.env` 의 "수집기 전용" 절을 먼저 채운다. 상세는 [수집 가이드](../docs/data-collection-guide.md) |
 | `hdfs` | hdfs-namenode, hdfs-datanode1 | archiver·spark가 HDFS를 쓰므로 함께 필요 |
 | `hdfs2` | hdfs-datanode2, hdfs-secondarynamenode | 서버2 전용. 세컨더리 네임노드는 매시간 네임노드 메타데이터 사본을 서버2 볼륨에 만든다(2026-09-14). 로컬에서 복제 2를 채우려면 hdfs와 함께 켠다 |
 | `hdfs-standby` | hdfs-namenode-standby | 서버2 전용, **평소 켜지 않는다**. 서버1 네임노드 메타데이터를 잃었을 때 `scripts/failover-namenode.sh` 가 켠다. [절차서](../docs/runbooks/hdfs-namenode-metadata-loss.md) |
-| `spark` | spark-master, spark-worker-1/2, spark-streaming-weather, spark-streaming-realtime | |
-| `recommendation-data` | spark-streaming-segment-observations, spark-streaming-segment-status | 검증된 실제 구간 통과 생산자와 registry/baseline이 준비된 뒤에만 켠다. 상태 잡은 두 경로가 비어 있으면 기동을 거부한다. |
-| `topis-ai` | spark-streaming-topis | GMS·Kakao 키를 설정한 뒤 명시적으로 켜는 TOPIS 공지 전처리 잡 |
-| `road-silver` | spark-streaming-traffic-incident | 승인된 OA-13310 동일 ID 링크 마스터가 있을 때 DIRECT/NEARBY를 활성화하는 교통 돌발 Silver |
+| `spark` | spark-master, spark-worker-1/2, spark-streaming-light, spark-streaming-realtime | light 는 날씨·도시·TOPIS 공지(GMS·Kakao 키 필요)·TOPIS 돌발 네 잡을 한 앱으로 돌린다(2026-09-25). 일부만 돌리려면 `LIGHT_STREAMING_JOBS` |
+| `spark-split` | spark-streaming-weather, -city-realtime, -topis, -traffic-incident | **되돌리기용**. 네 잡을 따로 돌리던 예전 방식. light 와 체크포인트를 같이 쓰므로 light 를 멈춘 뒤에만 켠다 |
+| `topis-ai`, `road-silver` | (없음) | 예전에 topis·돌발 잡을 따로 켜던 프로필. 지금은 light 안에서 돈다. 배포 명령에 남아 있어도 해가 없다 |
+| `road-feature` | ml-incident-feature-refresh | 서버2에서 새 돌발 회차를 감지해 버스 구간별 Redis feature를 자동 갱신 |
 | `batch` | spark-batch | 일회성 실행기. `run --rm`으로만 쓴다 |
 | `archive` | archiver | |
 | `monitoring` | prometheus, grafana, node-exporter, redis-exporter·mysqld-exporter, blackbox-exporter | 서버2 몫. 스크랩 대상: 양 서버 node + 서버1 kafka-exporter. blackbox-exporter 는 ml-serving 의 /health/ready 를 대신 찔러 probe_success 지표로 바꾼다(2026-09-15) |
@@ -80,7 +81,7 @@
    ```
    - 로그에 `cycle ok records=14`가 나오면 Kafka까지 들어간 것입니다 (서울 25개 구가 공유하는 격자 14개 단위로 호출).
    - Kafka UI: http://localhost:8085 → Topics → city.raw
-   - 기상 Spark 드라이버: `docker logs spark-streaming-weather --tail 5` 에서 `batch=N grids=14`
+   - 기상 Spark 드라이버(합친 앱): `docker logs spark-streaming-light 2>&1 | grep grids= | tail -3` 에서 `batch=N grids=14`
    - 비기상 Spark 드라이버(기본 UI 4042, executor 480m): `docker logs spark-streaming-realtime --tail 5` 에서 `batch=N ... redisKeys=N`
    - Redis: `docker compose --profile data exec redis redis-cli -a <REDIS_PASSWORD> KEYS "weather:latest:*"` → 격자 14개
    - HDFS: http://localhost:9870 (Utilities → Browse) 에서 `/ddubi/archive`, `/ddubi/checkpoints`
@@ -161,7 +162,7 @@ SPARK_CHECKPOINT_DIR=/opt/ddubi/checkpoints
   sudo sh scripts/firewall.sh <상대서버_사설IP>        # 서버2에서 nginx 도입 후에는 --web 추가 (80/443 공개)
   sudo netfilter-persistent save                        # 재부팅 유지
   ```
-- **관리 화면은 SSH 터널로**: 방화벽 이후 Grafana(3000, 서버2)·kafka-ui(8085, 서버1)·HDFS UI(9870, 서버1)는 외부 차단 상태입니다.
+- **관리 화면은 SSH 터널로**: 방화벽 이후 Grafana(3000, 서버2)·kafka-ui(8085, 서버1, 켤 때만)·HDFS UI(9870, 서버1)는 외부 차단 상태입니다.
   ```
   ssh -i <pem> -L 3000:localhost:3000 ubuntu@j15e202.p.ssafy.io   # 켜둔 채 브라우저에서 localhost:3000
   ```
@@ -176,6 +177,20 @@ SPARK_CHECKPOINT_DIR=/opt/ddubi/checkpoints
 - **브리핑**: `scripts/daily-brief.py` 가 서버2 크론으로 매일 09:30·17:00(KST) 서버 상황(수집 대상·알림·서비스·데이터·HDFS·자원·컨테이너 재시작·백업)을 같은 Mattermost 채널에 한 메시지로 보냅니다. 판정하지 않고 숫자만 정리하며, 알림 문턱 아래에서 나빠지는 것을 사람이 보게 하는 용도입니다. `--dry-run` 으로 화면 확인.
 - **반영 시점**: Prometheus 설정과 Grafana 알림 규칙·수신처는 배포 잡의 post-deploy 가 재적재합니다(알림 파일은 Grafana 가 기동 때만 읽으므로 관리자 API 로 다시 읽게 함, 2026-09-10). Grafana 대시보드 파일은 10초마다 자동으로 다시 읽습니다. Spark 지표 설정(`spark/conf/metrics.properties`)만 Spark 프로세스 재시작이 필요합니다.
 - 파일로 프로비저닝한 대시보드·알림은 화면에서 고쳐도 저장되지 않습니다. 저장소 파일을 고쳐 MR 로 올리는 것이 기준입니다.
+
+## 웹 정적 파일 배포 (Flutter 웹, 2026-09-23)
+
+- nginx 는 서버2 `~/S15P21E202/infra/nginx/web/` 를 `/` 로 서빙합니다. 이 폴더는 **git 이 추적하지 않습니다**(.gitignore).
+  배포(git pull)가 건드리지 않으므로 여기에 올린 빌드는 배포 뒤에도 그대로 남습니다.
+- 웹을 올리는 법: CI `client-build-web` 아티팩트(`client/build/web`, 일주일 보관)를 받아 폴더 내용을 통째로 이 폴더에 넣습니다.
+  nginx 는 파일을 바로 읽으므로 재시작이 필요 없습니다.
+  ```
+  # 예: 아티팩트를 풀어 PC 에서 서버2 의 web/ 로 올리기
+  scp -r client/build/web/* ubuntu@j15e202.p.ssafy.io:~/S15P21E202/infra/nginx/web/
+  ```
+- 안드로이드 앱 링크 검증 파일 `.well-known/assetlinks.json` 도 이 폴더 아래에 둡니다(같은 root 로 서빙).
+- `infra/nginx/html/index.html` 은 저장소에 남는 안내 페이지일 뿐 서빙되지 않습니다. 새 서버를 만들 때는 `web/` 폴더를 먼저 만들고 빌드를 넣은 뒤 serving 프로필을 올립니다.
+  폴더가 없으면 도커가 빈 폴더를 만들어 `/` 가 403 으로 응답합니다.
 
 ## HTTPS (Let's Encrypt)
 

@@ -61,6 +61,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // flutter_local_notifications 가 최신 자바 날짜/시간 API 를 쓴다. 오래된 안드로이드에서도
+        // 돌아가게 하려면 이 변환을 켜야 한다. 끄면 빌드가 AAR 검사에서 멈춘다.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     signingConfigs {
@@ -118,4 +121,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // 위 isCoreLibraryDesugaringEnabled 와 짝이다. 둘 중 하나만 있으면 빌드가 실패한다.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

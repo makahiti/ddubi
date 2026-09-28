@@ -16,6 +16,22 @@ ddubi:
   walking:
     # 통합 fixture의 좌표·가짜 키로 외부 카카오를 호출하지 않는다. 도보 HTTP는 전용 fixture에서 검증한다.
     enabled: false
+  briefing:
+    # 스케줄러 빈은 살려 두고 자동 실행만 막는다.
+    #
+    # 브리핑 검사는 dispatchDue(now) 에 시각을 넘겨서 실제 시계에 기대지 않게 만들어 뒀는데,
+    # 정작 진짜 스케줄러는 그대로 1분마다 '실제 시각' 으로 돌고 있었다. 검사가 도는 도중에
+    # 한 바퀴가 끼어들면 알림 행이 하나 더 생기고, 알림 개수를 세는 검사가 그때만 빨간불이 된다.
+    #
+    # ConditionalOnProperty 로 빈을 없애지 않는 이유: MorningBriefIntegrationTest 가
+    # 스케줄러를 주입받아 tick() 을 직접 부른다(그게 KST 판정 검사의 대상이다). 빈을 지우면
+    # 주입이 실패해서 컨텍스트 자체가 안 뜬다. 그래서 첫 실행을 하루 뒤로 미뤄 저절로는
+    # 돌지 않게만 한다. 직접 부르는 것은 그대로 된다.
+    scheduler-delay-ms: 86400000
+  schedule:
+    # 같은 이유. 지난 일정 자동 마감이 검사 도중 끼어들면 다른 검사의 일정이 닫힌다.
+    # 전용 검사는 expireOverdue(now) 를 직접 부른다.
+    expiry-delay-ms: 86400000
   recommendation:
     monitor-enabled: false
     commit-wakeup-enabled: false

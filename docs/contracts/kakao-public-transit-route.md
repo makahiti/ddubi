@@ -44,6 +44,9 @@ Authorization: Bearer {accessToken}
 - 전체값과 구간 합의 차이는 구성 요소를 확정할 수 없는 잔여값이다. 대기·접근·환승 중 무엇인지 단정하지 않는다.
   모델의 `unassignedDurationSeconds`, `unassignedDistanceMeters`에 보존한다.
 - `fare`는 단일 요금이면 `value`, 범위면 `min/max` 형태다. 내부에서는 둘 다 최소/최대 요금으로 정규화한다.
+- 일정의 후보 경로를 저장할 때 정규화한 요금을 `route.fare_minimum_won` / `fare_maximum_won`에 함께 저장한다.
+  제공자가 주지 않은 값은 `NULL`로 두며 무료인 `0원`으로 바꾸지 않는다. 경로 목록 응답은 같은 경로의
+  `fare.minimumWon` / `fare.maximumWon`을 반환하므로 추천 안내 카드의 다른 후보 요금을 재사용하지 않는다.
 - 카카오의 후보 배열 순서는 최단 시간순이 아니므로 `providerCandidateIndex`를 보존한다.
 - `path.points`의 한 점은 `[경도, 위도]`다.
 

@@ -1,10 +1,8 @@
 package com.ssafy.ddubi.domain.schedule.dto.response;
 
-import com.ssafy.ddubi.domain.schedule.dto.request.LocationRequest;
 import com.ssafy.ddubi.domain.schedule.entity.Importance;
 import com.ssafy.ddubi.domain.schedule.entity.ScheduleRepeat;
 import com.ssafy.ddubi.domain.schedule.service.WeeklyRepeatRule;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -16,6 +14,7 @@ public record RepeatResponse(
         String rrule,
         String daysOfWeek,
         LocalTime localTime,
+        LocalTime departTime,
         LocalDate startDate,
         LocalDate endDate,
         LocationResponse origin,
@@ -25,8 +24,7 @@ public record RepeatResponse(
         boolean active,
         LocalDateTime nextOccurrenceAt,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {
+        LocalDateTime updatedAt) {
 
     public static RepeatResponse of(ScheduleRepeat repeat, LocalDateTime nextOccurrenceAt) {
         return new RepeatResponse(
@@ -35,11 +33,12 @@ public record RepeatResponse(
                 WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek()).toRrule(),
                 repeat.getDaysOfWeek(),
                 repeat.getArriveTime(),
+                repeat.getDepartTime(),
                 repeat.getStartDate(),
                 repeat.getUntilDate(),
                 LocationResponse.from(repeat.getOrigin()),
                 LocationResponse.from(repeat.getDestination()),
-                repeat.getImportance(),
+                repeat.getImportance().exposed(),
                 repeat.isConsiderLastTrip(),
                 repeat.isActive(),
                 nextOccurrenceAt,

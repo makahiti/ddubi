@@ -160,9 +160,11 @@ class RecommendationPersistenceApiTest extends IntegrationTestSupport {
         // 출발시각은 생 JDBC 로 읽지 않는다. hibernate.jdbc.time_zone=Asia/Seoul 이라 JPA 의
         // 쓰기/읽기는 서로 역변환이라 짝이 맞지만, 그 사이에 생 JDBC 로 끼어들면 JVM 이 UTC 인
         // CI 에서만 9시간 어긋난 값이 보인다. 애플리케이션이 실제로 읽는 경로로 확인한다.
+        // proposedDepartAt 은 시간대 분리 이후 UTC Instant 가 아니라 KST LocalDateTime 으로 내려온다.
+        // 여기서 Instant.parse 를 쓰면 "Z" 가 없어 index 19 에서 깨진다.
         assertThat(schedules.findById(scheduleId).orElseThrow().getPlannedDepartAt())
                 .as("KEEP_DEPARTURE 제안의 출발시각을 그대로 수락한다")
-                .isEqualTo(LocalDateTime.ofInstant(Instant.parse(evaluation.path("proposedDepartAt").asText()), KST));
+                .isEqualTo(LocalDateTime.parse(evaluation.path("proposedDepartAt").asText()));
     }
 
     @Test

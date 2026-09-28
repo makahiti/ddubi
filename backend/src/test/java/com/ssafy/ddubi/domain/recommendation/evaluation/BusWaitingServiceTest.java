@@ -253,10 +253,13 @@ class BusWaitingServiceTest {
     }
 
     @Test
-    void residualIsExcludedAndVerifiedWaitIsIndependentOfLegacyFlag() {
+    void providerResidualIsPreservedWithoutAddingPossiblyDuplicatedWait() {
         var result = compare(MlRoutePreviewTest.route(0, "1", 300, 10, 1), true, now);
-        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(50));
-        assertThat(result.waitPredictions().get(0).applied()).isTrue();
+        // ML 이동 30초 + provider 미분류 10초다. 미분류 값에 대기가 포함됐을 수 있어 20초를 다시 더하지 않는다.
+        assertThat(result.fastest().estimatedArrivalAt()).isEqualTo(now.plusSeconds(40));
+        assertThat(result.waitPredictions().get(0).applied()).isFalse();
+        assertThat(result.waitPredictions().get(0).reasons())
+                .contains("WAIT_TIME_COVERED_BY_PROVIDER_TOTAL");
         assertThat(compare(route, false, now).waitPredictions().get(0).applied()).isTrue();
     }
 

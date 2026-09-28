@@ -173,11 +173,16 @@ class EvaluationRouteLeg {
     required this.roleRaw,
     required this.durationSource,
     required this.durationSourceRaw,
+    this.candidateKey,
     this.fromName,
     this.toName,
     this.durationSeconds,
     this.endpointEvidence,
   });
+
+  /// 이 구간이 속한 후보. 저장된 경로와 이어 붙일 때 쓴다 — 다른 후보의 구간 시간을
+  /// 이 경로 값으로 보여주면 화면마다 숫자가 달라진다.
+  final String? candidateKey;
 
   final int sequence;
   final String mode;
@@ -195,6 +200,7 @@ class EvaluationRouteLeg {
     final durationSourceRaw = json['durationSource']?.toString();
     final evidence = _map(json['endpointEvidence']);
     return EvaluationRouteLeg(
+      candidateKey: json['candidateKey']?.toString(),
       sequence:
           (json['sequence'] as num?)?.toInt() ??
           (json['seq'] as num?)?.toInt() ??
@@ -452,6 +458,7 @@ class ScheduleEvaluationV2 {
     this.plannedDepartAt,
     this.effectiveDepartAt,
     this.actualDepartAt,
+    this.departureEstimateStatus,
     this.arriveBy,
     this.originalEstimatedArrivalAt,
     this.targetArriveAt,
@@ -491,6 +498,9 @@ class ScheduleEvaluationV2 {
   final DateTime? plannedDepartAt;
   final DateTime? effectiveDepartAt;
   final DateTime? actualDepartAt;
+
+  /// 실제 출발 기준 재계산 상태. ETA가 null일 때 계산 중인지 실패인지 구분한다.
+  final String? departureEstimateStatus;
   final DateTime? arriveBy;
   final DateTime? originalEstimatedArrivalAt;
   final DateTime? targetArriveAt;
@@ -504,6 +514,24 @@ class ScheduleEvaluationV2 {
   final bool departureMissed;
   final String? selectedRouteId;
   final String? proposedRouteId;
+
+  /// 이번 제안이 지금 선택과 다른 경로인가. 같은 경로에서 출발 시각만 바뀌는 제안과 적용 단추 자리가 다르다.
+  bool get routeChangeProposed =>
+      selectedRouteId != null &&
+      proposedRouteId != null &&
+      selectedRouteId != proposedRouteId;
+
+  /// 같은 경로에서 출발 시각을 1분 이상 바꾸자는 제안인가. 서버는 바뀐 게 없어도 늘 제안 출발 시각을 주므로,
+  /// 그 값만 보고 "제안한 출발 시각으로 바꾸기" 를 띄우면 "지금 경로 유지" 옆에 바꾸기 단추가 뜬다(2026-09-26 제보).
+  bool get departureChangeProposed {
+    final planned = plannedDepartAt;
+    final proposed = proposedDepartAt;
+    if (planned == null || proposed == null) return false;
+    return proposed.difference(planned).inSeconds.abs() >= 60;
+  }
+
+  /// 발표용 도로 통제(시연)가 원인인 계산인가. 화면은 문장 대신 이름표 옆에 시연 을 한 번만 붙인다.
+  bool get hasDemoCause => causes.any((cause) => cause.source == 'DEMO_TOPIS');
   final EvaluationQuality quality;
   final EvaluationSearch? search;
 
@@ -629,6 +657,9 @@ class ScheduleEvaluationV2 {
       plannedDepartAt: _date(json['plannedDepartAt']),
       effectiveDepartAt: _date(json['effectiveDepartAt']),
       actualDepartAt: _date(json['actualDepartAt']),
+      departureEstimateStatus: _map(
+        json['departureEstimate'],
+      )['status']?.toString(),
       arriveBy: _date(json['arriveBy']),
       originalEstimatedArrivalAt: _date(json['originalEstimatedArrivalAt']),
       targetArriveAt: _date(json['targetArriveAt']),

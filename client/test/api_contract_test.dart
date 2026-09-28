@@ -299,14 +299,26 @@ void main() {
     expect(schedule.updatedAt, DateTime(2026, 9, 3, 9, 14, 22, 123, 456));
   });
 
-  test('교통수단 3지선다를 사용자 API transportPrefs로 변환한다', () {
-    expect(TransportPreferenceChoice.balanced.apiTransportPrefs, isEmpty);
-    expect(TransportPreferenceChoice.subwayFirst.apiTransportPrefs, [
-      {'mode': 'SUBWAY', 'preference': 'PREFER'},
-    ]);
-    expect(TransportPreferenceChoice.busFirst.apiTransportPrefs, [
-      {'mode': 'BUS', 'preference': 'PREFER'},
-    ]);
+  test('일정 응답의 repeatId 를 읽어 반복 여부를 안다', () {
+    final plain = Schedule.fromJson({
+      'id': 1,
+      'title': '단발 일정',
+      'origin': {'name': '출발', 'lat': 37.5, 'lng': 127.0},
+      'destination': {'name': '도착', 'lat': 37.6, 'lng': 127.1},
+      'arriveBy': '2026-09-21T18:00:00',
+    });
+    expect(plain.isRepeating, isFalse);
+
+    final repeated = Schedule.fromJson({
+      'id': 2,
+      'repeatId': 7,
+      'title': '출근',
+      'origin': {'name': '집', 'lat': 37.5, 'lng': 127.0},
+      'destination': {'name': '회사', 'lat': 37.6, 'lng': 127.1},
+      'arriveBy': '2026-09-21T09:00:00',
+    });
+    expect(repeated.repeatId, '7');
+    expect(repeated.isRepeating, isTrue);
   });
 
   test('반복 일정 요청을 백엔드 rrule과 장소 좌표 계약으로 변환한다', () {
@@ -462,9 +474,22 @@ void main() {
                     'result': {
                       'recommendationId': 31,
                       'plannedDepartAt': '2026-09-15T08:10:00',
+                      // 지금 선택된 경로. 화면의 "현재 선택 경로" 칸은 이 값을 쓴다.
+                      'selected': {
+                        'departureAt': '2026-09-15T08:10:00',
+                        'estimatedArrivalAt': '2026-09-15T08:42:00',
+                      },
+                      // 더 빠른 다른 경로를 제안 중인 상황. 이 값이 선택 경로 자리에
+                      // 새어 나오면 같은 화면에서 숫자가 어긋난다.
+                      'suggestion': {
+                        'proposed': {
+                          'departureAt': '2026-09-15T08:30:00',
+                          'estimatedArrivalAt': '2026-09-15T08:42:00',
+                        },
+                      },
                       'preview': {
                         'fastest': {
-                          'departureAt': '2026-09-15T08:10:00',
+                          'departureAt': '2026-09-15T08:30:00',
                           'estimatedArrivalAt': '2026-09-15T08:42:00',
                         },
                       },
@@ -493,7 +518,9 @@ void main() {
     final explanation = await api.getExplanation('31');
 
     expect(latest?.recommendationId, '31');
+    // 제안(12분)이 아니라 선택 경로(32분) 값이어야 한다.
     expect(latest?.durationMin, 32);
+    expect(latest?.departureAt, DateTime(2026, 9, 15, 8, 10));
     expect(latest?.source, 'API_ONLY');
     expect(latest?.preview, isTrue);
     expect(explanation.reasonCodes, ['VALIDATION_ONLY']);
@@ -647,7 +674,10 @@ void main() {
               '/schedules/12/routes' => [
                 {
                   'routeId': 31,
-                  'rankNo': 1,
+                  // 선택된 추천의 내부 순위는 소요시간 기준이라 20 일 수 있다.
+                  // 사용자에게 보여줄 번호는 displayRank 다.
+                  'rankNo': 20,
+                  'displayRank': 1,
                   'selected': true,
                   'baseDurationMin': 25,
                   'fromName': '집',
@@ -659,7 +689,8 @@ void main() {
               '/routes/31' => {
                 'routeId': 31,
                 'scheduleId': 12,
-                'rankNo': 1,
+                'rankNo': 20,
+                'displayRank': 1,
                 'selected': true,
                 'baseDurationMin': 25,
                 'providerPathId': 'path-1',
@@ -729,6 +760,11 @@ void main() {
 
     expect(routes.single.selected, isTrue);
     expect(routes.single.modes, ['WALK', 'BUS']);
+    // 목록과 상세가 같은 번호(displayRank)를 쓰고, 내부 순위는 따로 보존한다.
+    expect(routes.single.rankNo, 20);
+    expect(routes.single.displayRank, 1);
+    expect(detail.rankNo, 20);
+    expect(detail.displayRank, 1);
     expect(detail.segments.last.providerRouteKey, '146');
     expect(map.segments.first.coordinates, isEmpty);
     expect(map.coordinates.length, 2);
@@ -738,5 +774,43 @@ void main() {
       '/routes/31',
       '/routes/31/map',
     ]);
+  });
+
+  test('추천 시각은 KST 표기 없는 값과 UTC 값을 모두 지역 시각으로 맞춘다', () async {
+    final dio = Dio(BaseOptions(baseUrl: 'https://test'))
+      ..interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) => handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'success': true,
+                'data': {
+                  'recommendationId': 'rec-1',
+                  // 화면에 보이는 일정 시각: 시간대 표기 없는 KST
+                  'departAt': '2026-09-21T08:30:00',
+                  'eta': '2026-09-21T09:00:00',
+                  // 운영 시각: UTC
+                  'dataCheckedAt': '2026-09-21T00:30:00Z',
+                },
+              },
+            ),
+          ),
+        ),
+      );
+
+    final explanation = await RecommendationApi(dio).getExplanation('rec-1');
+
+    // KST 표기 없는 값은 그대로 8시 30분이다.
+    expect(explanation.departureAt?.hour, 8);
+    expect(explanation.departureAt?.minute, 30);
+    expect(explanation.eta?.hour, 9);
+    // UTC 00:30Z 는 한국 기기에서 09:30 이어야 한다. 예전에는 00:30 으로 찍혔다.
+    expect(explanation.dataCheckedAt?.isUtc, isFalse);
+    expect(
+      explanation.dataCheckedAt,
+      DateTime.utc(2026, 9, 21, 0, 30).toLocal(),
+    );
   });
 }

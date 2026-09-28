@@ -7,7 +7,9 @@ import '../domain/models.dart';
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton(this.label, {super.key, required this.onPressed});
   final String label;
-  final VoidCallback onPressed;
+
+  /// null 이면 버튼이 눌리지 않는다. 처리 중인 동안 같은 요청을 두 번 보내지 않게 막을 때 쓴다.
+  final VoidCallback? onPressed;
   @override
   Widget build(BuildContext c) => SizedBox(
     width: double.infinity,
@@ -109,6 +111,46 @@ class TtubeeGuideCard extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// 일정의 진행 상태 표시.
+///
+/// 서버는 완료·취소를 제대로 내려주는데 앱이 그 값을 아무 데서도 쓰지 않았다. 그래서
+/// 도착 완료를 눌러도 목록에 "예정" 그대로 남아 있었다(2026-09-22 제보).
+/// 진행 예정은 표시하지 않는다 — 대부분이 그 상태라 뱃지가 의미를 잃는다.
+class ScheduleStatusBadge extends StatelessWidget {
+  const ScheduleStatusBadge(this.status, {super.key});
+
+  final ScheduleStatus status;
+
+  /// 이 상태를 표시할 것이 있는지. 없으면 자리를 차지하지 않는다.
+  static bool shows(ScheduleStatus status) =>
+      status == ScheduleStatus.done || status == ScheduleStatus.canceled;
+
+  /// 끝난 일정은 흐리게 그린다. 목록에서 아직 남은 일정이 먼저 눈에 들어와야 한다.
+  static double opacityFor(ScheduleStatus status) => shows(status) ? 0.55 : 1;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!shows(status)) return const SizedBox.shrink();
+    final done = status == ScheduleStatus.done;
+    return Container(
+      key: Key(done ? 'scheduleDoneBadge' : 'scheduleCanceledBadge'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: done ? const Color(0xFFE9F7EF) : const Color(0xFFF1F3F7),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        done ? '완료' : '취소',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: done ? const Color(0xFF0B5A33) : const Color(0xFF5C6B7F),
+        ),
+      ),
+    );
+  }
 }
 
 class StatusBadge extends StatelessWidget {
@@ -253,12 +295,21 @@ class MonthlyCalendar extends StatelessWidget {
   const MonthlyCalendar({
     super.key,
     required this.selectedDate,
-    required this.schedules,
     required this.onSelected,
+    this.schedules = const [],
+    this.markedDates,
+    this.markerLabel = '일정',
     this.expanded = false,
   });
   final DateTime selectedDate;
   final List<Schedule> schedules;
+
+  /// 일정 대신 표시할 날짜들. 있으면 [schedules] 대신 이것으로 날마다 점·개수를 그린다.
+  /// 이동 기록 달력처럼 일정이 아닌 것을 같은 달력에 올릴 때 쓴다.
+  final List<DateTime>? markedDates;
+
+  /// 넓은 모양에서 개수 옆에 붙는 말. 일정이면 "일정 3", 기록이면 "기록 3".
+  final String markerLabel;
   final ValueChanged<DateTime> onSelected;
   final bool expanded;
 
@@ -356,9 +407,10 @@ class MonthlyCalendar extends StatelessWidget {
               final inMonth = date.month == month.month;
               final selected = _sameDay(date, selectedDate),
                   isToday = _sameDay(date, today);
-              final count = schedules
-                  .where((item) => _sameDay(item.date, date))
-                  .length;
+              final marked = markedDates;
+              final count = marked != null
+                  ? marked.where((item) => _sameDay(item, date)).length
+                  : schedules.where((item) => _sameDay(item.date, date)).length;
               return Padding(
                 padding: const EdgeInsets.all(2),
                 child: InkWell(
@@ -417,7 +469,7 @@ class MonthlyCalendar extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    '일정 $count',
+                                    '$markerLabel $count',
                                     style: TextStyle(
                                       color: selected
                                           ? Colors.white
@@ -695,37 +747,6 @@ class PlaceSearchField extends StatelessWidget {
   );
 }
 
-class TransportPreferenceSelector extends StatelessWidget {
-  const TransportPreferenceSelector({
-    super.key,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final TransportPreferenceChoice value;
-  final ValueChanged<TransportPreferenceChoice> onChanged;
-
-  @override
-  Widget build(BuildContext context) => RadioGroup<TransportPreferenceChoice>(
-    groupValue: value,
-    onChanged: (choice) {
-      if (choice != null) onChanged(choice);
-    },
-    child: Column(
-      children: TransportPreferenceChoice.values
-          .map(
-            (choice) => RadioListTile<TransportPreferenceChoice>(
-              key: Key('transportPreference-${choice.name}'),
-              contentPadding: EdgeInsets.zero,
-              value: choice,
-              title: Text(choice.label),
-            ),
-          )
-          .toList(growable: false),
-    ),
-  );
-}
-
 class _PlaceSearchDialog extends StatefulWidget {
   const _PlaceSearchDialog({required this.title, required this.searchService});
 
@@ -752,27 +773,38 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
   bool _loading = false;
   String? _error;
 
+  /// 다음 페이지가 있는지는 서버가 준 hasNext 로만 판단한다. 받은 개수가 요청한 수보다
+  /// 적어도 마지막 페이지가 아닐 수 있다 — 서버가 수도권과 부산 결과를 섞어 내려주기
+  /// 때문이다.
+  bool _hasNext = false;
+  int _page = 0;
+
   @override
   void dispose() {
     _query.dispose();
     super.dispose();
   }
 
-  Future<void> _search() async {
+  Future<void> _search({bool more = false}) async {
     final query = _query.text.trim();
     if (query.isEmpty || _loading) return;
+    final page = more ? _page + 1 : 0;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final results = await widget.searchService.search(query);
+      final result = await widget.searchService.searchPage(query, page: page);
       if (!mounted) return;
       setState(() {
-        _results = results;
+        // 서버가 준 순서를 그대로 쓴다. 주소나 지역명으로 다시 정렬하면 섞어 보낸
+        // 의미가 사라지고 한 지역 결과가 뒤로 밀린다.
+        _results = more ? [..._results, ...result.items] : result.items;
+        _hasNext = result.hasNext;
+        _page = page;
         // 검색 범위는 서버의 서비스 권역이 정한다. 앱이 특정 지역 이름을 단정하면
         // 서버가 권역을 넓혔을 때 안내가 사실과 달라진다.
-        if (results.isEmpty) {
+        if (_results.isEmpty) {
           _error = '서비스 지역 안에서 검색 결과를 찾지 못했어요.';
         }
       });
@@ -818,9 +850,16 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
               ),
             Expanded(
               child: ListView.separated(
-                itemCount: _results.length,
+                itemCount: _results.length + (_hasNext ? 1 : 0),
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
+                  if (index == _results.length) {
+                    return TextButton(
+                      key: const Key('placeSearchMoreButton'),
+                      onPressed: _loading ? null : () => _search(more: true),
+                      child: const Text('더보기'),
+                    );
+                  }
                   final place = _results[index];
                   return ListTile(
                     key: Key('placeSearchResult$index'),
@@ -843,4 +882,73 @@ class _PlaceSearchDialogState extends State<_PlaceSearchDialog> {
       ],
     );
   }
+}
+
+/// 출발을 알렸고 아직 도착 전인 일정 표시.
+///
+/// 일정의 상태(status)는 도착을 기록해야 "완료" 가 되고, 그 전까지는 계속 "예정" 이다. 그래서
+/// 출발했어요 를 눌러도 홈에서는 아무것도 달라지지 않았다(2026-09-22 제보). 출발 사실은 서버가
+/// 따로 기록하므로(actualDepartAt) 그 값으로 이 구간을 보여준다.
+class MovingBadge extends StatelessWidget {
+  const MovingBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const Key('scheduleMovingBadge'),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: const Color(0xFFE4F1FF),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.directions_walk_rounded, size: 12, color: Color(0xFF1D5FBF)),
+        SizedBox(width: 3),
+        Text(
+          '이동 중',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1D5FBF),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 홈 결론 카드 위에 붙는 "어느 일정의 결론인가" 한 줄.
+///
+/// 홈은 가장 가까운 일정 하나의 결론만 보여준다. 일정이 여럿이면 어느 것 이야기인지 이름이 있어야
+/// 헷갈리지 않는다(2026-09-22 제보).
+class HeadlineScheduleLabel extends StatelessWidget {
+  const HeadlineScheduleLabel({super.key, required this.schedule});
+
+  final Schedule schedule;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    key: const Key('homeHeadlineSchedule'),
+    children: [
+      const Icon(Icons.event_note_rounded, size: 14, color: Color(0xFF5C6B7F)),
+      const SizedBox(width: 5),
+      Expanded(
+        child: Text(
+          '다음 일정 · ${schedule.title} · ${schedule.time} 도착',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF5C6B7F),
+          ),
+        ),
+      ),
+      if (schedule.hasDeparted) ...[
+        const SizedBox(width: 6),
+        const MovingBadge(),
+      ],
+    ],
+  );
 }

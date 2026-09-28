@@ -7,7 +7,12 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:prod}
 
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ddubi}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    # connectionTimeZone=LOCAL&preserveInstants=false 는 "드라이버는 시각 값을 변환하지 마라" 는 뜻이다.
+    # 예전 serverTimezone=Asia/Seoul 은 Timestamp 를 JVM 기본 시간대로 해석한 뒤 Asia/Seoul 로 다시
+    # 렌더링해서, JVM 이 UTC 인 CI 에서만 저장값이 +9h 밀렸다. 우리 엔티티 시각은 전부
+    # LocalDateTime/LocalTime 이라 애초에 변환할 대상이 아니다.
+    # MySQL 세션 시간대(+09:00)는 건드리지 않는다 — 서버가 직접 찍는 CURRENT_TIMESTAMP(6) 는 KST 여야 한다.
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ddubi}?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=LOCAL&preserveInstants=false&characterEncoding=UTF-8
     username: ${MYSQL_USER:ddubi}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -23,7 +28,12 @@ spring:
     properties:
       hibernate:
         jdbc:
-          time_zone: Asia/Seoul
+          # hibernate.jdbc.time_zone 을 두지 않는다. 엔티티 시각은 전부 LocalDateTime/LocalTime,
+          # 즉 시간대가 없는 타입이라 변환할 것이 없는데, 그 설정이 있으면 Hibernate 가
+          # "JVM 기본 시간대로 해석 → Asia/Seoul 로 다시 렌더링" 을 끼워 넣는다. JVM 이 KST 면
+          # 차이가 0 이라 조용하지만, CI 처럼 UTC 면 저장값이 +9h 밀린다. TIME 컬럼은 거기에
+          # 더해 자정을 넘기며 한 바퀴 돌아 대소 비교까지 뒤집힌다(브리핑 대상 조회).
+          # "지금이 몇 시인가" 는 저장 계층이 아니라 BusinessTime 이 KST 로 정한다.
           batch_size: 50
         order_inserts: true
         order_updates: true
@@ -106,6 +116,17 @@ logging:
   pattern:
     # requestId 는 RequestIdFilter 가 MDC 에 넣는다. 장애 추적의 기준 키다.
     console: "%d{HH:mm:ss.SSS} %-5level [%X{requestId:-}] %logger{36} - %msg%n"
+  level:
+    # 기동할 때마다 나오는 Flyway 업그레이드 권고를 내린다.
+    #
+    # "MySQL 8.4 is newer than this version of Flyway ... latest supported version is 8.1".
+    # 운영 DB 가 MySQL 8.4 LTS 인데 Spring Boot 3.4 가 붙여 주는 Flyway 10.20 은 8.1 까지만 안다.
+    # 실제 고장은 아니다 — V1~V15 가 모두 정상 적용됐고 실패 이력도 없다.
+    #
+    # 경고를 없애려면 Flyway 12 이상이 필요한데(10.22 도 11.13 도 상한이 8.1 이다), 그건 Spring Boot
+    # 3.4 가 검증한 조합 밖이라 지금 올리면 기동 자체가 위험해진다. Spring Boot 를 올릴 때 같이 푼다.
+    # 그때 이 줄을 지우면 경고가 다시 보인다.
+    org.flywaydb.core.internal.database.base.Database: ERROR
 
 # --- 뚜비 도메인 설정 -------------------------------------------------
 ddubi:
@@ -118,9 +139,21 @@ ddubi:
     timetable-path: ${DDUBI_SUBWAY_TIMING_TIMETABLE_PATH:}
     # 카카오 총시간의 대기 포함 여부를 실측하기 전에는 계산 결과를 전체 ETA에 합치지 않는다.
     decomposition-verified: ${DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED:false}
+  movement-conditions:
+    # 혼잡도 관측이 유효시각을 넘겼어도 이 시간 안이면 "○시 기준" 으로 보여 준다.
+    # 도시데이터 수집은 6시간 주기인데 관측 유효시간은 15분이라, 이 문이 없으면 하루 대부분 혼잡도가 비어 있다.
+    congestion-max-age-hours: ${DDUBI_CONGESTION_MAX_AGE_HOURS:12}
   schedule:
     # 반복 일정 인스턴스 선생성 지평선. 연장은 Phase 4 일일 잡이 맡는다.
     repeat-horizon-days: 14
+    # 도착 확인 없이 지난 일정을 닫는 잡. 끄면 스케줄러 빈 자체가 만들어지지 않는다.
+    expiry-enabled: ${DDUBI_SCHEDULE_EXPIRY_ENABLED:true}
+    # 유예 시간이 시간 단위라 몇 분 늦게 닫혀도 사용자가 보는 것은 같다.
+    expiry-delay-ms: 300000
+    # 도착 예정 시각이 이만큼 지나야 닫는다. 늦게 도착한 사람이 뒤늦게 도착을 누를 여지를 남긴다.
+    expiry-grace: 6h
+    # 한 바퀴에 닫을 최대 건수. 오래 방치된 서버에서 한 트랜잭션이 DB 를 오래 잡지 않게 한다.
+    expiry-batch-size: 200
   notification:
     # 같은 suppress_key 재발송 차단 시간. 상황이 실제로 바뀌면 키가 달라지므로
     # 이 값이 길어도 새 정보는 막히지 않는다.
@@ -171,6 +204,12 @@ ddubi:
     #
     # 추천 수락(사용자 출발 시각 실제 변경)은 이 설정과 무관하게 계속 막혀 있다.
     auto-notify-enabled: ${DDUBI_AUTO_NOTIFY_ENABLED:false}
+    # 미승인(PREVIEW) 모델 결과로도 알림을 내보낸다. 본문에 검증용임을 표시한다.
+    #
+    # ⚠️ 기본값 false 다. productionReady=true 로 만드는 것과는 다르다 — 승인 게이트는
+    #    그대로 두고, 검증 환경에서만 알림 경로를 열어 확인하기 위한 우회로다.
+    #    발표 전에 되돌린다.
+    shadow-preview-notify-enabled: ${DDUBI_SHADOW_PREVIEW_NOTIFY_ENABLED:false}
     # 다른 후보가 이만큼 빨라야 "경로 변경" 을 알린다. 1~2분 차이로 알리면 갈아타는 품이
     # 이득보다 크고, 후보 순위가 평가마다 흔들리면 알림이 쏟아진다.
     notify-route-gain: 5m
@@ -189,9 +228,21 @@ ddubi:
     path: /v2/routing/walk
     timeout-millis: 1500
     cache-seconds: 60
-    max-calls: ${DDUBI_WALKING_MAX_CALLS:10}
     endpoint-max-meters: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:0}
     master-coordinate-path: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:}
+  recommendation-guide:
+    # GMS는 계산기가 아니라 최신 추천 사실을 짧은 한국어 안내로 바꾸는 표현 계층이다.
+    enabled: ${DDUBI_RECOMMENDATION_GUIDE_ENABLED:true}
+    base-url: ${GMS_BASE_URL:https://gms.ssafy.io/gmsapi}
+    # 추천 안내문은 gpt-5.4-nano를 기본으로 쓰며 Responses API 계약을 사용한다.
+    path: /api.openai.com/v1/responses
+    api-key: ${GMS_API_KEY:}
+    # 기본은 가벼운 모델이다. pro 모델은 문장 하나에 크레딧 약 1,700 을 쓰고 20 초를 넘겨 시간 초과로
+    # 버려지는 일이 잦았다(2026-09-22, 하루 6 만 크레딧). compose 기본값과 같다.
+    model: ${GMS_RECOMMENDATION_MODEL:gpt-5.4-nano}
+    # 앱은 10 초까지만 기다린다. 서버가 그보다 오래 붙들면 앱은 실패로 보고 요청을 끊는데 크레딧은 그대로 나간다.
+    # 그래서 앱보다 짧게 둔다. 카드 결과는 evaluationId 단위 Redis 캐시로 재호출을 막는다.
+    timeout-millis: ${GMS_RECOMMENDATION_TIMEOUT_MILLIS:8000}
   external:
     kakao:
       # 장소 검색과 대중교통 길찾기에 사용하는 카카오맵 REST API 주소

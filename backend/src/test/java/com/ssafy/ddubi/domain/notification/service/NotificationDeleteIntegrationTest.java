@@ -1,5 +1,8 @@
 package com.ssafy.ddubi.domain.notification.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.ssafy.ddubi.domain.notification.dto.response.NotificationDeleteResponse;
 import com.ssafy.ddubi.domain.notification.entity.Notification;
 import com.ssafy.ddubi.domain.notification.entity.NotificationStatus;
@@ -9,7 +12,11 @@ import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,21 +25,15 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.IntStream;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 /**
  * 알림 삭제 (NTF-005).
  *
  * <p>고정하는 것
+ *
  * <ul>
- *   <li>지운 알림은 목록·상세·안읽음 뱃지에서 사라진다.</li>
- *   <li>발송 이력은 남는다 — 지운 뒤에도 재발송 억제가 같은 알림을 다시 보내지 않는다.</li>
- *   <li>하나라도 없거나 남의 것이면 아무것도 지우지 않는다(전부 아니면 전무).</li>
+ *   <li>지운 알림은 목록·상세·안읽음 뱃지에서 사라진다.
+ *   <li>발송 이력은 남는다 — 지운 뒤에도 재발송 억제가 같은 알림을 다시 보내지 않는다.
+ *   <li>하나라도 없거나 남의 것이면 아무것도 지우지 않는다(전부 아니면 전무).
  * </ul>
  */
 class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
@@ -40,12 +41,9 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
     private static final Pageable FIRST_PAGE =
             PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-    @Autowired
-    private NotificationQueryService notificationQueryService;
-    @Autowired
-    private NotificationRepository notificationRepository;
-    @Autowired
-    private UserRepository userRepository;
+    @Autowired private NotificationQueryService notificationQueryService;
+    @Autowired private NotificationRepository notificationRepository;
+    @Autowired private UserRepository userRepository;
 
     private User owner;
     private User stranger;
@@ -53,19 +51,21 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
     @BeforeEach
     void setUp() {
         owner = userRepository.save(User.builder().email("owner@ddubi.com").nickname("주인").build());
-        stranger = userRepository.save(User.builder().email("other@ddubi.com").nickname("남").build());
+        stranger =
+                userRepository.save(User.builder().email("other@ddubi.com").nickname("남").build());
     }
 
     private Notification save(User user, String suppressKey) {
-        return notificationRepository.save(Notification.builder()
-                .user(user)
-                .type(NotificationType.DEPART_SOON)
-                .title("곧 출발")
-                .body("본문")
-                .suppressKey(suppressKey)
-                .status(NotificationStatus.SENT)
-                .sentAt(LocalDateTime.now())
-                .build());
+        return notificationRepository.save(
+                Notification.builder()
+                        .user(user)
+                        .type(NotificationType.DEPART_SOON)
+                        .title("곧 출발")
+                        .body("본문")
+                        .suppressKey(suppressKey)
+                        .status(NotificationStatus.SENT)
+                        .sentAt(BusinessTime.now())
+                        .build());
     }
 
     private Notification save(User user) {
@@ -74,7 +74,8 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
 
     private long visibleCount() {
         return notificationQueryService
-                .list(owner.getId(), false, null, FIRST_PAGE).totalElements();
+                .list(owner.getId(), false, null, FIRST_PAGE)
+                .totalElements();
     }
 
     // ------------------------------------------------------------------
@@ -137,11 +138,13 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
     @DisplayName("같은 알림을 두 번 지워도 오류가 아니고 처음 지운 시각이 남는다")
     void deletingTwiceIsIdempotent() {
         Long id = save(owner).getId();
-        NotificationDeleteResponse first = notificationQueryService.delete(owner.getId(), List.of(id));
+        NotificationDeleteResponse first =
+                notificationQueryService.delete(owner.getId(), List.of(id));
         LocalDateTime firstDeletedAt =
                 notificationRepository.findById(id).orElseThrow().getDeletedAt();
 
-        NotificationDeleteResponse second = notificationQueryService.delete(owner.getId(), List.of(id));
+        NotificationDeleteResponse second =
+                notificationQueryService.delete(owner.getId(), List.of(id));
 
         assertThat(first.deletedCount()).isEqualTo(1);
         assertThat(second.deletedCount()).as("두 번째는 새로 숨긴 것이 없다").isZero();
@@ -171,12 +174,14 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
         Long mine = save(owner).getId();
         Long theirs = save(stranger).getId();
 
-        assertThatThrownBy(() -> notificationQueryService.delete(owner.getId(), List.of(mine, theirs)))
+        assertThatThrownBy(
+                        () -> notificationQueryService.delete(owner.getId(), List.of(mine, theirs)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FORBIDDEN_RESOURCE);
 
         assertThat(notificationRepository.findById(mine).orElseThrow().getDeletedAt())
-                .as("한 건이라도 막히면 아무것도 지우지 않는다").isNull();
+                .as("한 건이라도 막히면 아무것도 지우지 않는다")
+                .isNull();
     }
 
     @Test
@@ -184,8 +189,10 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
     void missingIdBlocksTheWholeRequest() {
         Long mine = save(owner).getId();
 
-        assertThatThrownBy(() ->
-                notificationQueryService.delete(owner.getId(), List.of(mine, 9_999_999L)))
+        assertThatThrownBy(
+                        () ->
+                                notificationQueryService.delete(
+                                        owner.getId(), List.of(mine, 9_999_999L)))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.NOTIFICATION_NOT_FOUND);
 
@@ -222,11 +229,12 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
 
         notificationQueryService.delete(owner.getId(), List.of(id));
 
-        assertThat(notificationRepository
-                .findUserIdsNotifiedWith(NotificationType.DEPART_SOON, suppressKey))
-                .as("억제 판단은 지운 알림까지 본다").containsExactly(owner.getId());
-        assertThat(notificationRepository.findById(id))
-                .as("행 자체는 남는다").isPresent();
+        assertThat(
+                        notificationRepository.findUserIdsNotifiedWith(
+                                NotificationType.DEPART_SOON, suppressKey))
+                .as("억제 판단은 지운 알림까지 본다")
+                .containsExactly(owner.getId());
+        assertThat(notificationRepository.findById(id)).as("행 자체는 남는다").isPresent();
     }
 
     @Test
@@ -237,8 +245,10 @@ class NotificationDeleteIntegrationTest extends IntegrationTestSupport {
         notificationQueryService.delete(owner.getId(), List.of(removed));
 
         assertThat(notificationQueryService.markAllRead(owner.getId()).updatedCount())
-                .as("남아 있는 1건만 읽음 처리된다").isEqualTo(1);
+                .as("남아 있는 1건만 읽음 처리된다")
+                .isEqualTo(1);
         assertThat(notificationRepository.findById(removed).orElseThrow().getReadAt())
-                .as("지운 알림은 안 읽은 채로 이력에 남는다").isNull();
+                .as("지운 알림은 안 읽은 채로 이력에 남는다")
+                .isNull();
     }
 }

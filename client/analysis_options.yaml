@@ -14,6 +14,10 @@ analyzer:
     - build/**
     - android/**
     - web/**
+    # 저장소에 들여온 외부 패키지 사본. 자기 규칙(문서 주석 필수 등)이 훨씬 엄격해서
+    # 우리 검사에 섞으면 우리가 쓰지도 않은 파일의 지적이 수백 건 쌓인다.
+    # 사본 자체의 검사는 그 폴더에서 따로 돌린다.
+    - packages/**
 
 linter:
   # The lint rules applied to this project can be customized in the

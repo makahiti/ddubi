@@ -20,6 +20,10 @@ String evaluationMissingInputLabel(String value) => switch (value) {
   _ when value.startsWith('SUB:') || value.contains(':SUB:') =>
     '일부 지하철 구간의 운행정보가 부족해요',
   _ when value.contains('ML_NOT_CONFIGURED') => '기본 경로 소요시간을 쓰고 있어요',
+  // 아래 두 가지는 "실시간 정보가 없다" 와 뜻이 다르다. 학습에 쓸 과거 기록이 모자라거나,
+  // 한 번에 부를 수 있는 예측 횟수를 다 쓴 경우다(2026-09-21 운영 응답 확인).
+  _ when value.contains('ML_HISTORY_INSUFFICIENT') => '이 구간은 예측에 쓸 기록이 아직 적어요',
+  _ when value.contains('ML_BUDGET_EXHAUSTED') => '예측 횟수를 다 써서 과거 평균으로 계산했어요',
   _ when value.contains('PLANNED_DEPART_AT') => '출발 예정시각이 없어요',
   _ when value.contains('BUS_ARRIVAL') => '버스 도착 정보가 부족해요',
   _ when value.contains('ROUTE_PROVIDER') => '경로 정보가 부족해요',
@@ -75,6 +79,12 @@ String? evaluationShortfallReason(ScheduleEvaluationV2 evaluation) {
       evaluation.quality.costCoverage != 'COMPLETE') {
     return '이동 시간 일부를 아직 확인하지 못해서예요.';
   }
+  if (has('ML_HISTORY_INSUFFICIENT')) {
+    return '일부 버스 구간은 예측에 쓸 과거 기록이 아직 적어서예요.';
+  }
+  if (has('ML_BUDGET_EXHAUSTED')) {
+    return '예측 횟수를 다 써서 일부 구간은 과거 평균으로 계산했어요.';
+  }
   if (has('ML_NOT_APPLIED') ||
       has('API_FALLBACK') ||
       has('HISTORICAL_REFERENCE') ||
@@ -106,13 +116,37 @@ class ScheduleEvaluationCard extends StatefulWidget {
     required this.scheduleId,
     this.developerDiagnostics = false,
     this.headline,
+    this.departedAt,
+    this.showActions = true,
+    this.onFirstReadyDisplayed,
+    this.refreshGeneration = 0,
+    this.showCard = true,
   });
+
+  /// 카드를 그릴지. 일정 상세는 이동 예측 카드를 보여주지 않는다(2026-09-25 요청). 그래도 이 위젯은
+  /// 남아서 평가를 주기적으로 읽고 [headline] 과 [onFirstReadyDisplayed] 를 채운다 — 맨 위 결론·
+  /// 이동 변수·시연 시작이 모두 이 값을 쓴다. 개발자 옵션을 켜면 다시 보인다.
+  final bool showCard;
+
+  /// 버튼 줄을 이 카드에 그릴지. 일정 상세는 같은 버튼을 AI 안내 카드에 두므로 끈다.
+  /// 두 곳에 같이 두면 사용자가 서로 다른 단추로 오해한다.
+  final bool showActions;
+
+  /// 최초 READY 카드가 프레임에 그려진 직후 한 번만 호출한다. 시연 타이머는 이 시점부터 센다.
+  final VoidCallback? onFirstReadyDisplayed;
+
+  /// 외부 시연 이벤트가 저장·재평가된 직후 30초 정기 조회를 기다리지 않고 최신 결과를 읽는다.
+  final int refreshGeneration;
 
   final ScheduleEvaluationRepository repository;
   final String scheduleId;
 
   /// 화면 위쪽 결론 한 줄에 같은 결과를 전달하는 통로. 없으면 카드만 그린다.
   final ValueNotifier<ScheduleEvaluationV2?>? headline;
+
+  /// 일정 상세가 서버에서 읽은 실제 출발 시각. 출발이 기록되면 정기 확인 시각을
+  /// 기다리지 않고 즉시 STOPPED/출발 기준 ETA를 다시 읽는다.
+  final DateTime? departedAt;
 
   /// 개발자 진단 패널 표시 여부. 디버그 빌드나 더보기 > 개발자 옵션에서만 켜진다.
   final bool developerDiagnostics;
@@ -151,7 +185,11 @@ class ScheduleEvaluationCard extends StatefulWidget {
 
 class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
     with WidgetsBindingObserver {
+  /// 화면에 마지막으로 표시할 수 있었던 평가. PENDING/RUNNING 조회로 덮지 않는다.
   ScheduleEvaluationV2? evaluation;
+
+  /// 서버의 실제 최신 상태. 다음 확인 간격과 계산 중 배지에는 이 상태를 쓴다.
+  ScheduleEvaluationV2? latestState;
   String? error;
   String? actionError;
   String? notice;
@@ -168,6 +206,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
   int requestGeneration = 0;
   int retryCount = 0;
   int fastPolls = 0;
+  bool firstReadyReported = false;
 
   /// 마지막 조회 실패 종류. 404(아직 결과 없음)만 "계산 중"으로 본다. 연결 실패는 30초 backoff 를 유지한다.
   EvaluationFailureKind? lastFailure;
@@ -189,6 +228,31 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
   }
 
   @override
+  void didUpdateWidget(covariant ScheduleEvaluationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scheduleId != widget.scheduleId) {
+      timer?.cancel();
+      requestGeneration++;
+      evaluation = null;
+      latestState = null;
+      firstReadyReported = false;
+      // 부모가 새 일정을 그리는 프레임 안에서 notifier를 갱신하면 빌드 중 재빌드가
+      // 겹친다. 새 프레임 직후 이전 결론을 비우고 해당 일정만 조회한다.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.headline?.value = null;
+        _load(force: true);
+      });
+    } else if (oldWidget.refreshGeneration != widget.refreshGeneration ||
+        oldWidget.departedAt == null && widget.departedAt != null) {
+      timer?.cancel();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load(force: true);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     requestGeneration++;
     timer?.cancel();
@@ -204,14 +268,18 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
     if (active) _load(force: true);
   }
 
-  bool get _shouldPoll => switch (evaluation?.state) {
-    EvaluationState.stopped || EvaluationState.departureRequired => false,
+  bool get _shouldPoll => switch (latestState?.state) {
+    EvaluationState.stopped =>
+      latestState?.actualDepartAt != null &&
+          latestState?.departureEstimateStatus == null &&
+          (latestState?.arriveBy?.isAfter(DateTime.now()) ?? false),
+    EvaluationState.departureRequired => false,
     _ => true,
   };
 
   /// 서버가 첫 결과를 계산 중인 상태: PENDING/RUNNING, 또는 결과가 아직 없어 404 를 받은 경우.
   /// 연결 실패나 다른 오류는 계산 중으로 보지 않는다(서버를 빠르게 재호출하지 않는다).
-  bool get _computing => switch (evaluation?.state) {
+  bool get _computing => switch (latestState?.state) {
     EvaluationState.pending || EvaluationState.running => true,
     null =>
       lastFailure == null || lastFailure == EvaluationFailureKind.notFound,
@@ -246,12 +314,32 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
       lastFailure = null;
       if (!_isOlderThanCurrent(latest)) {
         setState(() {
-          evaluation = latest;
+          latestState = latest;
+          // 정기 재평가는 계산 중 상태를 먼저 저장한다. 아직 새 소요시간이 없다는
+          // 뜻이지 이전 결과가 사라진 것은 아니므로, 완료되기 전까지 이전 카드를 유지한다.
+          if (evaluation == null ||
+              (latest.state != EvaluationState.pending &&
+                  latest.state != EvaluationState.running)) {
+            evaluation = latest;
+          }
           error = null;
           retryCount = 0;
         });
-        // 상단 결론 한 줄은 이 카드가 읽은 결과를 그대로 쓴다. 따로 조회하지 않는다.
-        widget.headline?.value = latest;
+        // 상단 결론도 실제로 보여주는 평가와 함께 교체한다.
+        if (widget.headline?.value != evaluation) {
+          widget.headline?.value = evaluation;
+        }
+        if (!firstReadyReported &&
+            evaluation?.state == EvaluationState.ready &&
+            evaluation?.selectedRouteId != null) {
+          firstReadyReported = true;
+          final displayedScheduleId = widget.scheduleId;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && widget.scheduleId == displayedScheduleId) {
+              widget.onFirstReadyDisplayed?.call();
+            }
+          });
+        }
       }
     } on ScheduleEvaluationFailure catch (failure) {
       failed = true;
@@ -283,7 +371,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
   }
 
   bool _isOlderThanCurrent(ScheduleEvaluationV2 next) {
-    final current = evaluation;
+    final current = latestState;
     if (current == null) return false;
     final currentInput = current.inputVersion;
     final nextInput = next.inputVersion;
@@ -375,6 +463,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.showCard) return const SizedBox.shrink();
     final initialComputing = evaluation == null && error == null;
     final computing = _computing;
     return Container(
@@ -444,7 +533,7 @@ class _ScheduleEvaluationCardState extends State<ScheduleEvaluationCard>
               textKey: const Key('evaluationNotice'),
             ),
           ],
-          if (evaluation != null) ...[
+          if (evaluation != null && widget.showActions) ...[
             const SizedBox(height: 12),
             _actions(evaluation!, computing),
           ],

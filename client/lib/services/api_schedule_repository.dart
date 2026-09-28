@@ -58,9 +58,8 @@ class ApiScheduleRepository
   Future<Schedule?> scheduleById(String id) => _api.getSchedule(id);
 
   @override
-  Future<void> addSchedule(Schedule schedule) async {
-    await _api.createSchedule(schedule);
-  }
+  Future<Schedule> addSchedule(Schedule schedule) =>
+      _api.createSchedule(schedule);
 
   @override
   Future<void> updateSchedule(Schedule schedule) async {

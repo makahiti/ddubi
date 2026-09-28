@@ -76,6 +76,7 @@ public class ScheduleRepeatService {
                                 .title(request.title())
                                 .daysOfWeek(rule.toCsv())
                                 .arriveTime(BusinessTime.normalize(request.localTime()))
+                                .departTime(BusinessTime.normalize(request.departTime()))
                                 .startDate(request.startDate())
                                 .untilDate(request.endDate())
                                 .origin(request.origin().toSnapshot())
@@ -84,7 +85,7 @@ public class ScheduleRepeatService {
                                 .considerLastTrip(Boolean.TRUE.equals(request.considerLastTrip()))
                                 .build());
 
-        int generated = materialize(repeat, LocalDateTime.now());
+        int generated = materialize(repeat, BusinessTime.now());
         log.info("반복 일정 생성 — repeatId={}, 인스턴스 {}건", repeat.getId(), generated);
         return new RepeatCreateResponse(repeat.getId(), generated, nextOccurrenceAt(repeat));
     }
@@ -154,38 +155,80 @@ public class ScheduleRepeatService {
                 request.isLocalTimePresent()
                         ? BusinessTime.normalize(request.getLocalTime())
                         : repeat.getArriveTime();
+        // 출발시각 도입 이전 규칙은 departTime 이 null 이다. 안 보내면 null 그대로 두고,
+        // 보내면 null 은 거부한다 — "출발시각을 지운다" 는 계산을 못 하게 만드는 것이라
+        // 사용자가 의도할 동작이 아니다.
+        var departTime =
+                request.isDepartTimePresent()
+                        ? BusinessTime.normalize(request.getDepartTime())
+                        : repeat.getDepartTime();
         var startDate =
                 request.isStartDatePresent() ? request.getStartDate() : repeat.getStartDate();
         // endDate 는 명시적 null = "무기한으로 변경" 이라 present 면 null 도 그대로 반영한다.
         var untilDate = request.isEndDatePresent() ? request.getEndDate() : repeat.getUntilDate();
         requireNotNull(arriveTime, "localTime");
         requireNotNull(startDate, "startDate");
+        if (request.isDepartTimePresent()) {
+            requireNotNull(departTime, "departTime");
+        }
         if (untilDate != null && untilDate.isBefore(startDate)) {
             throw new BusinessException(ErrorCode.INVALID_REQUEST, "endDate 는 startDate 이후여야 합니다.");
         }
-        repeat.changeRule(rule.toCsv(), arriveTime, startDate, untilDate);
+        repeat.changeRule(rule.toCsv(), arriveTime, departTime, startDate, untilDate);
 
         int regenerated = 0;
         if (request.affectsInstances()) {
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime from = effectiveFrom(request);
             // 규칙 5: customized=true 인스턴스는 사용자가 손댄 것 — 지우지도 다시 만들지도 않는다.
-            int deleted = scheduleRepository.deleteRegenerableInstances(repeatId, now);
-            regenerated = materialize(repeat, now);
-            log.info("반복 일정 수정 — repeatId={}, 삭제 {}건 → 재생성 {}건", repeatId, deleted, regenerated);
+            int deleted = scheduleRepository.deleteRegenerableInstances(repeatId, from);
+            regenerated = materialize(repeat, from);
+            log.info(
+                    "반복 일정 수정 — repeatId={}, 기준={}, 삭제 {}건 → 재생성 {}건",
+                    repeatId,
+                    from,
+                    deleted,
+                    regenerated);
         }
         return new RepeatUpdateResponse(
                 RepeatResponse.of(repeat, nextOccurrenceAt(repeat)), regenerated);
     }
 
+    /**
+     * "이후 일정 전체" 의 기준 시각 (B8).
+     *
+     * <p>안 보내면 지금부터다 — 기존 앱은 이 값을 보내지 않으므로 예전과 똑같이 동작해야 한다. 과거를 보내면 지금으로 당긴다. 이미 지난 일정을 다시 만들 수는
+     * 없고, 그걸 허용하면 "지난주부터 바꿔 줘" 같은 요청이 조용히 과거 데이터를 만들어 낸다.
+     */
+    private LocalDateTime effectiveFrom(RepeatUpdateRequest request) {
+        LocalDateTime now = BusinessTime.now();
+        LocalDateTime requested = BusinessTime.normalize(request.getEffectiveFrom());
+        return requested == null || requested.isBefore(now) ? now : requested;
+    }
+
     // ------------------------------------------------------------------
-    // REPEAT-005 중지 — 행 삭제가 아니라 비활성화. 기존 인스턴스는 유지(규칙 5)
+    // REPEAT-005 중지 — 규칙은 비활성화. 미래 인스턴스 취소는 선택이다(B8)
     // ------------------------------------------------------------------
 
+    /** 기존 호출용 — 미래 인스턴스를 건드리지 않는다. */
     @Transactional
     public void deactivate(Long userId, Long repeatId) {
+        deactivate(userId, repeatId, false);
+    }
+
+    /**
+     * @param cancelFutureInstances true 면 아직 시작하지 않은 미래 인스턴스를 CANCELED 로 바꾼다. <b>기본은 false 다</b> —
+     *     기존 앱은 이 값을 보내지 않는데 기본을 true 로 두면 "중지" 만 누른 사용자의 2주치 일정이 통째로 사라진다. 되돌릴 수 없다.
+     */
+    @Transactional
+    public void deactivate(Long userId, Long repeatId, boolean cancelFutureInstances) {
         ScheduleRepeat repeat = findOwned(userId, repeatId);
         repeat.deactivate();
-        log.info("반복 일정 중지 — repeatId={}", repeatId);
+        int canceled =
+                cancelFutureInstances
+                        ? scheduleRepository.cancelRegenerableInstances(
+                                repeatId, BusinessTime.now())
+                        : 0;
+        log.info("반복 일정 중지 — repeatId={}, 미래 인스턴스 취소 {}건", repeatId, canceled);
     }
 
     // ------------------------------------------------------------------
@@ -222,17 +265,25 @@ public class ScheduleRepeatService {
             if (!arriveBy.isAfter(now) || existing.contains(arriveBy)) {
                 continue;
             }
-            scheduleRepository.save(
-                    Schedule.builder()
-                            .user(repeat.getUser())
-                            .repeat(repeat)
-                            .title(repeat.getTitle())
-                            .origin(repeat.getOrigin())
-                            .destination(repeat.getDestination())
-                            .arriveBy(arriveBy)
-                            .importance(repeat.getImportance())
-                            .considerLastTrip(repeat.isConsiderLastTrip())
-                            .build());
+            Schedule instance =
+                    scheduleRepository.save(
+                            Schedule.builder()
+                                    .user(repeat.getUser())
+                                    .repeat(repeat)
+                                    .title(repeat.getTitle())
+                                    .origin(repeat.getOrigin())
+                                    .destination(repeat.getDestination())
+                                    .arriveBy(arriveBy)
+                                    .importance(repeat.getImportance())
+                                    .considerLastTrip(repeat.isConsiderLastTrip())
+                                    .build());
+            // 빌더로 plannedDepartAt 을 직접 넣지 않는다. 그러면 plan_source 가
+            // LEGACY_UNKNOWN 으로, user_input_depart_at 이 NULL 로 남아 출처를 속인다.
+            // 이 값은 사용자가 반복 규칙에 직접 넣은 것이므로 USER_INPUT 이 맞다.
+            LocalDateTime departAt = repeat.departAtOn(date);
+            if (departAt != null) {
+                instance.changePlannedDepartAt(BusinessTime.normalize(departAt));
+            }
             created++;
         }
         return created;
@@ -243,7 +294,7 @@ public class ScheduleRepeatService {
         if (!repeat.isActive()) {
             return null;
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = BusinessTime.now();
         WeeklyRepeatRule rule = WeeklyRepeatRule.fromCsv(repeat.getDaysOfWeek());
         LocalDate from =
                 repeat.getStartDate().isAfter(now.toLocalDate())

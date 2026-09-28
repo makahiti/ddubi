@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import httpx
+from bus_key_pool import bus_dense_policy_enabled, bus_key_candidates
 from config import ConfigError, Settings
 from events import build_event
 from notice_dedup import NoticeDedup, publish_notices
@@ -24,6 +25,8 @@ from request_budget import RequestBudget, RetryScheduled, RetryWait
 from sources.base import SourceSpec, now_kst
 from sources.subway_schedule import SkippedNonService, pause_until
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from topis_notice_policy import plan_topis_notice
+from traffic_incident_poll_policy import plan_traffic_incident
 
 log = logging.getLogger("collector")
 
@@ -41,6 +44,34 @@ def load_source(name: str) -> SourceSpec:
     if not isinstance(spec, SourceSpec):
         raise SourceNotImplemented(f"소스 '{name}' 은 아직 구현되지 않았습니다 (SOURCE 없음)")
     return spec
+
+
+def resume_wait(next_at: float | None, now: float, wait_seconds: float) -> float:
+    """다음 수집이 허용되는 시각까지만 기다린다. 원래 기다릴 시간보다 늘리지는 않는다.
+
+    쉬는 시간(cooldown) 안에 수집기가 다시 켜지면 요청을 건너뛴다. 예전에는 그 뒤에 한 주기를
+    통째로 다시 기다려서, 배포로 재시작될 때마다 다음 수집이 밀렸다. 2026-09-24 15:04 서버1 배포 뒤
+    혼잡도는 16:21 에 받을 것을 21:04 까지 못 받았다(6시간 주기, 공백 약 10시간 40분).
+    1초를 더하는 이유: 깨어나는 시각이 허용 시각보다 아주 조금 이르면 다시 쉬는 시간으로 판정된다.
+    """
+    if next_at is None or next_at <= now:
+        return wait_seconds
+    return min(wait_seconds, next_at - now + 1.0)
+
+
+def _next_cycle_at(settings: Settings) -> float | None:
+    """호출 한도 기록에 남은 이 수집기의 다음 수집 허용 시각. 한도를 쓰지 않는 수집기면 None."""
+    from sources.kafka_adapter import POLICIES, make_request_budget
+
+    policy = POLICIES.get(settings.source)
+    if policy is None:
+        return None
+    try:
+        budget = make_request_budget(settings.source, settings, settings.api_key(policy[0]))
+        return budget.next_cycle_at(settings.source)
+    except Exception:
+        log.warning("source=%s could not read cycle deadline; using normal polling interval", settings.source)
+        return None
 
 
 @retry(
@@ -70,6 +101,16 @@ def _run_cycle(spec: SourceSpec, settings: Settings, client: httpx.Client, publi
     for record in records:
         event = build_event(spec, record, collected_at)
         publisher.publish(spec.topic, record.key, event)
+    if spec.name == "seoul.traffic_incident" and getattr(records, "snapshot", None) is not None:
+        from sources.base import Record
+
+        snapshot = Record(
+            key="traffic.incident.snapshot:all-current",
+            event_type="traffic.incident.snapshot",
+            occurred_at=collected_at,
+            payload=records.snapshot,
+        )
+        publisher.publish(spec.topic, snapshot.key, build_event(spec, snapshot, collected_at))
     return len(records), records
 
 
@@ -168,8 +209,24 @@ def main() -> int:
         log.error("%s", exc)
         return 2
 
-    interval = settings.interval_seconds or spec.default_interval_seconds
-    if settings.source != "weather":
+    pooled_bus = settings.source in ("bus_arrival", "bus_location") and bus_dense_policy_enabled(
+        settings, settings.source
+    )
+    topis_dynamic = settings.source == "topis_notice"
+    incident_dynamic = settings.source == "traffic_incident"
+    time_window_dynamic = topis_dynamic or incident_dynamic
+    interval = settings.interval_seconds or (
+        plan_topis_notice(now_kst(), settings.extra).interval_seconds
+        if topis_dynamic
+        else plan_traffic_incident(now_kst(), settings.extra).interval_seconds
+        if incident_dynamic
+        else 300
+        if settings.source == "bus_arrival" and pooled_bus
+        else int(settings.extra.get("BUS_LOCATION_DENSE_INTERVAL_SECONDS", "150"))
+        if pooled_bus
+        else spec.default_interval_seconds
+    )
+    if settings.source != "weather" and not pooled_bus and not time_window_dynamic:
         interval = max(interval, spec.default_interval_seconds)
     log.info(
         "start source=%s topic=%s interval=%ss kafka=%s run_once=%s",
@@ -201,6 +258,17 @@ def main() -> int:
     exit_code = 0
     with httpx.Client(timeout=httpx.Timeout(10.0 if settings.source == "weather" else 60.0, connect=5.0)) as client:
         while not stop.is_set():
+            if topis_dynamic:
+                interval = max(
+                    plan_topis_notice(now_kst(), settings.extra).interval_seconds,
+                    settings.interval_seconds or 0,
+                )
+            elif incident_dynamic:
+                interval = max(
+                    plan_traffic_incident(now_kst(), settings.extra).interval_seconds,
+                    settings.interval_seconds or 0,
+                )
+            cycle_started = time.monotonic()
             wait_seconds = interval
             waiting_for_retry = False
             try:
@@ -240,22 +308,41 @@ def main() -> int:
                     exit_code = 1
             if settings.run_once:
                 break
-            if settings.source == "bus_location" and not waiting_for_retry:
+            if (pooled_bus or time_window_dynamic) and not waiting_for_retry:
+                # Time-window policies use start-to-start cadence. In particular,
+                # a 100-route bus scan must not add the full interval again after
+                # that work completes.
+                wait_seconds = max(1, interval - (time.monotonic() - cycle_started))
+            if settings.source == "bus_location" and not waiting_for_retry and not pooled_bus:
                 # After either regular/retry completion, keep the original 8h deadline.
                 try:
+                    slot, key = bus_key_candidates(settings, "bus_location")[0]
+                    pool = settings.extra.get("BUS_LOCATION_QUOTA_POOL", "data-go-kr:15000332")
                     budget = RequestBudget(
                         settings.extra.get(
                             "API_BUDGET_PATH",
                             str(Path(__file__).resolve().parents[1] / "data" / "request_budget.sqlite3"),
                         ),
-                        settings.api_key("BUS_LOCATION_API_KEY"),
-                        int(settings.extra.get("API_DAILY_LIMIT", "900")),
+                        key,
+                        int(
+                            settings.extra.get(
+                                "BUS_LOCATION_DAILY_BUDGET_PER_KEY",
+                                settings.extra.get("API_DAILY_LIMIT", "900"),
+                            )
+                        ),
+                        namespace=f"{pool}:{slot}",
                     )
                     next_at = budget.next_cycle_at("bus_location")
                     if next_at is not None and next_at > time.time():
                         wait_seconds = next_at - time.time()
                 except Exception:
                     log.warning("Could not read bus regular deadline; using normal polling interval")
+            if not settings.source.startswith("bus_") and not waiting_for_retry and wait_seconds == interval:
+                # 정상 수집이든 쉬는 시간이라 건너뛴 것이든, 다음 허용 시각까지만 기다린다.
+                # 멈춤 시간대·재시도처럼 따로 정한 대기(wait_seconds != interval)는 건드리지 않는다.
+                # 버스는 키 풀별 이름표(namespace)로 호출 기록을 따로 남겨 이 조회로는 다음 시각을 읽을 수 없다.
+                # 버스 대기는 위의 키 풀 규칙이 정한다.
+                wait_seconds = resume_wait(_next_cycle_at(settings), time.time(), wait_seconds)
             stop.wait(wait_seconds)
 
     if publisher.flush() > 0 or publisher.failed > 0:

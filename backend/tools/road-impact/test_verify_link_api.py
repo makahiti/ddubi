@@ -13,6 +13,12 @@ class VerifyLinkApiTest(unittest.TestCase):
             path.write_text("OTHER=x\nTRAFFIC_INCIDENT_API_KEY='secret'\n", encoding="utf-8")
             self.assertEqual(read_env_value(path, "TRAFFIC_INCIDENT_API_KEY"), "secret")
 
+    def test_portal_key_can_be_read_from_env_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("SEOUL_OPEN_DATA_API_KEY='shared-secret'\n", encoding="utf-8")
+            self.assertEqual(read_env_value(path, "SEOUL_OPEN_DATA_API_KEY"), "shared-secret")
+
     def test_candidate_ids_are_unique_and_sorted(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "candidates.jsonl"

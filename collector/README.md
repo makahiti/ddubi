@@ -24,18 +24,21 @@ Kafka: transport.raw / city.raw
 
 | 분류 | `COLLECTOR_SOURCE` | 수집 내용 | 기본 범위 | 기본 주기 | 하루 계획 호출 | Kafka 토픽 |
 |---|---|---|---:|---:|---:|---|
-| 버스 도착 | `bus_arrival` | 정류장별 첫 번째·두 번째 버스 도착예정 | 노선 100개 | 8시간 | 300 | `transport.raw` |
-| 버스 위치 | `bus_location` | 노선에서 운행 중인 차량 위치 | 노선 100개 | 8시간 | 300 | `transport.raw` |
+| 버스 도착 | `bus_arrival` | 정류장별 첫 번째·두 번째 버스 도착예정 | 노선 100개 | 평일 첨두 5분, 비첨두 15분 | 약 13,600 | `transport.raw` |
+| 버스 위치 | `bus_location` | 노선에서 운행 중인 차량 위치 | 노선 100개 | 첨두 50노선 2분 30초·나머지 5분, 비첨두 15분 | 약 16,900 | `transport.raw` |
 | 지하철 도착 | `subway_arrival` | 서울 전체 역의 열차 도착예정 | 전체 역 | 6분 | 최대 480 | `transport.raw` |
 | 지하철 위치 | `subway_location` | 현재 운행 중인 열차 위치 | 16개 호선 | 1시간 | 384 | `transport.raw` |
 | 지하철 알림 | `subway_alert` | 지연·무정차·운행 변경 알림 | 최근 1,000행 | 15분 | 96 | `transport.raw` |
-| 실시간 도시 | `city_realtime` | 인구·교통·주차·따릉이·기상·행사 | 장소 121개 | 6시간 | 484 | `city.raw` |
-| 교통 돌발 | `traffic_incident` | 사고·공사·도로 통제 | 서울시 전역 | 15분 | 보통 96 | `city.raw` |
-| TOPIS 공지 | `topis_notice` | 교통통제·버스 우회·교통 공지 | 최근 1,000행 | 15분 | 96 | `city.raw` |
+| 실시간 도시 | `city_realtime` | 인구·교통·주차·따릉이·기상·행사 | 장소 121개 | 5분 | 34,848 | `city.raw` |
+| 교통 돌발 | `traffic_incident` | 사고·공사·도로 통제 | 서울시 전역 | 평일 첨두 5분, 주간 10분, 심야 15분 | 평일 약 171 | `city.raw` |
+| TOPIS 공지 | `topis_notice` | 교통통제·버스 우회·교통 공지 | 최근 100행 | 평일 첨두 5분, 그 외 주간 10분, 야간 1시간 | 평일 158, 주말 119 | `city.raw` |
 | 날씨 | `weather` | 기온·강수·습도·바람 등 초단기실황 | 서울 격자 14개 | 10분 | 2,016 | `city.raw` |
 
-버스는 전체 723개 노선 ID를 `config/bus_route_ids.json`에 보존하지만, 호출 한도를 위해
-기본적으로 앞의 100개만 수집한다. 도착과 위치를 합해 하루 약 600회 호출한다.
+버스는 전체 723개 노선 ID를 `config/bus_route_ids.json`에 보존하지만 기본적으로 앞의
+100개만 수집한다. 도착·위치 활용신청이 모두 승인된 `BUS_API_KEY_A/B`가 설정된 단기 학습
+수집 모드에서는 데이터셋·키별 최근 24시간 예산을 분리하고 전체 노선 사이클마다 사용량이
+적은 키를 선택한다. 위치 첨두 수집의 고밀도
+50노선 패널은 날짜마다 교대한다. 키가 하나뿐이거나 기존 단일 키 설정이면 8시간 주기를 유지한다.
 
 API별 요청·응답 필드와 데이터 의미는
 [실시간 데이터 수집 가이드](../docs/data-collection-guide.md)에서 확인한다.
@@ -49,17 +52,26 @@ API별 요청·응답 필드와 데이터 의미는
 
 | 환경변수 | 사용 수집기 | 발급처 |
 |---|---|---|
-| `BUS_ARRIVAL_API_KEY` | 버스 도착 | 공공데이터포털 |
-| `BUS_LOCATION_API_KEY` | 버스 위치 | 공공데이터포털 |
+| `BUS_API_KEY_A`, `BUS_API_KEY_B` | 서울 버스 도착·위치 단기 학습 공용 키 풀 | 공공데이터포털 |
+| `DATA_GO_KR_API_KEY` | 경기·인천 선택 수집기, 날씨 대체 경로 및 기존 버스 fallback | 공공데이터포털 |
 | `SUBWAY_API_KEY` | 지하철 도착·위치 | 서울 열린데이터광장 실시간 지하철 인증키 |
-| `SUBWAY_ALERT_API_KEY` | 지하철 알림 | 서울 열린데이터광장 일반인증키 |
-| `CITY_REALTIME_API_KEY` | 실시간 도시데이터 | 서울 열린데이터광장 일반인증키 |
-| `TOPIS_NOTICE_API_KEY` | TOPIS 공지 | 서울 열린데이터광장 일반인증키 |
-| `TRAFFIC_INCIDENT_API_KEY` | 교통 돌발 | 서울 열린데이터광장 일반인증키 |
+| `SEOUL_OPEN_DATA_API_KEY` | 지하철 알림, 실시간 도시데이터, TOPIS 공지, 교통 돌발 | 서울 열린데이터광장 일반인증키 |
 | `KMA_API_KEY` | 날씨 | 기상청 API 허브 |
-| `DATA_GO_KR_API_KEY` | 날씨 대체 경로 | 공공데이터포털 |
 
-날씨 키가 둘 다 있으면 `KMA_API_KEY`를 우선 사용한다.
+날씨 키가 둘 다 있으면 `KMA_API_KEY`를 우선 사용한다. 버스 도착 `15000314`와 위치
+`15000332`는 같은 A/B 키 풀을 사용하지만 활용신청이 별도이므로 호출 예산도 별도로 집계한다.
+호출 예산 DB에는 키 원문 대신 해시만 저장한다.
+기존 `BUS_ARRIVAL_API_KEY`, `BUS_LOCATION_API_KEY` 또는 `DATA_GO_KR_API_KEY`만 설정한 배포는
+기존 단일 키·8시간 정책을 유지한다.
+
+TOPIS 공지는 KST 평일 06:30~09:30·16:30~20:00에 5분, 05:00~24:00의 나머지
+시간과 주말 주간에는 10분, 00:00~05:00에는 1시간마다 최근 100건을 조회한다. 기존
+SQLite 발행 원장으로 동일 공지는 생략하고 신규·수정 공지만 Kafka에 발행한다.
+
+실시간 도시데이터는 121개 장소를 5분마다 호출하므로 하루 34,848회다.
+`CITY_REALTIME_DAILY_BUDGET=40000`은 이 호출량에 운영 여유를 둔 프로젝트 내부 보호 한도이며,
+서울시가 공지한 일일 한도가 아니다. `CITY_REALTIME_QUOTA_POOL`로 다른 서울 API의 내부 예산과
+분리한다. 실시간 지하철 도착·위치는 별도 `SUBWAY_API_KEY`를 쓴다.
 
 ### 공통 설정
 
@@ -70,9 +82,14 @@ API별 요청·응답 필드와 데이터 의미는
 | `COLLECTOR_RUN_ONCE` | `true`면 한 사이클만 실행 | `false` |
 | `COLLECTOR_INTERVAL_SECONDS` | 수집 주기 재정의 | 수집기별 기본값 |
 | `API_DAILY_LIMIT` | 비기상 인증키별 최근 24시간 호출 한도 | `900` |
+| `CITY_REALTIME_DAILY_BUDGET` | 도시데이터 전용 최근 24시간 내부 호출 한도 | `40000` |
+| `CITY_REALTIME_QUOTA_POOL` | 도시데이터 호출 예산 구분자 | `seoul-open-data:OA-21285` |
+| `BUS_ARRIVAL_DAILY_BUDGET_PER_KEY` | 도착 데이터셋·키별 내부 24시간 예산 | `9000` |
+| `BUS_LOCATION_DAILY_BUDGET_PER_KEY` | 위치 데이터셋·키별 내부 24시간 예산 | `9000` |
 | `API_BUDGET_PATH` | 호출량 기록 SQLite 경로 | `data/request_budget.sqlite3` |
 
-비기상 수집기는 사용자가 주기를 더 짧게 입력해도 표의 기본 안전 주기보다 짧아지지 않는다.
+버스 키 풀 모드는 시간대별 정책을 사용한다. 전역 `COLLECTOR_INTERVAL_SECONDS`가 설정되면
+정책 주기보다 긴 하한으로 작동한다. 나머지 비기상 수집기는 기존 기본 안전 주기보다 짧아지지 않는다.
 
 ### 수집 범위 설정
 
@@ -175,9 +192,12 @@ python src/sources/traffic_incident.py --page-size 5 --first-page-only
 
 ## 호출 한도 보호
 
-날씨를 제외한 8개 수집기는 `RequestBudget`을 통해 인증키별 호출량을 합산한다.
+날씨를 제외한 8개 수집기는 `RequestBudget`으로 호출량을 제한한다. 버스 키 풀은
+`데이터셋 quota pool × key slot`별로, TOPIS 공지는 `OA-22861` 전용 namespace로,
+나머지 기존 소스는 인증키별로 집계한다.
 
-- 기본 한도는 최근 24시간 900회다.
+- 기존 소스 기본 한도는 최근 24시간 900회다. TOPIS 공지는 500회, 버스 키 풀은
+  데이터셋·키별 9,000회의 내부 안전 예산을 사용한다.
 - 실패한 HTTP 요청과 리다이렉트도 호출 횟수에 포함한다.
 - 인증키 원문은 저장하지 않고 SHA-256 식별값만 저장한다.
 - 재시작 후에도 기록이 유지되도록 Docker volume의 SQLite에 저장한다.

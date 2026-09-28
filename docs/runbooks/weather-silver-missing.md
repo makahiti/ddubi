@@ -86,7 +86,7 @@ server1 오버레이를 생략하면 다른 서버의 datanode 호스트명을 �
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile spark up -d spark-master spark-worker-1 spark-worker-2
-docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile spark up -d --force-recreate spark-streaming-weather
+docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile spark up -d --force-recreate spark-streaming-light
 ```
 
 단순 restart는 기존 컨테이너의 환경변수를 변경하지 않는다. URI 변경에는 recreate가 필요하다.
@@ -96,7 +96,7 @@ checkpoint, Kafka 토픽, HDFS 원본을 삭제하거나 startingOffsets를 무�
 날씨 수집 10분 + Silver 처리 주기 10분을 고려해 다음 사이클을 기다리고 확인한다. 실제 소요시간은 기동 시점·부하에 따라 다르다.
 
 ```sh
-docker logs spark-streaming-weather --since 25m 2>&1 | grep -E 'started topic|silver stream started|query=|batch=|ERROR|Exception'
+docker logs spark-streaming-light --since 25m 2>&1 | grep -E 'started topic|silver stream started|query=|batch=|ERROR|Exception'
 docker exec hdfs-namenode hdfs dfs -ls -R /ddubi/silver/weather
 docker exec hdfs-namenode hdfs dfs -ls /ddubi/checkpoints/weather_latest_silver/commits
 ```

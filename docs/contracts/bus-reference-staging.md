@@ -19,9 +19,12 @@ V11은 `bus_reference_chunk`, `bus_reference_row`만 추가하며 기존 V1~V10 
 
 행 필드: masterVersion, namespace, routeId, fromStopId, toStopId, fromOrder,
 toOrder, dow(일1~토7), hourSlot(0~23), sampleKind, meanSeconds,
-sampleCount, observedDates, observationStart, observationEnd, sourceSha256.
+sampleCount, observedDates, observationStart, observationEnd, sourceSha256, formulaInput(선택).
 조회키는 masterVersion부터 hourSlot까지의 앞10개 필드다.
-sampleKind는 HOURLY_SOURCE_MEAN 또는 ACTUAL_TRAVERSAL_MEAN이며, 두 종류를 합산하지 않는다.
+sampleKind는 HOURLY_SOURCE_MEAN, ACTUAL_TRAVERSAL_MEAN 또는 GTFS_SCHEDULE_FORMULA이며,
+서로 다른 종류를 합산하지 않는다. 새 수식 버전의 formulaInput 구조와 계산 규칙은
+`bus-travel-time-formula-fallback.md`를 따른다. Backend는 업로드 시 수식 재계산값과
+meanSeconds의 일치를 확인하고 추천 평가에서도 formulaInput으로 다시 계산한다.
 시간대 평균의 sampleCount는 원천 일자별 집계값 개수이지 버스 운행 관측 수가 아니다.
 날씨·백분위·원천 가용시각·실시간·운영승인 필드는 만들지 않는다.
 

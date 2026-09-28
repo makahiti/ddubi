@@ -69,9 +69,7 @@ void main() {
   });
 
   test('GTFS_FORMULA_APPLIED 사유를 실패로 읽지 않는다', () {
-    final label = historicalReferenceReasonLabel(
-      'step-1:GTFS_FORMULA_APPLIED',
-    );
+    final label = historicalReferenceReasonLabel('step-1:GTFS_FORMULA_APPLIED');
     expect(label, isNotNull);
     expect(label, isNot(contains('기본 경로시간 유지')));
     expect(label, contains('GTFS'));

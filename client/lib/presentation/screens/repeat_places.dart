@@ -10,6 +10,7 @@ import '../../services/place_api.dart';
 import '../widgets.dart';
 import 'schedule_form.dart';
 import 'shared.dart';
+import 'travel_records_calendar.dart';
 
 class RepeatSchedulesScreen extends StatefulWidget {
   const RepeatSchedulesScreen({
@@ -84,15 +85,28 @@ class _RepeatSchedulesScreenState extends State<RepeatSchedulesScreen> {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
-                    StatusBadge(
-                      rule.active ? '반복 중' : '중지됨',
-                      tone: rule.active ? DdubiColors.green : Colors.grey,
-                    ),
+                    if (rule.needsDepartTime)
+                      const StatusBadge(
+                        '출발시각 없음',
+                        tone: Color(0xFFFF6B35),
+                        icon: Icons.error_outline,
+                      )
+                    else
+                      StatusBadge(
+                        rule.active ? '반복 중' : '중지됨',
+                        tone: rule.active ? DdubiColors.green : Colors.grey,
+                      ),
                   ],
                 ),
+                // 출발시각이 없는 규칙은 왜 계산이 안 되는지 여기서 바로 알린다.
+                // 서버가 값을 지어내지 않으므로 사용자가 넣기 전까지 계산이 멈춰 있다.
                 subtitle: Text(
-                  '${days.map((day) => weekdayLabels[day - 1]).join(' · ')}  ${rule.time}\n'
-                  '출발 ${rule.departurePlace}\n도착 ${rule.place}',
+                  rule.needsDepartTime
+                      ? '${days.map((day) => weekdayLabels[day - 1]).join(' · ')}  ${rule.time} 도착\n'
+                            '출발시각이 없어 추천 계산이 안 되고 있어요. 수정에서 넣어주세요.'
+                      : '${days.map((day) => weekdayLabels[day - 1]).join(' · ')}  '
+                            '${rule.departTime} 출발 → ${rule.time} 도착\n'
+                            '${rule.departurePlace} → ${rule.place}',
                 ),
                 isThreeLine: true,
                 trailing: PopupMenuButton<String>(
@@ -120,26 +134,41 @@ class _RepeatSchedulesScreenState extends State<RepeatSchedulesScreen> {
   }
 
   Future<void> _deactivate(RepeatScheduleRule rule) async {
-    final confirmed = await showDialog<bool>(
+    // 이미 만들어진 앞으로의 일정을 어떻게 할지 물어본다. 예전에는 묻지 않고 남겨 뒀는데,
+    // 반복을 중지했는데 다음 주 일정이 그대로 있으면 중지된 것으로 보이지 않는다.
+    final cancelFuture = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        key: const Key('repeatDeactivateDialog'),
         title: const Text('반복을 중지할까요?'),
-        content: Text('${rule.title}의 새 일정 생성을 중지합니다.'),
+        content: Text(
+          '${rule.title}의 새 일정 생성을 중지합니다.\n'
+          '이미 만들어 둔 앞으로의 일정은 어떻게 할까요?',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('취소'),
           ),
+          TextButton(
+            key: const Key('repeatDeactivateKeepFuture'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('그대로 두기'),
+          ),
           FilledButton(
+            key: const Key('repeatDeactivateCancelFuture'),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('중지'),
+            child: const Text('함께 취소'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (cancelFuture == null) return;
     try {
-      await widget.repository.deactivateRepeatSchedule(rule.id);
+      await widget.repository.deactivateRepeatSchedule(
+        rule.id,
+        cancelFutureInstances: cancelFuture,
+      );
       if (mounted) setState(_reload);
     } on Object {
       if (!mounted) return;
@@ -401,19 +430,7 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
         return ListView(
           padding: screenPadding,
           children: [
-            InfoCard(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _recordMetric('전체', '${history.summary.totalCount}건'),
-                  _recordMetric(
-                    '정시율',
-                    '${(history.summary.onTimeRate * 100).round()}%',
-                  ),
-                  _recordMetric('지연', '${history.summary.lateCount}건'),
-                ],
-              ),
-            ),
+            _summaryCard(history.summary),
             const SizedBox(height: 18),
             const SectionHeader('주간 리포트'),
             if (reports.isEmpty)
@@ -437,7 +454,19 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
                 ),
               ),
             const SizedBox(height: 18),
-            const SectionHeader('최근 이동 기록'),
+            // 같은 기록을 날짜별로 훑어볼 자리. 목록은 그대로 두고 문 하나만 더 낸다.
+            SectionHeader(
+              '최근 이동 기록',
+              trailing: TextButton.icon(
+                key: const Key('openTravelRecordsCalendar'),
+                onPressed: () => openPage(
+                  context,
+                  TravelRecordsCalendarScreen(items: history.items),
+                ),
+                icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                label: const Text('달력으로 보기'),
+              ),
+            ),
             if (history.items.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 14),
@@ -451,6 +480,43 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
     ),
   );
 
+  /// 기간 요약 석 줄.
+  ///
+  /// 판정(정시·빠듯·지연)이 하나도 없으면 정시율을 "0%" 로 쓰지 않는다. 서버는 판정 없는 건도
+  /// 분모에 넣으므로 계산 결과는 정말 0 이지만, 화면에서 0% 는 "매번 늦었다" 로 읽힌다.
+  /// 판정이 없는 이유(도착 시각을 남기지 않음)까지 한 줄로 알려 준다.
+  Widget _summaryCard(TravelHistorySummary summary) {
+    final judged = summary.onTimeCount + summary.tightCount + summary.lateCount;
+    return InfoCard(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _recordMetric('전체', '${summary.totalCount}건'),
+              _recordMetric(
+                '정시율',
+                judged == 0
+                    ? '아직 없음'
+                    : '${(summary.onTimeRate * 100).round()}%',
+              ),
+              _recordMetric('지연', '${summary.lateCount}건'),
+            ],
+          ),
+          if (summary.totalCount > 0 && judged == 0) ...[
+            const SizedBox(height: 10),
+            const Text(
+              '도착 시각을 남긴 기록이 없어 정시 여부를 판정하지 못했어요.\n'
+              '더보기 > 이동 기록 저장을 켜면 다음 도착부터 판정해요.',
+              key: Key('noJudgedRecordNotice'),
+              style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _recordMetric(String label, String value) => Column(
     children: [
       Text(label),
@@ -459,11 +525,17 @@ class _TravelRecordsScreenState extends State<TravelRecordsScreen> {
     ],
   );
 
+  /// 누르면 그 일정의 상세로 간다. 끝난 일정 상세가 출발·도착 기록과 당시 안내를 보여주므로
+  /// 여기서 더 펼치지 않는다(2026-09-22).
   Widget _historyTile(TravelHistoryItem item) => ListTile(
+    key: Key('historyItem-${item.reportDetailId}'),
     leading: const Icon(Icons.directions_transit_outlined),
     title: Text(item.title),
     subtitle: Text(formatFullDate(item.arriveBy)),
     trailing: Text(arrivalResultText(item.result)),
+    onTap: item.scheduleId.isEmpty
+        ? null
+        : () => context.push('/schedules/${item.scheduleId}'),
   );
 
   Future<void> _showReport(WeeklyReport report) async {

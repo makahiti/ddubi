@@ -1,5 +1,8 @@
 package com.ssafy.ddubi.domain.report.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.ssafy.ddubi.domain.report.dto.request.ArrivalRequest;
 import com.ssafy.ddubi.domain.report.dto.response.ArrivalResponse;
 import com.ssafy.ddubi.domain.report.dto.response.HistoryResponse;
@@ -16,7 +19,11 @@ import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.common.PageResponse;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,44 +31,35 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 /**
  * ARRIVAL-001 · HISTORY-001 · REPORT-001~002.
  *
- * 고정하려는 것:
+ * <p>고정하려는 것:
+ *
  * <ul>
- *   <li>규칙 1 소유권 — 남의 일정·리포트는 403</li>
- *   <li>규칙 9 실측 저장 — 계정 동의 AND 요청 동의</li>
- *   <li>판정 경계(기본 10분)와 TIGHT 이 집계 어디에도 들어가지 않는 것</li>
- *   <li>재보고 멱등 — 행이 늘지 않고 집계도 그대로</li>
+ *   <li>규칙 1 소유권 — 남의 일정·리포트는 403
+ *   <li>규칙 9 실측 저장 — 계정 동의 AND 요청 동의
+ *   <li>판정 경계(기본 10분)와 TIGHT 이 집계 어디에도 들어가지 않는 것
+ *   <li>재보고 멱등 — 행이 늘지 않고 집계도 그대로
  * </ul>
  *
- * <p>일정을 서비스가 아니라 리포지토리로 직접 만드는 이유: SCH-002 가 과거 도착 시각을
- * 거부하는데(출발 시각 역산 불가), 도착 <b>기록</b>은 본질적으로 지나간 일정을 다룬다.
+ * <p>일정을 서비스가 아니라 리포지토리로 직접 만드는 이유: SCH-002 가 과거 도착 시각을 거부하는데(출발 시각 역산 불가), 도착 <b>기록</b>은 본질적으로 지나간
+ * 일정을 다룬다.
  */
 class ArrivalReportIntegrationTest extends IntegrationTestSupport {
 
     private static final LocationSnapshot GANGNAM =
-            new LocationSnapshot("강남역", new BigDecimal("37.4979526"), new BigDecimal("127.0276241"));
+            new LocationSnapshot(
+                    "강남역", new BigDecimal("37.4979526"), new BigDecimal("127.0276241"));
     private static final LocationSnapshot GWANGHWAMUN =
-            new LocationSnapshot("광화문", new BigDecimal("37.5716229"), new BigDecimal("126.9767879"));
+            new LocationSnapshot(
+                    "광화문", new BigDecimal("37.5716229"), new BigDecimal("126.9767879"));
 
-    @Autowired
-    private ArrivalService arrivalService;
-    @Autowired
-    private ReportQueryService reportQueryService;
-    @Autowired
-    private ScheduleRepository scheduleRepository;
-    @Autowired
-    private ReportDetailRepository reportDetailRepository;
-    @Autowired
-    private UserRepository userRepository;
+    @Autowired private ArrivalService arrivalService;
+    @Autowired private ReportQueryService reportQueryService;
+    @Autowired private ScheduleRepository scheduleRepository;
+    @Autowired private ReportDetailRepository reportDetailRepository;
+    @Autowired private UserRepository userRepository;
 
     private Long ownerId;
     private Long strangerId;
@@ -71,26 +69,35 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
 
     @BeforeEach
     void setUp() {
-        User owner = userRepository.save(User.builder().email("owner@ddubi.com").nickname("주인").build());
+        User owner =
+                userRepository.save(User.builder().email("owner@ddubi.com").nickname("주인").build());
         owner.changeHistoryConsent(true);
         userRepository.save(owner);
         ownerId = owner.getId();
 
-        strangerId = userRepository.save(
-                User.builder().email("other@ddubi.com").nickname("남").build()).getId();
+        strangerId =
+                userRepository
+                        .save(User.builder().email("other@ddubi.com").nickname("남").build())
+                        .getId();
 
-        arriveBy = WeeklyReportProvider.weekStart(LocalDate.now())
-                .minusWeeks(1).plusDays(1).atTime(9, 0);
+        arriveBy =
+                WeeklyReportProvider.weekStart(LocalDate.now(BusinessTime.ZONE))
+                        .minusWeeks(1)
+                        .plusDays(1)
+                        .atTime(9, 0);
     }
 
     private Long givenSchedule(LocalDateTime arriveBy) {
-        return scheduleRepository.save(Schedule.builder()
-                .user(userRepository.getReferenceById(ownerId))
-                .title("회의")
-                .origin(GANGNAM)
-                .destination(GWANGHWAMUN)
-                .arriveBy(arriveBy)
-                .build()).getId();
+        return scheduleRepository
+                .save(
+                        Schedule.builder()
+                                .user(userRepository.getReferenceById(ownerId))
+                                .title("회의")
+                                .origin(GANGNAM)
+                                .destination(GWANGHWAMUN)
+                                .arriveBy(arriveBy)
+                                .build())
+                .getId();
     }
 
     private ArrivalResponse report(Long scheduleId, LocalDateTime actual) {
@@ -124,9 +131,9 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("도착 시각이 미래면 400 — 그대로 받으면 정시 통계가 조용히 부풀려진다")
     void rejectsFutureArrival() {
-        Long scheduleId = givenSchedule(LocalDateTime.now().plusDays(1).withNano(0));
+        Long scheduleId = givenSchedule(BusinessTime.now().plusDays(1).withNano(0));
 
-        assertThatThrownBy(() -> report(scheduleId, LocalDateTime.now().plusHours(2)))
+        assertThatThrownBy(() -> report(scheduleId, BusinessTime.now().plusHours(2)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
                 .isEqualTo(ErrorCode.INVALID_REQUEST);
@@ -156,8 +163,9 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
     void requestConsentCanOptOut() {
         Long scheduleId = givenSchedule(arriveBy);
 
-        ArrivalResponse response = arrivalService.record(ownerId, scheduleId,
-                new ArrivalRequest(arriveBy.minusMinutes(30), false));
+        ArrivalResponse response =
+                arrivalService.record(
+                        ownerId, scheduleId, new ArrivalRequest(arriveBy.minusMinutes(30), false));
 
         assertThat(response.actualArrival()).isNull();
         assertThat(response.result()).isNull();
@@ -202,8 +210,10 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
     void ownershipIsEnforcedOnArrival() {
         Long scheduleId = givenSchedule(arriveBy);
 
-        assertThatThrownBy(() -> arrivalService.record(strangerId, scheduleId,
-                new ArrivalRequest(arriveBy, true)))
+        assertThatThrownBy(
+                        () ->
+                                arrivalService.record(
+                                        strangerId, scheduleId, new ArrivalRequest(arriveBy, true)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).errorCode())
                 .isEqualTo(ErrorCode.FORBIDDEN_RESOURCE);
@@ -230,9 +240,9 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("TIGHT 은 정시에도 지연에도 들어가지 않는다 — 전체에서 빼야 나온다")
     void tightBelongsToNeitherBucket() {
-        report(givenSchedule(arriveBy), arriveBy.minusMinutes(30));           // ON_TIME
+        report(givenSchedule(arriveBy), arriveBy.minusMinutes(30)); // ON_TIME
         report(givenSchedule(arriveBy.plusHours(1)), arriveBy.plusMinutes(58)); // TIGHT
-        report(givenSchedule(arriveBy.plusHours(2)), arriveBy.plusHours(3));  // LATE_RISK
+        report(givenSchedule(arriveBy.plusHours(2)), arriveBy.plusHours(3)); // LATE_RISK
 
         ReportResponse report = reports().content().get(0);
 
@@ -272,14 +282,18 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("이동 기록 요약은 페이지가 아니라 조회 구간 전체를 센다")
     void historySummaryCoversWholeRange() {
-        report(givenSchedule(arriveBy), arriveBy.minusMinutes(30));            // ON_TIME
-        report(givenSchedule(arriveBy.plusHours(1)), arriveBy.plusMinutes(58));  // TIGHT
-        report(givenSchedule(arriveBy.plusHours(2)), arriveBy.plusHours(3));   // LATE_RISK
+        report(givenSchedule(arriveBy), arriveBy.minusMinutes(30)); // ON_TIME
+        report(givenSchedule(arriveBy.plusHours(1)), arriveBy.plusMinutes(58)); // TIGHT
+        report(givenSchedule(arriveBy.plusHours(2)), arriveBy.plusHours(3)); // LATE_RISK
 
         LocalDate day = arriveBy.toLocalDate();
         // 정렬까지 컨트롤러와 같은 조건으로 — fetch join 과 중첩 속성 정렬이 함께 쓰이는 쿼리다
-        HistoryResponse history = reportQueryService.history(ownerId, day, day,
-                PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "schedule.arriveBy")));
+        HistoryResponse history =
+                reportQueryService.history(
+                        ownerId,
+                        day,
+                        day,
+                        PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "schedule.arriveBy")));
 
         assertThat(history.items().content()).hasSize(1);
         // 내림차순이므로 가장 늦은 일정이 먼저 온다
@@ -289,14 +303,15 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
         assertThat(history.summary().tightCount()).isEqualTo(1);
         assertThat(history.summary().lateCount()).isEqualTo(1);
         assertThat(history.summary().onTimeRate()).isEqualByComparingTo("0.33");
-        assertThat(history.summary().avgDurationMin()).isNull();   // Phase 3 이전
+        assertThat(history.summary().avgDurationMin()).isNull(); // Phase 3 이전
     }
 
     @Test
     @DisplayName("기록이 없는 기간도 200 이고 요약은 0 이다 — SUM 이 null 로 와도 터지지 않는다")
     void emptyRangeIsNotAnError() {
-        LocalDate day = LocalDate.now().plusYears(1);
-        HistoryResponse history = reportQueryService.history(ownerId, day, day, PageRequest.of(0, 20));
+        LocalDate day = LocalDate.now(BusinessTime.ZONE).plusYears(1);
+        HistoryResponse history =
+                reportQueryService.history(ownerId, day, day, PageRequest.of(0, 20));
 
         assertThat(history.items().content()).isEmpty();
         assertThat(history.summary().totalCount()).isZero();
@@ -310,7 +325,8 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
         report(givenSchedule(arriveBy.plusDays(2)), arriveBy.plusDays(2).minusMinutes(30));
 
         LocalDate day = arriveBy.toLocalDate();
-        HistoryResponse history = reportQueryService.history(ownerId, day, day, PageRequest.of(0, 20));
+        HistoryResponse history =
+                reportQueryService.history(ownerId, day, day, PageRequest.of(0, 20));
 
         assertThat(history.summary().totalCount()).isEqualTo(1);
     }
@@ -353,8 +369,8 @@ class ArrivalReportIntegrationTest extends IntegrationTestSupport {
         report(givenSchedule(arriveBy), arriveBy.minusMinutes(30));
 
         LocalDate midWeek = arriveBy.toLocalDate();
-        PageResponse<ReportResponse> filtered = reportQueryService.list(
-                ownerId, midWeek, midWeek, PageRequest.of(0, 20));
+        PageResponse<ReportResponse> filtered =
+                reportQueryService.list(ownerId, midWeek, midWeek, PageRequest.of(0, 20));
 
         assertThat(filtered.totalElements()).isEqualTo(1);
         assertThat(filtered.content().get(0).periodStart()).isBefore(midWeek.plusDays(1));

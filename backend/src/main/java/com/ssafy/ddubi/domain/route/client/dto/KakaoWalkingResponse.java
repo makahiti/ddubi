@@ -13,7 +13,16 @@ public record KakaoWalkingResponse(String status, Route route) {
     public record Leg(java.util.List<Step> steps) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Step(StepProperties properties) {}
+    public record Step(StepProperties properties, Path path) {}
+
+    /**
+     * 공식 steps[].path.points. 한 점은 {@code [경도, 위도]}(WGS84)이며 대중교통 응답과 같은 형식이다.
+     *
+     * <p>지도에 도보 구간을 선으로 그릴 때만 쓴다. 시간·거리 계산에는 쓰지 않는다 —
+     * 좌표 사이 거리를 우리가 다시 재면 공식 응답의 거리와 어긋난다.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Path(java.util.List<java.util.List<Double>> points) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record StepProperties(Long distance, String guidance) {}

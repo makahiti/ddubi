@@ -111,8 +111,10 @@ class MockDdubiRepository implements DdubiRepository {
   }
 
   @override
-  Future<void> addSchedule(Schedule schedule) async =>
-      _addedSchedules.add(schedule);
+  Future<Schedule> addSchedule(Schedule schedule) async {
+    _addedSchedules.add(schedule);
+    return schedule;
+  }
 
   @override
   Future<void> updateSchedule(Schedule schedule) async {
@@ -164,7 +166,6 @@ class MockDdubiRepository implements DdubiRepository {
           ),
           importance: rule.importance,
           considerLastTrip: rule.considerLastTrip,
-          preferredTransport: rule.preferredTransport,
           repeatLabel: _repeatLabel(rule.weekdays),
         ),
       );
@@ -181,10 +182,16 @@ class MockDdubiRepository implements DdubiRepository {
       throw StateError('반복 일정을 찾을 수 없습니다.');
 
   @override
-  Future<void> updateRepeatSchedule(RepeatScheduleRule rule) async {}
+  Future<void> updateRepeatSchedule(
+    RepeatScheduleRule rule, {
+    DateTime? effectiveFrom,
+  }) async {}
 
   @override
-  Future<void> deactivateRepeatSchedule(String id) async {}
+  Future<void> deactivateRepeatSchedule(
+    String id, {
+    bool cancelFutureInstances = false,
+  }) async {}
 
   static String _repeatLabel(Set<int> weekdays) {
     if (weekdays.length == 7) return '매일';
@@ -227,9 +234,16 @@ class MockPlaceSearchService implements PlaceSearchService {
     String query, {
     int page = 0,
     int size = 10,
+  }) async => (await searchPage(query, page: page, size: size)).items;
+
+  @override
+  Future<PlaceSearchPage> searchPage(
+    String query, {
+    int page = 0,
+    int size = 10,
   }) async {
     final normalized = query.replaceAll(' ', '').toLowerCase();
-    return _places
+    final matched = _places
         .where(
           (place) =>
               place.name
@@ -241,7 +255,13 @@ class MockPlaceSearchService implements PlaceSearchService {
                   .toLowerCase()
                   .contains(normalized),
         )
-        .take(size)
         .toList(growable: false);
+    final start = (page * size).clamp(0, matched.length);
+    final end = (start + size).clamp(0, matched.length);
+    return PlaceSearchPage(
+      items: matched.sublist(start, end),
+      hasNext: end < matched.length,
+      totalElements: matched.length,
+    );
   }
 }

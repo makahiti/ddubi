@@ -64,7 +64,7 @@ Silver에서는 다음처럼 스칼라 컬럼으로 바꾼다.
 
 ## 운영 HDFS 자동 저장
 
-`spark-streaming-weather`가 실행 중이고 `SILVER_OUTPUT_URI`가 설정되어 있으면 별도 명령 없이
+`spark-streaming-light`(날씨 잡 포함, 2026-09-25 부터)가 실행 중이고 `SILVER_OUTPUT_URI`가 설정되어 있으면 별도 명령 없이
 Kafka의 새 날씨를 자동 저장한다.
 
 ```text

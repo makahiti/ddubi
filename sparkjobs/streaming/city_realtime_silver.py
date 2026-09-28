@@ -295,15 +295,14 @@ def write_silver(frames: CityFrames, batch_id: int, target: str, namespace: str 
     )
 
 
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings = Settings.from_env()
+def prepare(spark: SparkSession, settings: Settings):
+    """스트림을 준비하고 (필수 Redis 시작 함수, 선택 Silver 시작 함수)를 돌려준다.
+
+    main() 과 합친 실행기(light_streaming.py)가 같이 쓴다. 쿼리 이름·체크포인트 경로는 그대로라
+    어느 쪽으로 실행해도 읽던 자리부터 이어서 읽는다.
+    """
     target = output_uri(os.environ)
     freshness = int(os.environ.get("CITY_SILVER_FRESHNESS_SECONDS", "900"))
-    spark = (
-        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
-    )
-    spark.sparkContext.setLogLevel("WARN")
     events = read_events_stream(spark, settings, TOPIC)
 
     def redis_batch(frame, batch_id):
@@ -346,6 +345,17 @@ def main() -> int:
         start_hdfs = start_silver
     else:
         log.warning("CITY_SILVER_OUTPUT_URI is empty; HDFS disabled while Redis remains enabled")
+    return start_redis, start_hdfs
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    settings = Settings.from_env()
+    spark = (
+        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
+    )
+    spark.sparkContext.setLogLevel("WARN")
+    start_redis, start_hdfs = prepare(spark, settings)
     try:
         supervise(start_redis, start_hdfs)
     finally:

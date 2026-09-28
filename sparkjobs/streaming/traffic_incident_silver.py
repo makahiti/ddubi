@@ -9,7 +9,9 @@ from urllib.parse import urlsplit
 from common.kafka_source import read_events_stream
 from common.redis_sink import write_latest_with_row_ttl
 from common.settings import Settings
+from common.traffic_incident_ai import enrich_rows, extractor_from_env
 from common.traffic_incident_enrichment import VerifiedLinkMaster, normalize_incident
+from common.traffic_incident_features import SNAPSHOT_KEY, build_incident_snapshot
 from common.traffic_incident_policy import policy
 from common.traffic_incident_runtime import supervise
 from pyspark.sql import SparkSession
@@ -53,6 +55,20 @@ STRINGS = (
     "descriptionRegion",
     "processingStatus",
     "rawPayloadJson",
+    "aiExtractionStatus",
+    "aiIncidentKind",
+    "aiIncidentDetail",
+    "aiControlScope",
+    "aiDirectionText",
+    "aiStatusMention",
+    "aiTimeExpressionsJson",
+    "aiControlStartAt",
+    "aiControlEndAt",
+    "aiEvidenceJson",
+    "aiExtractedAt",
+    "aiModel",
+    "aiPromptVersion",
+    "aiInputHash",
 )
 SCHEMA = T.StructType(
     [T.StructField(name, T.StringType()) for name in STRINGS]
@@ -62,8 +78,13 @@ SCHEMA = T.StructType(
     ]
     + [T.StructField("nearbyCandidateCount", T.IntegerType())]
     + [
+        T.StructField("aiClosedLaneCount", T.IntegerType()),
+        T.StructField("aiBusDetourMentioned", T.BooleanType()),
+        T.StructField("aiLaneNumbers", T.ArrayType(T.IntegerType())),
+    ]
+    + [
         T.StructField(name, T.ArrayType(T.StringType()))
-        for name in ("missingFields", "qualityFlags", "rejectionReasons")
+        for name in ("missingFields", "qualityFlags", "rejectionReasons", "aiQualityFlags")
     ]
 )
 
@@ -85,7 +106,7 @@ def load_master(env):
     )
 
 
-def enrich_batch(batch, master, stale_seconds, direct_tolerance, nearby_max):
+def enrich_batch(batch, master, stale_seconds, direct_tolerance, nearby_max, extractor=None):
     values = batch.filter(F.col("eventType") == "traffic.incident").select("rawEventJson").collect()
     unique, rows = {}, []
     for item in values:
@@ -98,6 +119,7 @@ def enrich_batch(batch, master, stale_seconds, direct_tolerance, nearby_max):
             continue
     for event in unique.values():
         rows.append(normalize_incident(event, master, stale_seconds, direct_tolerance, nearby_max))
+    rows = enrich_rows(rows, extractor)
     return batch.sparkSession.createDataFrame(rows, SCHEMA) if rows else batch.sparkSession.createDataFrame([], SCHEMA)
 
 
@@ -123,16 +145,25 @@ def redis_rows(df):
     )
 
 
-def main():
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+def prepare(spark, settings):
+    """스트림을 준비하고 (필수 Redis 시작 함수, 선택 Silver 시작 함수)를 돌려준다.
+
+    main() 과 합친 실행기(light_streaming.py)가 같이 쓴다. 쿼리 이름·체크포인트 경로는 그대로라
+    어느 쪽으로 실행해도 읽던 자리부터 이어서 읽는다.
+    """
     incident_policy = policy(os.environ)
-    settings, target = Settings.from_env(), output_uri(os.environ)
+    target = output_uri(os.environ)
     master = load_master(os.environ)
+    provisional_link_version = None
+    if str(os.environ.get("ROAD_PROVISIONAL_MAPPING_ENABLED", "false")).lower() in ("1", "true", "yes"):
+        provisional_link_version = os.environ.get(
+            "ROAD_PROVISIONAL_TRAFFIC_LINK_MASTER_VERSION", "provisional-accinfo-input-v1"
+        ).strip()
+        if not provisional_link_version:
+            raise ValueError("ROAD_PROVISIONAL_TRAFFIC_LINK_MASTER_VERSION is required in provisional mode")
+    extractor = extractor_from_env(os.environ)
     if not master.available:
         log.warning("Verified traffic link master is unavailable; no DIRECT/NEARBY mapping will be produced")
-    spark = (
-        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
-    )
     events = read_events_stream(spark, settings, TOPIC)
 
     def normalize(frame):
@@ -142,6 +173,7 @@ def main():
             incident_policy.stale_seconds,
             incident_policy.direct_tolerance_meters,
             incident_policy.nearby_max_meters,
+            extractor,
         )
 
     def redis_batch(frame, batch_id):
@@ -157,6 +189,50 @@ def main():
                 rows.unpersist()
         finally:
             normalized.unpersist()
+        snapshot_events = (
+            frame.filter(F.col("eventType") == "traffic.incident.snapshot").select("rawEventJson").collect()
+        )
+        if snapshot_events:
+            from datetime import datetime, timezone
+
+            import redis
+
+            client = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                password=settings.redis_password or None,
+                decode_responses=True,
+            )
+            try:
+                for item in snapshot_events:
+                    snapshot = build_incident_snapshot(
+                        json.loads(item.rawEventJson),
+                        master,
+                        incident_policy.stale_seconds,
+                        extractor=extractor,
+                        direct_tolerance=incident_policy.direct_tolerance_meters,
+                        nearby_max=incident_policy.nearby_max_meters,
+                        provisional_link_version=provisional_link_version,
+                    )
+                    if snapshot is None:
+                        continue
+                    ttl = int(
+                        (datetime.fromisoformat(snapshot["validUntil"]) - datetime.now(timezone.utc)).total_seconds()
+                    )
+                    if ttl <= 0:
+                        continue
+                    # A delayed Kafka batch must not replace a newer complete poll.
+                    client.eval(
+                        "local old=redis.call('GET',KEYS[1]); if old and cjson.decode(old).collectedAt >= ARGV[1] then return 0 end; "
+                        "redis.call('SET',KEYS[1],ARGV[2],'EX',ARGV[3]); return 1",
+                        1,
+                        SNAPSHOT_KEY,
+                        snapshot["collectedAt"],
+                        json.dumps(snapshot, ensure_ascii=False),
+                        ttl,
+                    )
+            finally:
+                client.close()
 
     def start_redis():
         return (
@@ -192,6 +268,16 @@ def main():
         start_silver = start_silver_query
     else:
         log.warning("TRAFFIC_INCIDENT_SILVER_OUTPUT_URI is empty; HDFS disabled while Redis remains enabled")
+    return start_redis, start_silver
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    settings = Settings.from_env()
+    spark = (
+        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
+    )
+    start_redis, start_silver = prepare(spark, settings)
     try:
         supervise(start_redis, start_silver)
     finally:

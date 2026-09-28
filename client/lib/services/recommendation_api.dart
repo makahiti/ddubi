@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 
 import '../core/constants/api_paths.dart';
 import '../domain/models.dart';
+import '../domain/recommendation_guide.dart';
+import '../domain/travel_conditions.dart';
 import '../domain/schedule_evaluation.dart';
 
 class RecommendationOverview {
@@ -30,10 +32,17 @@ class RecommendationOverview {
   final List<String> reasonCodes;
 
   bool get hasEstimate => departureAt != null && eta != null;
-  bool get historical =>
-      source == 'HISTORICAL_REFERENCE' ||
-      source == 'MIXED_HISTORICAL_REFERENCE' ||
-      source == 'BUS_REFERENCE';
+
+  /// 과거 평균으로 계산한 결과인지. 실시간이 아니므로 화면에서 "참고 추정" 으로 말한다.
+  ///
+  /// 서버가 쓰는 이름이 여럿이다(2026-09-21 운영 응답 확인). 하나라도 빠지면 과거 평균
+  /// 결과가 "최신 추천" 으로 잘못 표시된다.
+  bool get historical => const {
+    'HISTORICAL_REFERENCE',
+    'MIXED_HISTORICAL_REFERENCE',
+    'BUS_REFERENCE',
+    'BUS_HISTORICAL_REFERENCE',
+  }.contains(source);
 
   RouteOption toRouteOption(Schedule schedule) => RouteOption(
     kind: historical ? RouteKind.candidate : RouteKind.recommended,
@@ -50,19 +59,31 @@ class RecommendationOverview {
     fare: confidence == null ? '신뢰도 확인 중' : '신뢰도 $confidence',
   );
 
-  static String _clock(DateTime? value) => value == null
-      ? '--:--'
-      : '${value.hour.toString().padLeft(2, '0')}:'
-            '${value.minute.toString().padLeft(2, '0')}';
+  /// 서버 시각을 사람이 읽는 시:분으로 바꾼다.
+  ///
+  /// 반드시 [DateTime.toLocal] 을 거친다. 이 값의 출처가 섞여 있기 때문이다 — 평가 결과의
+  /// `departureAt`·`estimatedArrivalAt` 은 UTC(`...Z`)로 오고, 추천 근거 API 의 `departAt`
+  /// 은 시간대 표기가 없는 한국 시각으로 온다. 앞의 것을 그대로 찍으면 9시간 이른 시각이
+  /// 화면에 뜬다(같은 화면 아래 평가 카드는 맞는 시각을 보여주므로 두 값이 어긋나 보였다).
+  /// 시간대 표기가 없는 값에 toLocal 을 불러도 값은 바뀌지 않으므로 두 출처 모두 안전하다.
+  static String _clock(DateTime? value) {
+    if (value == null) return '--:--';
+    final local = value.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
 
   static String _sourceLabel(String? source) => switch (source) {
     'API_ONLY' => '경로 API 시간 기준',
-    'ML_PREVIEW' => '버스 예측 포함',
+    'ML_PREVIEW' => '버스 예측 포함 · 시험 중',
+    'ML_PRODUCTION' => '버스 예측 포함',
     'SUBWAY_PREVIEW' => '지하철 시간표 포함',
     'MIXED_PREVIEW' => '복합 교통 데이터 기준',
     'HISTORICAL_REFERENCE' ||
     'MIXED_HISTORICAL_REFERENCE' => '과거 버스 평균 포함 · 실시간 아님',
-    'BUS_REFERENCE' => '버스 기준시간 포함 · 실시간 아님',
+    'BUS_REFERENCE' || 'BUS_HISTORICAL_REFERENCE' => '버스 기준시간 포함 · 실시간 아님',
+    'FALLBACK' => '경로 API 시간으로 대체',
+    'UNAVAILABLE' => '교통정보를 확인하지 못함',
     _ => '최신 평가 결과',
   };
 }
@@ -97,16 +118,27 @@ class SavedRouteSummary {
   const SavedRouteSummary({
     required this.routeId,
     required this.rankNo,
+    this.displayRank,
     required this.selected,
     required this.baseDurationMin,
     required this.fromName,
     required this.toName,
     required this.segmentCount,
     required this.modes,
+    this.minimumFareWon,
+    this.maximumFareWon,
   });
 
   final String routeId;
+
+  /// 경로 제공자의 원본 순위 또는 내부 저장 순위. 사용자에게 보여주는 번호가 아니다 —
+  /// 선택된 추천의 rankNo 가 20 일 수 있다(소요시간 기준이라 그렇다).
   final int rankNo;
+
+  /// 서버가 정한 화면 표시용 순위. 선택된 경로가 1 이다. 없으면(구버전 응답) 화면 순번을
+  /// 앱이 직접 매긴다.
+  final int? displayRank;
+
   final bool selected;
   final int baseDurationMin;
   final String? fromName;
@@ -114,19 +146,42 @@ class SavedRouteSummary {
   final int segmentCount;
   final List<String> modes;
 
-  factory SavedRouteSummary.fromJson(Map<String, dynamic> json) =>
-      SavedRouteSummary(
-        routeId: json['routeId'].toString(),
-        rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
-        selected: json['selected'] == true,
-        baseDurationMin: (json['baseDurationMin'] as num?)?.toInt() ?? 0,
-        fromName: json['fromName']?.toString(),
-        toName: json['toName']?.toString(),
-        segmentCount: (json['segmentCount'] as num?)?.toInt() ?? 0,
-        modes: RecommendationApi._strings(json['modes']),
-      );
+  /// 이 경로의 예상 요금(원). 서버가 아직 안 주면 null 이다.
+  ///
+  /// 지금은 요금이 경로에 저장되지 않아 목록 API 가 보내지 않는다. 안내 카드만 카카오
+  /// 응답에서 그때그때 받아 보여준다. 다른 경로의 요금을 이 카드에 얹으면 오늘 고친
+  /// "숫자가 섞이는" 문제를 되풀이하게 되므로, 서버가 이 경로의 요금을 줄 때까지는
+  /// 비워 둔다. 값이 오면 바로 화면에 나온다(2026-09-22 BE 요청).
+  final int? minimumFareWon;
+  final int? maximumFareWon;
 
-  RouteOption toRouteOption(Schedule schedule) {
+  factory SavedRouteSummary.fromJson(Map<String, dynamic> json) {
+    final fare = json['fare'] is Map ? json['fare'] as Map : const {};
+    return SavedRouteSummary(
+      minimumFareWon: (fare['minimumWon'] as num?)?.toInt(),
+      maximumFareWon: (fare['maximumWon'] as num?)?.toInt(),
+      routeId: json['routeId'].toString(),
+      rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
+      displayRank: (json['displayRank'] as num?)?.toInt(),
+      selected: json['selected'] == true,
+      baseDurationMin: (json['baseDurationMin'] as num?)?.toInt() ?? 0,
+      fromName: json['fromName']?.toString(),
+      toName: json['toName']?.toString(),
+      segmentCount: (json['segmentCount'] as num?)?.toInt() ?? 0,
+      modes: RecommendationApi._strings(json['modes']),
+    );
+  }
+
+  /// 요약 카드에 쓸 값.
+  ///
+  /// [evaluatedMinutes] 와 [fareLabel] 은 아래 추천 목록·안내 카드가 실제로 보여주는 값이다.
+  /// 같은 화면에서 이 카드만 경로 API 원본을 쓰는 바람에, 같은 경로가 위에서는 42분,
+  /// 아래에서는 51분으로 보였다(2026-09-22 확인). 값이 있으면 그것을 따른다.
+  RouteOption toRouteOption(
+    Schedule schedule, {
+    int? evaluatedMinutes,
+    String? fareLabel,
+  }) {
     return RouteOption(
       kind: selected ? RouteKind.recommended : RouteKind.candidate,
       label: selected ? '선택된 경로' : '경로 ${rankNo == 0 ? '-' : rankNo}',
@@ -138,8 +193,9 @@ class SavedRouteSummary {
           : RecommendationApi._time(schedule.plannedDepartAt!),
       arrival: '평가 필요',
       margin: '$segmentCount개 이동 구간',
-      detail: '약 $baseDurationMin분',
-      fare: '요금 정보 없음',
+      detail: '약 ${evaluatedMinutes ?? baseDurationMin}분',
+      fare:
+          fareLabel ?? RecommendationApi._fare(minimumFareWon, maximumFareWon),
     );
   }
 }
@@ -157,6 +213,21 @@ class SavedRouteSegment {
   final int seq;
   final String mode;
   final String? providerRouteKey;
+
+  /// 화면에 보여도 되는 노선 이름.
+  ///
+  /// `providerRouteKey` 는 버스 번호·지하철 호선을 담는 자리인데, 서버가 양 끝 도보를
+  /// 만들어 넣을 때 `EVALUATION_ENDPOINT_WALK` 라는 내부 표시를 같이 넣는다. 그대로
+  /// 찍으면 사용자에게 "도보 EVALUATION_ENDPOINT_WALK" 로 보인다(2026-09-22 확인).
+  /// 도보에는 노선이 없으므로 보여줄 것이 없다.
+  String? get displayRouteName {
+    final key = providerRouteKey?.trim();
+    if (key == null || key.isEmpty) return null;
+    if (mode == 'WALK') return null;
+    if (key == 'EVALUATION_ENDPOINT_WALK') return null;
+    return key;
+  }
+
   final String? fromName;
   final String? toName;
   final int baseDurationMin;
@@ -190,6 +261,7 @@ class SavedRouteDetail {
     required this.routeId,
     required this.scheduleId,
     required this.rankNo,
+    this.displayRank,
     required this.selected,
     required this.baseDurationMin,
     required this.segments,
@@ -199,6 +271,10 @@ class SavedRouteDetail {
   final String routeId;
   final String scheduleId;
   final int rankNo;
+
+  /// 서버가 정한 화면 표시용 순위. 목록과 같은 값이어야 한다.
+  final int? displayRank;
+
   final bool selected;
   final int baseDurationMin;
   final String? providerPathId;
@@ -209,6 +285,7 @@ class SavedRouteDetail {
         routeId: json['routeId'].toString(),
         scheduleId: json['scheduleId'].toString(),
         rankNo: (json['rankNo'] as num?)?.toInt() ?? 0,
+        displayRank: (json['displayRank'] as num?)?.toInt(),
         selected: json['selected'] == true,
         baseDurationMin: (json['baseDurationMin'] as num?)?.toInt() ?? 0,
         providerPathId: json['providerPathId']?.toString(),
@@ -331,10 +408,28 @@ String _transportLabel(String mode) => switch (mode) {
   _ => mode,
 };
 
-class RecommendationApi {
+class RecommendationApi implements TravelConditionsService {
   const RecommendationApi(this._dio);
 
   final Dio _dio;
+
+  /// 첫 평가가 화면에 그려진 뒤 발표 전용 TOPIS 가짜 통제를 작동시킨다.
+  /// 대상 구간과 소유권은 서버가 저장된 경로로 결정한다.
+  Future<({String state, String notificationStatus})> activateRoadClosureDemo(
+    String scheduleId,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      ApiPaths.roadClosureDemo(scheduleId),
+    );
+    final data = response.data?['data'];
+    if (response.data?['success'] != true || data is! Map) {
+      throw const FormatException('시연용 도로 통제 결과를 확인할 수 없습니다.');
+    }
+    return (
+      state: data['state']?.toString() ?? 'UNKNOWN',
+      notificationStatus: data['notificationStatus']?.toString() ?? 'UNKNOWN',
+    );
+  }
 
   Future<RouteEvaluationResult> evaluateOrSearch(
     RouteSearchCondition condition,
@@ -387,14 +482,23 @@ class RecommendationApi {
     if (response.data?['success'] != true || candidates is! List) {
       throw const FormatException('경로 검색 응답 형식을 확인할 수 없습니다.');
     }
-    return candidates.indexed
-        .map((entry) {
-          final index = entry.$1;
-          final raw = entry.$2;
-          if (raw is! Map) {
-            throw const FormatException('경로 후보 응답 형식이 올바르지 않습니다.');
-          }
-          final item = raw.map((key, value) => MapEntry(key.toString(), value));
+    // 카카오 배열 순서는 빠른 순이 아니다. 평가 전에는 비교할 우리 값이 없으므로
+    // 경로 API 가 말한 전체 시간이 짧은 순으로만 세운다. 이 순서는 우리 계산이 아니며
+    // 화면도 그렇게 밝힌다.
+    final items = <Map<String, dynamic>>[];
+    for (final raw in candidates) {
+      if (raw is! Map) {
+        throw const FormatException('경로 후보 응답 형식이 올바르지 않습니다.');
+      }
+      items.add(raw.map((key, value) => MapEntry(key.toString(), value)));
+    }
+    items.sort(
+      (a, b) => (a['totalDurationSeconds'] as num).compareTo(
+        b['totalDurationSeconds'] as num,
+      ),
+    );
+    return items
+        .map((item) {
           final durationMinutes =
               ((item['totalDurationSeconds'] as num).toDouble() / 60).ceil();
           final fare = item['fare'] is Map ? item['fare'] as Map : const {};
@@ -402,7 +506,7 @@ class RecommendationApi {
           final maximumFare = (fare['maximumWon'] as num?)?.toInt();
           return RouteOption(
             kind: RouteKind.candidate,
-            label: '경로 ${index + 1} · 단순 후보',
+            label: '원본 경로 기준 · 가장 빠른 후보',
             transport: switch (item['type']) {
               'BUS' => '버스',
               'SUBWAY' => '지하철',
@@ -419,9 +523,13 @@ class RecommendationApi {
         .toList(growable: false);
   }
 
-  static String _time(DateTime value) =>
-      '${value.hour.toString().padLeft(2, '0')}:'
-      '${value.minute.toString().padLeft(2, '0')}';
+  /// 같은 이유로 여기서도 지역 시각으로 맞춘다. 지금 인자는 일정 API 값(시간대 표기 없음)
+  /// 뿐이라 값이 바뀌지 않지만, 나중에 UTC 값이 들어와도 틀리지 않게 둔다.
+  static String _time(DateTime value) {
+    final local = value.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
+  }
 
   static String _isoWithOffset(DateTime value) {
     if (value.isUtc) return value.toIso8601String();
@@ -453,6 +561,43 @@ class RecommendationApi {
   ) =>
       _dio.get<Map<String, dynamic>>(ApiPaths.latestRecommendation(scheduleId));
 
+  /// 추천 카드 안내를 가져온다.
+  ///
+  /// 최신 추천이 READY 일 때만 부르고, `evaluationId` 가 바뀐 경우에만 다시 부른다.
+  /// 계산이 아직 안 끝났으면 서버가 409 로 답하는데, 그때는 오류가 아니라 "계산 중" 이므로
+  /// null 을 돌려주고 화면은 기존 계산 중 안내를 그대로 둔다.
+  /// 일정의 이동 변수. 못 가져오면 예외 대신 "아무것도 확인 안 됨" 을 돌려준다.
+  ///
+  /// 이동 변수는 화면의 곁가지다. 이것 때문에 일정 화면 전체가 오류로 바뀌면 안 된다.
+  /// 계약: docs/contracts/movement-conditions.md
+  @override
+  Future<TravelConditions> conditionsFor(String scheduleId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      ApiPaths.scheduleConditions(scheduleId),
+    );
+    final data = response.data?['data'];
+    if (response.data?['success'] != true || data is! Map) {
+      return TravelConditions.unknown;
+    }
+    return TravelConditions.fromJson(_stringKeyed(data));
+  }
+
+  Future<RecommendationGuide?> getLatestGuide(String scheduleId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        ApiPaths.latestRecommendationGuide(scheduleId),
+      );
+      final data = response.data?['data'];
+      if (response.data?['success'] != true || data is! Map) return null;
+      return RecommendationGuide.fromJson(_stringKeyed(data));
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      // 409 = 아직 계산 중, 404 = 안내가 아직 없음. 둘 다 오류로 다루지 않는다.
+      if (status == 409 || status == 404) return null;
+      rethrow;
+    }
+  }
+
   Future<Response<Map<String, dynamic>>> getRecommendationExplanation(
     String recommendationId,
   ) => _dio.get<Map<String, dynamic>>(
@@ -470,24 +615,26 @@ class RecommendationApi {
       final state = data['state']?.toString() ?? 'UNKNOWN';
       final result = _asMap(data['result']);
       if (result.isEmpty) return RecommendationOverview(state: state);
-      final preview = _asMap(result['preview']);
-      final previewFastest = _asMap(preview['fastest']);
-      final selected = previewFastest.isNotEmpty
-          ? previewFastest
-          : _asMap(result['selected']);
-      final proposed = _asMap(_asMap(result['suggestion'])['proposed']);
+      // "현재 선택 경로" 칸에 쓰는 값이다. 그래서 <b>지금 선택된 경로</b>만 본다.
+      //
+      // 예전에는 제안 경로와 "가장 빠른 후보"를 먼저 집었다. 그러면 제목은 현재 선택인데
+      // 숫자는 다른 경로 것이 되어, 아래 추천 경로 카드와 20분 넘게 벌어졌다
+      // (2026-09-21 운영 자료: 일정 23 은 22분 / 69분).
+      // 제안 경로는 아래 "새로 제안된 경로" 카드에서 따로 보여준다.
+      final selected = _asMap(result['selected']);
+      // 옛 형식 응답에는 selected 가 없고 preview.fastest 만 있다. 그때만 쓴다.
+      final fallback = _asMap(_asMap(result['preview'])['fastest']);
+      final chosen = selected.isNotEmpty ? selected : fallback;
       final persistence = _asMap(result['persistence']);
       final departureAt = _dateTime(
-        proposed['departureAt'] ??
-            selected['departureAt'] ??
-            result['plannedDepartAt'],
+        chosen['departureAt'] ?? result['plannedDepartAt'],
       );
-      final eta = _dateTime(
-        proposed['estimatedArrivalAt'] ?? selected['estimatedArrivalAt'],
-      );
+      final eta = _dateTime(chosen['estimatedArrivalAt']);
+      // 올림한다 — 추천 경로 카드·서버 저장값과 같은 규칙이다. 29분 53초를 29분으로
+      // 깎으면 같은 경로인데 카드마다 1분씩 어긋난다.
       final durationMin = departureAt == null || eta == null
           ? null
-          : eta.difference(departureAt).inMinutes;
+          : (eta.difference(departureAt).inSeconds / 60).ceil();
       return RecommendationOverview(
         state: state,
         recommendationId: result['recommendationId']?.toString(),
@@ -500,8 +647,8 @@ class RecommendationApi {
             const {
               'HISTORICAL_REFERENCE',
               'MIXED_HISTORICAL_REFERENCE',
-            }.contains(selected['quality'])
-            ? selected['quality'] as String
+            }.contains(chosen['quality'])
+            ? chosen['quality'] as String
             : persistence['source']?.toString(),
         fallbackUsed: persistence['fallbackUsed'] == true,
         reasonCodes: _strings(persistence['reasons']),
@@ -539,8 +686,15 @@ class RecommendationApi {
   static Map<String, dynamic> _stringKeyed(Map<dynamic, dynamic> value) =>
       value.map((key, item) => MapEntry(key.toString(), item));
 
+  /// 서버 시각 문자열을 읽는다. 읽자마자 지역 시각으로 맞춘다.
+  ///
+  /// 지금 계약은 두 갈래다 — 화면에 보이는 일정 시각(plannedDepartAt, arriveBy,
+  /// proposedDepartAt 등)은 시간대 표기가 없는 KST 이고, 운영·만료 시각(computedAt,
+  /// validUntil 등)은 UTC(`...Z`) 다. 여기서 한 번 맞춰 두면 뒤에서 쓰는 곳마다 따로
+  /// 신경 쓰지 않아도 되고, 캐시에 남은 예전 UTC 응답도 제대로 보인다.
+  /// 시간대 표기가 없는 값에 toLocal 을 불러도 값은 바뀌지 않는다.
   static DateTime? _dateTime(Object? value) =>
-      DateTime.tryParse(value?.toString() ?? '');
+      DateTime.tryParse(value?.toString() ?? '')?.toLocal();
 
   static List<String> _strings(Object? value) => value is List
       ? value.map((item) => item.toString()).toList(growable: false)

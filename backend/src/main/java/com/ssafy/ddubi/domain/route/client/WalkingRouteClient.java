@@ -10,6 +10,25 @@ import java.time.Instant;
  */
 public interface WalkingRouteClient {
     record Request(Coordinate origin, Coordinate destination, String routeMode, String policyVersion) { }
-    record Evidence(Long seconds, Instant validUntil, String source, String reason) { }
+    /**
+     * 도보 조회 결과. {@code path}는 지도에 선을 그릴 좌표열이며, 없거나 검증에 실패하면 빈 목록이다.
+     *
+     * <p>좌표는 표시 전용이다. 시간은 {@code seconds}만 쓰고 좌표로 다시 계산하지 않는다.
+     */
+    record Evidence(
+            Long seconds,
+            Instant validUntil,
+            String source,
+            String reason,
+            java.util.List<Coordinate> path) {
+        public Evidence {
+            path = path == null ? java.util.List.of() : java.util.List.copyOf(path);
+        }
+
+        /** 좌표 없이 시간만 있는 결과. 기존 호출부와 fixture가 그대로 쓴다. */
+        public Evidence(Long seconds, Instant validUntil, String source, String reason) {
+            this(seconds, validUntil, source, reason, java.util.List.of());
+        }
+    }
     Evidence route(Request request);
 }

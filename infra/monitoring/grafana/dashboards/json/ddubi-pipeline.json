@@ -758,7 +758,7 @@
       "id": 116,
       "type": "stat",
       "title": "Spark 실행 중 앱",
-      "description": "스트리밍 잡 수. 정상 2 (weather_latest, realtime_latest). 배치 실행 중엔 잠깐 3. 1 이면 잡 하나가 죽어 재시작 중",
+      "description": "스트리밍 앱 수. 정상 2 (light_streaming = 날씨·도시·TOPIS 공지·돌발을 한 앱으로, realtime_latest). 배치 실행 중엔 잠깐 3. 1 이면 앱 하나가 죽어 재시작 중 (2026-09-25 네 잡 합침)",
       "gridPos": {
         "x": 8,
         "y": 20,
@@ -970,7 +970,7 @@
       "id": 120,
       "type": "timeseries",
       "title": "토픽별 유입 (건/초)",
-      "description": "원본 city/transport와 추천용 segment observation/status의 토픽별 유입. 활성화된 토픽이 0으로 오래 머물면 수집기 또는 Spark 잡 확인",
+      "description": "원본 city/transport 와 수집 상태(source.poll-status)의 토픽별 유입. 활성화된 토픽이 0으로 오래 머물면 수집기 또는 Spark 잡 확인",
       "gridPos": {
         "x": 0,
         "y": 24,
@@ -983,7 +983,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.observation|segment.status\"}[$__rate_interval]))",
+          "expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|source.poll-status\"}[$__rate_interval]))",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }
@@ -1113,7 +1113,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|segment.observation|segment.status|notification.request\"})",
+          "expr": "sum by (topic) (kafka_topic_partition_current_offset{topic=~\"city.raw|transport.raw|source.poll-status|notification.request\"})",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }

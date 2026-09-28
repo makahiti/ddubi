@@ -280,7 +280,7 @@ public final class ProviderDepartureEvaluator {
                 policy.bufferSeconds(),
                 policy.departureMissed(),
                 initial.fastest(),
-                chosen.fastest(),
+                chosen.proposal(chosen.fastest(), policy.target()),
                 initial,
                 chosen,
                 new ConditionalDepartureEvaluator.Search(

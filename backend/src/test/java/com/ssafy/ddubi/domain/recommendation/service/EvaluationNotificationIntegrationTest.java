@@ -204,7 +204,7 @@ class EvaluationNotificationIntegrationTest extends IntegrationTestSupport {
             assertThat(notification.getType()).isEqualTo(NotificationType.ON_TIME_UNLIKELY);
             assertThat(notification.getStatus()).isEqualTo(NotificationStatus.SENT);
             assertThat(notification.getTitle()).isEqualTo("제시간 도착이 어려울 수 있어요");
-            assertThat(notification.getBody()).contains("예상 도착", "목표");
+            assertThat(notification.getBody()).contains("도착 예상", "목표");
             assertThat(notification.scheduleId()).isEqualTo(scheduleId);
         });
     }

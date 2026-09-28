@@ -14,9 +14,9 @@ import org.springframework.stereotype.Service;
 /**
  * 완전 적재된 불변 버전의 정확키 버스 기준값을 RIDE fallback에 사용한다.
  *
- * <p>서울은 실제 날짜별 시간대 집계로 미리 계산한 값을 사용하고, 경기·인천·부산은 GTFS에서 미리 계산한 구간·시간대 값을 사용한다. 런타임은 대용량 원본이나 수식
- * 계수를 다시 읽지 않고 현재 마스터의 인접 구간 키로 완성된 초 값을 조회한다. 한 edge라도 결측·모호·버전 불일치이면 step 전체를 실패시켜 호출자가 카카오 원본시간을
- * 유지한다.
+ * <p>서울은 실제 날짜별 시간대 집계의 가중합·가중치 합을 사용하고, 경기·인천·부산은 GTFS에서 집계한 구간·시간대 충분통계를 사용한다. 런타임은 대용량 원본을 읽지 않고
+ * 현재 마스터의 인접 구간 키로 충분통계를 조회해 수식을 다시 실행한다. 한 edge라도 결측·모호·버전 불일치이면 step 전체를 실패시켜 호출자가 카카오 원본시간을
+ * 유지한다. formulaInput이 없는 기존 버전은 배포 호환을 위해 저장된 meanSeconds를 사용한다.
  */
 @Service
 public class BusHistoricalReferenceService {
@@ -352,7 +352,14 @@ public class BusHistoricalReferenceService {
                                 .toList();
                 if (selected.size() != 1) return Estimate.missing("AMBIGUOUS_PERIOD");
                 var row = selected.get(0);
-                long seconds = (long) Math.ceil(row.meanSeconds());
+                // 새 버전은 최종 숫자를 신뢰하지 않고 MySQL에 함께 저장된 충분통계로 Backend가
+                // 수식을 직접 실행한다. 구형 청크는 배포 호환을 위해 meanSeconds를 사용하되,
+                // 신규 버전 생성 시에는 formulaInput을 포함해야 한다.
+                double calculated =
+                        row.formulaInput() == null
+                                ? row.meanSeconds()
+                                : BusTravelTimeFormula.seconds(row.namespace(), row.formulaInput());
+                long seconds = (long) Math.ceil(calculated);
                 total += seconds;
                 if (total > 86400) return Estimate.missing("INVALID_DURATION");
                 cursor = cursor.plusSeconds(seconds);

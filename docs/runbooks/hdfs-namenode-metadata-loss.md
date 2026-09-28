@@ -60,7 +60,7 @@ docker stop hdfs-namenode                                    # 이미 멈췄으�
 echo "HDFS_NAMENODE_HOST=<서버2 사설IP>" >> .env
 docker compose -f docker-compose.yml -f docker-compose.server1.yml -f docker-compose.failover-server1.yml \
   --profile hdfs --profile archive --profile spark up -d --force-recreate \
-  hdfs-datanode1 archiver spark-streaming-weather spark-streaming-realtime
+  hdfs-datanode1 archiver spark-streaming-light spark-streaming-realtime
 docker logs archiver --tail 20      # "wrote" 가 다시 나오나
 ```
 **최근 1시간치 아카이브 다시 만들기**: 아카이버 컨슈머 그룹 `archiver` 의 위치를 마지막 체크포인트 시각으로 되감는다.
@@ -75,7 +75,7 @@ docker start archiver
 ## 5. 되돌리기 — 서버1 을 복구한 뒤
 
 예비는 임시다. 서버1 네임노드 볼륨이 새로 생기면 **예비가 운영 중 받은 변경**을 서버1 로 옮겨야 한다. 방향이 바뀐 것뿐이라 같은 방법을 쓴다.
-1. 쓰기를 멈춘다: 서버1 `docker stop archiver spark-streaming-weather spark-streaming-realtime`.
+1. 쓰기를 멈춘다: 서버1 `docker stop archiver spark-streaming-light spark-streaming-realtime`.
 2. 예비의 최신 메타데이터를 꺼낸다: 서버2 `docker exec hdfs-namenode-standby hdfs dfsadmin -saveNamespace` 는 세이프 모드가 필요하므로 대신
    ```bash
    docker exec hdfs-namenode-standby hdfs dfsadmin -safemode enter
@@ -91,7 +91,7 @@ docker start archiver
    ```
    **"복원 OK" 가 안 나오면 네임노드를 켜지 않는다.** compose 의 네임노드 명령은 `current/VERSION` 이 없으면 새로 format 하는데, 그러면 클러스터 ID 가 바뀌어 데이터노드 두 대가 "Incompatible clusterIDs" 로 등록을 거부하고 목차가 빈 HDFS 가 뜬다(9/14 시험에서 재현). 블록은 그대로 남아 있으니 네임노드를 멈추고 볼륨을 지운 뒤 복원부터 다시 하면 된다.
 4. 양쪽 `.env` 에서 `HDFS_NAMENODE_HOST` 줄을 지운다. 서버2 `.env.bak-failover-*` 가 원본이다.
-5. 서버1: 오버레이 없이 정상 기동 `docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile archive --profile spark up -d --force-recreate hdfs-namenode hdfs-datanode1 archiver spark-streaming-weather spark-streaming-realtime`.
+5. 서버1: 오버레이 없이 정상 기동 `docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile archive --profile spark up -d --force-recreate hdfs-namenode hdfs-datanode1 archiver spark-streaming-light spark-streaming-realtime`.
 6. 서버2: `docker compose -f docker-compose.yml -f docker-compose.server2.yml --profile hdfs2 up -d --force-recreate hdfs-datanode2 hdfs-secondarynamenode`. 예비의 이름 볼륨은 비운다: `docker volume rm ddubi_hdfs-namenode-standby-data`(다음 failover 때 사본에서 새로 import 하도록).
 7. 3절 확인 명령을 서버1 `hdfs-namenode` 로 다시 돌린다.
 

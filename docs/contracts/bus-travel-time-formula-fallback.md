@@ -13,9 +13,9 @@
 | 적용 구간 | 1순위 | 2순위 | 최종 fallback |
 |---|---|---|---|
 | 서울 `SEOUL_BUS` | 검증된 서울 ML | 서울 실측 기반 구간·요일·시간대 기준값 | 카카오 BUS step 시간 |
-| 경기 `GBIS` | GTFS 구간·시간대 계산 완료값 | 없음 | 카카오 BUS step 시간 |
-| 인천 `INCHEON_PUBLIC_CSV` | GTFS 구간·시간대 계산 완료값 | 없음 | 카카오 BUS step 시간 |
-| 부산 `BUSAN_GTFS` | 부산 GTFS 전용 계산 완료값 | 없음 | 카카오 BUS step 시간 |
+| 경기 `GBIS` | GTFS 충분통계를 Backend 수식으로 계산 | 없음 | 카카오 BUS step 시간 |
+| 인천 `INCHEON_PUBLIC_CSV` | GTFS 충분통계를 Backend 수식으로 계산 | 없음 | 카카오 BUS step 시간 |
+| 부산 `BUSAN_GTFS` | 부산 GTFS 충분통계를 전용 수식으로 계산 | 없음 | 카카오 BUS step 시간 |
 
 지역은 현재 차량 위치나 정류장 좌표로 판단하지 않는다. 활성 마스터가 발급한 namespace와
 canonical route/stop component로 판단한다. 서울 버스가 경기도 정류장을 지나더라도
@@ -107,8 +107,9 @@ T_seoul = max(1, sum(w_i * y_i) / sum(w_i))
 기준값을 사용한다. 공휴일 효과를 적용하려면 공식 공휴일 artifact와 `dayType` 조회 계약을
 별도 버전으로 추가한 뒤 같은 기간에서 다시 검증해야 한다.
 
-런타임에는 원본 180일 자료를 넣지 않는다. 위 식으로 미리 계산한 구간·요일·시간대의
-최종 `meanSeconds`와 표본·관측기간만 조회한다.
+런타임에는 원본 180일 자료를 넣지 않는다. 위 식의 구간·요일·시간대별
+`weightedSeconds`, `weightTotal`과 표본·관측기간만 저장하고, Backend가 두 충분통계로
+`meanSeconds`를 다시 계산한다.
 
 ### 4.2 경기·인천
 
@@ -121,7 +122,9 @@ L(s,h) = 같은 구간 s와 출발시간대 h의 travelSeconds 평균
 
 해당 구간·시간대가 존재하면 `T=max(1,L(s,h))`를 사용한다. 없는 시간대는 구간 평균
 `B(s)`와 수도권 공통 시간대 계수 `k(h)`를 사용해 `T=max(1,B(s)*k(h))`로 내려간다.
-배포 전 분석에서 모든 시간대별 최종 T를 계산하므로 서버는 수식을 다시 적합하지 않는다.
+배포 전 분석에서 `L`, `B`, `k`를 고정하므로 서버는 계수를 다시 적합하지 않는다. 다만
+요청 시점에는 MySQL의 충분통계를 읽어 같은 수식으로 `T`를 다시 계산하고, 적재 시 함께
+검증한 `meanSeconds`와의 불일치를 차단한다.
 
 운행편 ID를 SHA-256으로 train 60%/validation 20%/test 20%로 고정해 같은 운행편의
 모든 구간이 한 분할에 속하게 했다. 공통식의 GTFS 내부 MAE는 경기 0.689초, 인천
@@ -158,7 +161,23 @@ GTFS 내부 MAE는 따로 뺀 GTFS 운행편의 시간표 값을 얼마나 재�
 
 ## 5. 프로젝트에 넣는 데이터와 넣지 않는 데이터
 
-프로젝트 서버에는 분석용 원본 전체를 넣지 않는다. 다음 계산 완료값만 gzip 청크로 적재한다.
+지역별 수식 실행 위치는 Backend의
+`domain/recommendation/evaluation/BusTravelTimeFormula.java`다. MySQL 행의
+`formulaInput`에는 원본 전체가 아니라 계산에 필요한 충분통계만 저장한다.
+
+| 수식 | `formulaInput` 필드 |
+|---|---|
+| 서울 180일 반감기 | `formula=SEOUL_HALF_LIFE_180D`, `weightedSeconds`, `weightTotal` |
+| 경기·인천 GTFS | `formula=METROPOLITAN_GTFS_TIME_BUCKET`, `localMeanSeconds`, `localSampleCount`, `segmentMeanSeconds`, `hourFactor` |
+| 부산 GTFS | `formula=BUSAN_GTFS_SHRINKAGE`, 위 GTFS 필드와 `alpha=0.25` |
+
+`meanSeconds`는 업로드 검증과 구형 소비자 호환을 위한 계산 완료값이다. 새 행은 Backend가
+`formulaInput`으로 다시 계산한 값과 `meanSeconds`가 일치해야 적재된다. 추천 평가에서도
+`formulaInput`을 다시 계산하므로 저장된 최종 숫자만 신뢰하지 않는다. 구형 행에
+`formulaInput`이 없으면 기존 값으로 동작하지만 새 데이터 버전은 수식 입력을 포함해야 한다.
+
+프로젝트 서버에는 분석용 원본 전체를 넣지 않는다. 다음 조회키·충분통계·호환용 계산값만
+gzip 청크로 적재한다.
 
 | 필드 | 의미 |
 |---|---|
@@ -183,8 +202,9 @@ GTFS 내부 MAE는 따로 뺀 GTFS 운행편의 시간표 값을 얼마나 재�
 1. 원본을 별도 분석 공간에서 정규화하고 계산식을 선택한다.
 2. 제공기관 원본 ID를 현재 프로젝트 마스터의 namespace·노선·정류장·순번에 매핑한다.
 3. 매핑 결과가 유일하고 인접 순번이며 같은 출처인 행만 최종 JSONL로 만든다.
-4. 서울 자료는 기존 `export-bus-reference.py`, GTFS 계산값은
-   `export-gtfs-bus-formula.py`로 1,000행 단위 `.json.gz`를 만든다.
+4. 프로젝트 마스터 ID까지 매핑한 서울·GTFS 충분통계 JSONL을
+   `backend/tools/bus-reference/build_formula_bundle.py`로 검증하고 1,000행 단위
+   `.json.gz`로 만든다. 계산 도구는 Backend 소유이며 인프라 배포 설정을 수정하지 않는다.
 5. `transfer-bus-reference.py`가 모든 청크 SHA·행 수·sampleKind·masterVersion을 검증한다.
 6. `--upload`와 내부 API 키를 사용해 `/internal/bus-references/.../chunks/...`로 올린다.
 7. 서버의 전체 행·청크 수가 manifest와 같아야 gate를 통과한다. 중간 적재 버전은 사용하지 않는다.
@@ -214,9 +234,13 @@ gzip은 전송 형식이다. 요청 시 gzip이나 Parquet를 직접 읽지 않�
 
 - 서울 기준값은 실제 운행 통계 기반이지만 개별 차량 예측이 아니라 날짜별 시간대 평균이다.
 - 경기·인천·부산 수식은 실제 운행 정확도가 검증되지 않은 GTFS 초기값이다.
-- 현재 프로젝트 수도권 마스터에는 서울·GBIS·인천이 포함된다. `BUSAN_GTFS` ID 발급과 조회
-  코드는 지원하지만, 부산 공식 마스터와 카카오 경로 매핑 artifact가 프로젝트에 추가되기
-  전까지 부산 경로는 검증된 edge를 만들 수 없어 카카오 fallback을 유지한다.
+- `build_busan_gtfs_integration.py`로 부산 301개 원본 노선을 504개 정류장열 패턴과
+  33,801개 canonical edge로 변환했고, 각 edge의 24시간 수식 입력을 만들었다. 현재 산출물은
+  `productionReady=false` PREVIEW이며 새 마스터를 운영 DB에 활성화하기 전까지 운영 경로는
+  기존 카카오 fallback을 유지한다.
+- 경기·인천은 정규화 노선명과 양 끝 공식 정류장 ID가 모두 같고 GTFS 후보가 하나인
+  52,815개 edge만 연결했다. 후보 없음·복수 후보·단일 edge 3,600초 초과는 추측하지 않고
+  제외했으므로 해당 edge를 포함한 BUS step은 카카오 시간으로 되돌아간다.
 - 연구 공간의 GTFS ID와 프로젝트 마스터 ID가 같아 보인다는 이유로 직접 적재하지 않는다.
   인천 CSV와 실시간 API ID도 별도 crosswalk 검증 전에는 자동 치환하지 않는다.
 - 운영 설정의 `expectedRows`, `expectedChunks`, `dataVersion`, master SHA가 배포 manifest와

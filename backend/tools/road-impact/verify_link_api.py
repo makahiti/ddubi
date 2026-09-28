@@ -157,7 +157,13 @@ def verify(candidates: str | Path, env_file: str | Path, cache_dir: str | Path,
     cached = [link_id for link_id in link_ids if _valid_cached(_cache_path(cache, link_id), link_id)]
     remaining = [link_id for link_id in link_ids if link_id not in set(cached)]
     selected = remaining[:max_requests]
-    api_key = read_env_value(env_file, "TRAFFIC_INCIDENT_API_KEY") if selected else ""
+    if selected:
+        try:
+            api_key = read_env_value(env_file, "SEOUL_OPEN_DATA_API_KEY")
+        except ValueError:
+            api_key = read_env_value(env_file, "TRAFFIC_INCIDENT_API_KEY")
+    else:
+        api_key = ""
     failures = []
     completed = 0
     with ThreadPoolExecutor(max_workers=workers) as executor:

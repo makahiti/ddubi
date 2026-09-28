@@ -94,11 +94,11 @@ compose-validate:
     - export MYSQL_PASSWORD=ci-dummy MYSQL_ROOT_PASSWORD=ci-dummy REDIS_PASSWORD=ci-dummy GRAFANA_ADMIN_PASSWORD=ci-dummy
     - docker compose --profile core --profile collect --profile data --profile serving --profile spark
       --profile batch --profile archive --profile hdfs --profile hdfs2 --profile monitoring
-      --profile exporters config -q
+      --profile exporters --profile topis-ai --profile road-silver --profile road-feature config -q
     # 서버 오버레이 검증 (IP 는 필수 변수라 더미 값 주입)
     - export SERVER1_PRIVATE_IP=10.0.0.1 SERVER2_PRIVATE_IP=10.0.0.2
-    - docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile spark --profile archive config -q
-    - docker compose -f docker-compose.yml -f docker-compose.server2.yml --profile data --profile hdfs2 config -q
+    - docker compose -f docker-compose.yml -f docker-compose.server1.yml --profile hdfs --profile spark --profile archive --profile road-silver config -q
+    - docker compose -f docker-compose.yml -f docker-compose.server2.yml --profile data --profile hdfs2 --profile road-feature config -q
   rules:
     - changes:
         - infra/**/*
@@ -151,16 +151,27 @@ archiver-test:
 
 sparkjobs-test:
   stage: test
-  image: python:3.8-slim   # 클러스터(apache/spark:3.5.3-python3)와 같은 파이썬 버전
-  cache:
-    key: sparkjobs-pip
-    paths: [.cache/pip]
-    unprotect: true
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends default-jre-headless > /dev/null
+  # 운영 클러스터와 같은 이미지(Python 3.8 + Java 11 + pyspark 3.5.3 내장). 전에는 python:3.8-slim 에 JRE 를 apt 로 깔고
+  # pyspark 300MB 를 pip 로 매번 내려받아 설치만 2~3분이 걸렸다(2026-09-23 정리). 이미지의 기본 사용자가 spark(비루트)라
+  # pip 은 --user 로 HOME 아래에 설치하고, pyspark 는 이미지 안 경로를 PYTHONPATH 로 잡는다.
+  image:
+    name: apache/spark:3.5.3-python3
+    entrypoint: [""]
+  # pip 캐시는 두지 않는다. 러너가 캐시 폴더를 root 소유로 풀어 놓아 비루트 사용자인 pip 이 쓰지 못하고
+  # "캐시 끔" 경고만 내기 때문이다. 남는 내려받기는 pytest·fakeredis·pyarrow 등 약 60MB 라 30초 안이다.
+  variables:
+    HOME: /tmp
+    PYTHONPATH: /opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
   script:
-    - pip install -r sparkjobs/requirements-dev.txt
-    - cd sparkjobs && python -m pytest -q
+    # requirements-dev 의 pyspark 핀이 이미지 안 pyspark 와 같은지 먼저 확인한다. 아래에서 핀 줄을 걸러 내고
+    # 이미지 것을 쓰기 때문에, 누가 핀만 올리면 CI 가 조용히 옛 버전으로 시험하게 되는 것을 여기서 막는다.
+    - PIN=$(grep -oE '^pyspark==[0-9.]+' sparkjobs/requirements-dev.txt | cut -d= -f3)
+    - python3 -c "import pyspark, sys; want='$PIN'; have=pyspark.__version__; print('pyspark 핀', want, '/ 이미지', have); sys.exit(want != have)"
+    # dev 목록에서 pyspark 줄과 "-r requirements.txt" 줄을 빼고, 런타임 목록(requirements.txt)은 원래 자리에서 따로 넘긴다.
+    # 걸러낸 파일을 /tmp 에 두면 그 안의 "-r" 상대 경로가 /tmp 기준으로 풀려 실패하기 때문이다(2026-09-23 MR !184 에서 확인).
+    - grep -viE '^(pyspark==|-r )' sparkjobs/requirements-dev.txt > /tmp/req-ci.txt
+    - python3 -m pip install --quiet --user -r sparkjobs/requirements.txt -r /tmp/req-ci.txt
+    - cd sparkjobs && python3 -m pytest -q
   rules:
     - changes:
         - sparkjobs/**/*
@@ -171,29 +182,55 @@ sparkjobs-test:
 # 시간대(+09:00)·문자셋(utf8mb4)은 테스트 코드(IntegrationTestSupport)가 컨테이너를 띄울 때 지정한다.
 backend-test:
   stage: test
-  resource_group: backend-test          # dind 안에 MySQL·Redis 를 띄우는 무거운 잡. 러너 동시 실행 2 에서도 한 번에 하나만
+  resource_group: backend-test          # MySQL·Redis 서비스 컨테이너를 곁에 두는 무거운 잡. 러너 동시 실행 2 에서도 한 번에 하나만
   image: eclipse-temurin:17-jdk        # 팀 표준 Java 17
+  # 2026-09-23 dind 에서 GitLab services 로 바꿨다(backend 합의). 전에는 dind 안에서 Testcontainers 가 mysql·redis 이미지를
+  # 잡마다 다시 내려받고 MySQL 을 세 번 띄워 중간 17분이 걸렸다. 이제는 GitLab 이 잡 옆에 붙여 주는 컨테이너 두 개를 쓰고,
+  # 테스트 코드는 CI_MYSQL_HOST·CI_REDIS_HOST 가 있으면 Testcontainers 를 건너뛰고 이 주소에 붙는다
+  # (IntegrationTestSupport, support/IsolatedMySql). 이미지는 러너 호스트에 한 번만 받아 두면 다음 잡부터는 캐시를 쓴다.
   services:
-    - name: docker:27-dind
-      alias: docker
+    - name: mysql:8.0
+      alias: mysql
+      # 아래 네 값은 IntegrationTestSupport 의 withCommand 와 같아야 한다. 로컬(Testcontainers)과 CI(services)가
+      # 다른 경로로 DB 를 얻으므로 한쪽만 바꾸면 CI 에서만 깨진다. 시간대가 어긋나면 시각 비교가 9시간 밀리고,
+      # 문자셋이 어긋나면 한글 비교가 깨지며, 패킷 상한이 작으면 20MiB 압축 BLOB 적재 시험이 실패한다.
+      command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci",
+                "--default-time-zone=+09:00", "--max-allowed-packet=64M"]
+    - name: redis:7-alpine
+      alias: redis
   variables:
-    DOCKER_TLS_CERTDIR: ""
-    DOCKER_HOST: "tcp://docker:2375"
-    # Testcontainers 가 띄운 컨테이너는 dind 안에 있다. 이 값이 없으면 테스트가 localhost 로 붙으려다 전부 실패한다
-    TESTCONTAINERS_HOST_OVERRIDE: "docker"
-    # 정리 컨테이너(ryuk)는 dind 에서 자주 막힌다. 잡이 끝나면 dind 가 통째로 사라지므로 없어도 된다
-    TESTCONTAINERS_RYUK_DISABLED: "true"
+    # 잡 안에서만 살고 밖에서는 닿을 수 없는 일회용 DB 라 비밀번호를 파일에 적어도 된다.
+    MYSQL_DATABASE: ddubi
+    MYSQL_USER: ddubi
+    MYSQL_PASSWORD: ddubi
+    MYSQL_ROOT_PASSWORD: root
+    CI_MYSQL_HOST: mysql
+    CI_REDIS_HOST: redis
+    # 격리 DB 를 직접 만드는 테스트(IsolatedMySql)가 CREATE DATABASE 를 하려면 root 가 필요하다.
+    CI_MYSQL_ROOT_PASSWORD: root
   cache:
     key: backend-m2
     paths: [.m2/repository]
     unprotect: true
   script:
-    # mvnw 가 깃에 실행 권한 없이(100644) 올라가 있어 chmod 가 필요하다. 권한이 고쳐지면 지워도 된다
+    # MySQL 8 은 첫 기동에 초기화가 있어 러너가 서비스를 기다리는 30초를 넘길 수 있다. 러너는 그때 경고만 내고 진행하므로
+    # 3306 포트가 열릴 때까지 최대 2분 직접 기다린다. 초기화 중의 임시 서버는 네트워크를 열지 않아 포트가 열리면 준비된 것이다.
+    - for i in $(seq 1 60); do (echo > /dev/tcp/mysql/3306) 2>/dev/null && break; sleep 2; done
+    # 윈도우에서 권한 비트가 사라진 checkout도 같은 잡을 재현할 수 있도록 실행 권한을 보정한다.
     - cd backend && chmod +x mvnw && ./mvnw -B -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository test
+  artifacts:
+    # 테스트 실패 시에도 Surefire 결과를 남겨 GitLab 화면에서 실패 케이스를 바로 확인한다.
+    when: always
+    expire_in: 7 days
+    reports:
+      junit: backend/target/surefire-reports/TEST-*.xml
+    paths:
+      - backend/target/surefire-reports/
   rules:
     - changes:
         - backend/**/*
         - docs/ddubi_erd_v2.sql          # 스키마 원천. V1__init.sql 과 항상 같아야 하므로 바뀌면 테스트를 돌린다
+        - .gitlab-ci.yml                  # 백엔드 테스트 환경·명령 자체를 바꾸면 해당 잡으로 새 규칙을 검증한다
 
 # 클라이언트(Flutter) 정적 분석 + 단위 테스트. 팀장(FE 담당) 요청: client 변경 시 자동, 빌드는 수동.
 # 이미지는 클라이언트가 기준으로 삼는 Flutter 3.47.2 (pubspec.lock: Flutter >=3.44, Dart >=3.13.2).
@@ -227,6 +264,7 @@ backend-lint:
   # 않았다. 같은 실수를 forbidden-output-check(alpine)에서 한 번 했다 — 거기는 apk 로 넣었다.
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - chmod +x backend/mvnw
   cache:
     key: backend-m2
     paths: [.m2/repository]
@@ -246,11 +284,10 @@ backend-lint:
         - .gitlab-ci.yml   # 검사 규칙 자체가 바뀌면 다시 돌린다
 
 # 파이썬 컨벤션 (2026-09-18). 루트 pyproject.toml 의 Ruff 규칙으로 검사한다.
-# 기존 코드 전체 정리(ruff format) 커밋 전까지는 경고로 둔다.
+# 현재 기준선이 check·format을 모두 통과하므로 이후 위반은 필수 CI 실패로 처리한다.
 python-lint:
   stage: test
   image: python:3.11-slim
-  allow_failure: true
   script:
     - pip install --quiet ruff
     - ruff check ml-serving collector archiver sparkjobs tests
@@ -334,7 +371,8 @@ client-build-web:
     - flutter build web --release
   artifacts:
     paths: [client/build/web]
-    expire_in: 1 day
+    # 심사·재심사 기간에 같은 빌드를 다시 받을 수 있게 일주일 둔다(2026-09-23, PM 요청). 웹 빌드는 약 30MB.
+    expire_in: 1 week
 
 client-build-android:
   extends: .flutter-build
@@ -379,6 +417,7 @@ deploy-server1:
       "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server1.yml
        --profile core --profile collect --profile spark --profile archive --profile hdfs --profile exporters
+       --profile topis-ai --profile road-silver
        up -d --build
        && bash scripts/post-deploy.sh server1"
 
@@ -412,7 +451,7 @@ deploy-server2:
     - ssh -i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=accept-new ubuntu@172.26.6.220
       "cd ~/S15P21E202
        && cd infra && docker compose -f docker-compose.yml -f docker-compose.server2.yml
-       --profile data --profile serving --profile hdfs2 --profile monitoring
+       --profile data --profile serving --profile hdfs2 --profile monitoring --profile road-feature
        up -d --build
        && bash scripts/post-deploy.sh server2"
 

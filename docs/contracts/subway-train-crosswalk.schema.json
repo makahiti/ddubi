@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DDUBI verified static-to-realtime subway train crosswalk",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "version",
+    "timetableVersion",
+    "masterDataVersion",
+    "serviceDate",
+    "generatedAt",
+    "validFrom",
+    "validUntil",
+    "evidenceSha256",
+    "criteria",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "subway-train-crosswalk-v1"},
+    "version": {"$ref": "#/$defs/text"},
+    "timetableVersion": {"$ref": "#/$defs/text"},
+    "masterDataVersion": {"$ref": "#/$defs/text"},
+    "serviceDate": {"type": "string", "format": "date"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "validFrom": {"type": "string", "format": "date-time"},
+    "validUntil": {"type": "string", "format": "date-time"},
+    "evidenceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minDistinctStations", "maxScheduleOffsetSeconds", "maxDeviationSeconds"],
+      "properties": {
+        "minDistinctStations": {"type": "integer", "minimum": 1},
+        "maxScheduleOffsetSeconds": {"type": "integer", "minimum": 1},
+        "maxDeviationSeconds": {"type": "integer", "minimum": 1}
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "nullableText": {"anyOf": [{"$ref": "#/$defs/text"}, {"type": "null"}]},
+    "providerId": {"type": "string", "pattern": "^[0-9A-Za-z_-]{1,60}$"},
+    "nullableInteger": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serviceDate",
+        "providerLineId",
+        "providerTrainId",
+        "staticTripKey",
+        "matchStatus",
+        "reason",
+        "arrivalDirection",
+        "positionDirection",
+        "arrivalDestination",
+        "positionDestination",
+        "trainType",
+        "matchedStationCount",
+        "scheduleOffsetSeconds",
+        "maxScheduleDeviationSeconds",
+        "candidateTripKeys",
+        "evidenceEventIds",
+        "validFrom",
+        "validUntil"
+      ],
+      "properties": {
+        "serviceDate": {"type": "string", "format": "date"},
+        "providerLineId": {"$ref": "#/$defs/providerId"},
+        "providerTrainId": {"$ref": "#/$defs/providerId"},
+        "staticTripKey": {"$ref": "#/$defs/nullableText"},
+        "matchStatus": {"enum": ["EXACT", "AMBIGUOUS", "UNMAPPED"]},
+        "reason": {"$ref": "#/$defs/text"},
+        "arrivalDirection": {"$ref": "#/$defs/nullableText"},
+        "positionDirection": {"$ref": "#/$defs/nullableText"},
+        "arrivalDestination": {"$ref": "#/$defs/nullableText"},
+        "positionDestination": {"$ref": "#/$defs/nullableText"},
+        "trainType": {"$ref": "#/$defs/nullableText"},
+        "matchedStationCount": {"type": "integer", "minimum": 0},
+        "scheduleOffsetSeconds": {"$ref": "#/$defs/nullableInteger"},
+        "maxScheduleDeviationSeconds": {"$ref": "#/$defs/nullableInteger"},
+        "candidateTripKeys": {"type": "array", "items": {"$ref": "#/$defs/text"}},
+        "evidenceEventIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/text"}
+        },
+        "validFrom": {"type": "string", "format": "date-time"},
+        "validUntil": {"type": "string", "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"matchStatus": {"const": "EXACT"}}},
+          "then": {
+            "properties": {
+              "staticTripKey": {"$ref": "#/$defs/text"},
+              "arrivalDirection": {"$ref": "#/$defs/text"},
+              "positionDirection": {"$ref": "#/$defs/text"},
+              "arrivalDestination": {"$ref": "#/$defs/text"},
+              "positionDestination": {"$ref": "#/$defs/text"},
+              "trainType": {"$ref": "#/$defs/text"},
+              "scheduleOffsetSeconds": {"type": "integer"},
+              "maxScheduleDeviationSeconds": {"type": "integer"}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

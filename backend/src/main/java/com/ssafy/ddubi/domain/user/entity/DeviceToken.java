@@ -1,6 +1,7 @@
 package com.ssafy.ddubi.domain.user.entity;
 
 import com.ssafy.ddubi.global.entity.BaseTimeEntity;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,18 +13,17 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * FCM 푸시 기기.
  *
- * fcm_token 이 UNIQUE 이고 등록은 토큰 기준 upsert 다 — 공용 기기에서 다른 계정으로
- * 로그인하면 같은 토큰 행의 주인이 바뀐다(마지막 로그인 사용자가 주인).
+ * <p>fcm_token 이 UNIQUE 이고 등록은 토큰 기준 upsert 다 — 공용 기기에서 다른 계정으로 로그인하면 같은 토큰 행의 주인이 바뀐다(마지막 로그인 사용자가
+ * 주인).
  */
 @Entity
 @Table(name = "device_token")
@@ -59,7 +59,7 @@ public class DeviceToken extends BaseTimeEntity {
         this.fcmToken = fcmToken;
         this.platform = platform;
         this.valid = true;
-        this.lastUsedAt = LocalDateTime.now();
+        this.lastUsedAt = BusinessTime.now();
     }
 
     /** 토큰 기준 upsert 의 갱신 경로. 주인을 갈아끼우고 다시 유효 상태로 되돌린다. */
@@ -67,7 +67,7 @@ public class DeviceToken extends BaseTimeEntity {
         this.user = user;
         this.platform = platform;
         this.valid = true;
-        this.lastUsedAt = LocalDateTime.now();
+        this.lastUsedAt = BusinessTime.now();
     }
 
     public void invalidate() {

@@ -102,6 +102,7 @@ def publish_segment_road_mapping(
     port,
     password,
     master_version,
+    bus_crosswalk_sha,
     road_crosswalk_version,
     road_crosswalk_sha,
     traffic_link_master_version,
@@ -162,6 +163,7 @@ def publish_segment_road_mapping(
         metadata = {
             "mappingVersion": MAPPING_VERSION,
             "masterVersion": master_version,
+            "crosswalkSha256": bus_crosswalk_sha,
             "roadCrosswalkVersion": road_crosswalk_version,
             "roadCrosswalkSha256": road_crosswalk_sha,
             "trafficLinkMasterVersion": traffic_link_master_version,

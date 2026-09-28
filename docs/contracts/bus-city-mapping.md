@@ -23,3 +23,21 @@
 ML Serving은 요청 시 active 대응표를 읽어 `city:latest:area:{providerAreaId}`를 조회한다.
 `observedAt`·`collectedAt`이 요청 기준시각보다 미래이거나 예상 통과시각이 `validUntil` 이후면
 해당 도시 Feature를 null로 둔다.
+
+## Redis 최신값으로 만드는 경로 (2026-09-23)
+
+운영 서버1의 `CITY_SILVER_OUTPUT_URI` 가 비어 있어 City Silver `road-link-snapshot` Parquet 이
+만들어지지 않는다. 그래서 위 배치를 그대로 돌릴 수 없다. 같은 내용이 Redis
+`city:latest:road:{linkNamespace}:{linkId}` 에 링크별 최신값으로 들어오므로, 그것을 근거로 쓰는
+`batch/export_bus_city_mapping_from_redis.py` 를 둔다. 판정 규칙(300m·50m·occurrence 합의)과
+출력 행·Redis 키·활성 포인터는 Spark 판과 같아서 백엔드가 구분 없이 읽는다. Spark 를 쓰지 않으므로
+executor 칸을 차지하지 않는다.
+
+```sh
+python batch/export_bus_city_mapping_from_redis.py   --crosswalk backend/transit-master/bus/metropolitan-bus-v6.crosswalk.json.gz   --bus-master backend/transit-master/bus/metropolitan-bus-v6.json.gz
+```
+
+2026-09-23 실행(서버2 ml-serving 컨테이너 안, 약 12초): 도시 도로 대표 좌표 4,309점 기준으로
+구간 104,869개 중 `RESOLVED` 16,803, `AMBIGUOUS` 2,763, `UNRESOLVED` 213, `OUT_OF_COVERAGE` 85,090.
+서비스 저장 경로의 버스 구간 1,376개 중 789개(57%), 노선 121개 중 118개가 덮인다.
+Redis TTL 은 30일이며 도시 영역 좌표가 바뀌면 지문(`areaReferenceSha256`)이 달라져 새 키로 발행된다.

@@ -61,7 +61,7 @@ public class ScheduleService {
             ScheduleStatus status,
             Pageable pageable) {
         requireRange(from, to);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = BusinessTime.now();
         var page =
                 status == null
                         ? scheduleRepository.findAllByUserIdAndArriveByBetween(
@@ -79,7 +79,7 @@ public class ScheduleService {
     public ScheduleResponse create(Long userId, ScheduleCreateRequest request) {
         requireInServiceArea(request.origin());
         requireInServiceArea(request.destination());
-        if (!request.arriveBy().isAfter(LocalDateTime.now())) {
+        if (!request.arriveBy().isAfter(BusinessTime.now())) {
             // 과거 도착 목표는 출발 시각 역산이 불가능하다 — 만들어봐야 추천이 나올 수 없다.
             throw new BusinessException(ErrorCode.INVALID_REQUEST, "도착 목표 시각은 미래여야 합니다.");
         }
@@ -101,7 +101,7 @@ public class ScheduleService {
         events.publishEvent(
                 new com.ssafy.ddubi.domain.recommendation.service.ScheduleInputChanged(
                         schedule.getId()));
-        return ScheduleResponse.of(schedule, LocalDateTime.now(), RECOMMENDATION_PENDING);
+        return ScheduleResponse.of(schedule, BusinessTime.now(), RECOMMENDATION_PENDING);
     }
 
     // ------------------------------------------------------------------
@@ -111,7 +111,7 @@ public class ScheduleService {
     @Transactional(readOnly = true)
     public ScheduleResponse get(Long userId, Long scheduleId) {
         // 일정 원본 조회. 최신 추천·선택 경로는 recommendations/latest가 별도로 제공한다.
-        return ScheduleResponse.from(findOwned(userId, scheduleId), LocalDateTime.now());
+        return ScheduleResponse.from(findOwned(userId, scheduleId), BusinessTime.now());
     }
 
     // ------------------------------------------------------------------
@@ -149,7 +149,7 @@ public class ScheduleService {
         }
         if (request.isArriveByPresent()) {
             requireNotNull(request.getArriveBy(), "arriveBy");
-            if (!request.getArriveBy().isAfter(LocalDateTime.now())) {
+            if (!request.getArriveBy().isAfter(BusinessTime.now())) {
                 throw new BusinessException(ErrorCode.INVALID_REQUEST, "도착 목표 시각은 미래여야 합니다.");
             }
             schedule.changeArriveBy(BusinessTime.normalize(request.getArriveBy()));
@@ -176,7 +176,7 @@ public class ScheduleService {
         events.publishEvent(
                 new com.ssafy.ddubi.domain.recommendation.service.ScheduleInputChanged(
                         schedule.getId()));
-        return ScheduleResponse.of(schedule, LocalDateTime.now(), RECOMMENDATION_PENDING);
+        return ScheduleResponse.of(schedule, BusinessTime.now(), RECOMMENDATION_PENDING);
     }
 
     // ------------------------------------------------------------------

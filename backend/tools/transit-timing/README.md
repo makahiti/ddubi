@@ -26,11 +26,12 @@ CSV가 UTF-8 편집기에서 깨져 보이더라도 UTF-8로 다시 저장하지
 CP949 인코딩을 직접 읽으며, 필수 열·시각·운행 순서·마스터 인접성을 검증한다.
 
 ```powershell
+$publishedAt=(Get-Date -Format o)
 python backend/tools/transit-timing/build_timetable.py `
   --csv 'C:/Users/SSAFY/Desktop/경로/지하철_보강검증_20260910/raw/seoul-timetable-20260616.csv' `
   --master backend/transit-master/subway/metropolitan-subway-master.json.gz `
   --service-date 2026-09-11 --day-type DAY `
-  --published-at (Get-Date -Format o) `
+  --published-at $publishedAt `
   --source-url https://www.data.go.kr/data/15098251/fileData.do `
   --output backend/target/transit-timing/timetable.json
 ```
@@ -69,7 +70,67 @@ DDUBI_SUBWAY_TIMING_DECOMPOSITION_VERIFIED=false
 대기시간 합산 설정은 켜지 않는다. 원천 열차 대응이 없으면 `SUBWAY_TIMETABLE`로 표시하고 Redis를 조회하지 않는다.
 원본·날짜가 바뀌면 재생성 및 Backend 재시작이 필요하다. 생성물은 gitignored `target`에 두며 운영 자동 배포는 하지 않는다.
 
-## 3. 테스트
+## 3. 정적 운행과 실시간 열차 Crosswalk 검증
+
+위에서 고정한 `$publishedAt`을 재사용한다. Crosswalk는 기본 시간표의 버전을 참조하므로,
+적용 시간표를 다시 만들 때도 날짜·요일·출처를 포함해 같은 인자를 사용해야 한다.
+
+먼저 Archiver가 저장한 `transport.raw` Parquet에서 실시간 도착·위치 관측을
+`docs/contracts/subway-train-observations.schema.json` 형식으로 내보낸다.
+
+```powershell
+python backend/tools/transit-timing/export_train_observations.py `
+  --archive 'file:///opt/ddubi/archive' `
+  --service-date 2026-09-11 `
+  --output backend/target/transit-timing/train-observations.json
+```
+
+HDFS라면 `--archive 'webhdfs://hdfs-namenode:9870/ddubi/archive' --hdfs-user <사용자>`처럼
+지정한다. 아카이브 루트 대신 `transport.raw` 디렉터리나 단일 Parquet 파일도 받을 수 있다.
+실행 환경에는 Archiver와 같은 `pyarrow`, `fsspec` 패키지가 필요하다.
+도구는 운행일과 다음날 파티션을 읽되, 운행일 00:00부터 다음날 06:00 사이 관측만 남긴다.
+아카이버 재시작으로 중복된 `eventId`는 제거하고, 같은 ID의 내용이 다르면 그 ID 전체를 제외한다.
+
+`matchedAt`은 수집시각이 아니라 해당 열차가 그 역에 도착했거나 있었다고 판단한 절대시각이다.
+도착 이벤트는 원본 `recptnDt + barvlDt`를 사용한다. 위치 이벤트는 서울 API에서 역 도착을 뜻하는
+검증된 `trainSttus=1`만 사용하고 원본 `recptnDt`를 넣는다. 제공시각이 없어 Collector 수신시각으로
+대체된 이벤트와 진입·출발 상태는 증거에서 제외한다. 다른 제공자의 상태 코드를 추가하려면 의미를
+공식 문서로 확인한 뒤 `--position-at-station-code`를 명시한다. 제외 사유와 건수는
+`train-observations.report.json`에서 확인한다.
+
+상태 코드 근거: [서울시 지하철 실시간 열차 위치정보 API](https://data.seoul.go.kr/dataList/datasetView.do?infId=OA-12601&serviceKind=1&srvType=A)
+
+그다음 생성한 관측 파일로 Crosswalk를 만든다.
+
+```powershell
+python backend/tools/transit-timing/build_train_crosswalk.py `
+  --timetable backend/target/transit-timing/timetable.json `
+  --observations backend/target/transit-timing/train-observations.json `
+  --generated-at (Get-Date -Format o) `
+  --output backend/target/transit-timing/train-crosswalk.json
+```
+
+도구는 노선·역 순서·시각 이동량과 도착/위치 양쪽 식별값을 비교한다. 조건을 통과한 정적
+후보가 하나일 때만 `EXACT`, 둘 이상이면 `AMBIGUOUS`, 증거 부족이나 후보 없음은 `UNMAPPED`다.
+결과의 `.report.json`에서 상태·실패 사유와 `exactCoverage`를 검토한다. 실제 시간표에는
+`EXACT`만 적용된다.
+
+```powershell
+python backend/tools/transit-timing/build_timetable.py `
+  --csv 'backend/transit-master/subway/raw/서울교통공사_서울 도시철도 열차운행시각표.csv' `
+  --master backend/transit-master/subway/metropolitan-subway-master.json.gz `
+  --service-date 2026-09-11 --day-type DAY `
+  --published-at $publishedAt `
+  --source-url https://www.data.go.kr/data/15098251/fileData.do `
+  --train-crosswalk backend/target/transit-timing/train-crosswalk.json `
+  --output backend/target/transit-timing/timetable.json
+```
+
+버전·마스터·운행일이 다르거나 한 실시간 열차가 여러 정적 운행에 `EXACT`로 연결되면 전체
+적용을 실패시킨다. 정적 열차코드와 실시간 열차번호가 같다는 이유만으로 연결하지 않는다.
+상세 계약은 `docs/contracts/subway-train-crosswalk.md`에 있다.
+
+## 4. 테스트
 
 ```powershell
 python -m unittest discover -s backend/tools/transit-timing -p 'test_*.py' -v

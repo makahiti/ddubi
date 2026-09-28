@@ -1,26 +1,25 @@
 package com.ssafy.ddubi.domain.user.entity;
 
 import com.ssafy.ddubi.global.entity.BaseTimeEntity;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-
 /**
  * 사용자 계정.
  *
- * 인증 수단은 {@code user_auth} 로 분리되어 있어 여기에는 로그인 방법과 무관한 속성만 둔다.
- * 탈퇴는 이 행을 DELETE 하는 것이고, 하위 데이터는 DB 의 ON DELETE CASCADE 가 지운다
- * (JPA cascade 를 걸지 않는다 — BACKEND_CONVENTION.md 3.1장 규칙 12).
+ * <p>인증 수단은 {@code user_auth} 로 분리되어 있어 여기에는 로그인 방법과 무관한 속성만 둔다. 탈퇴는 이 행을 DELETE 하는 것이고, 하위 데이터는 DB
+ * 의 ON DELETE CASCADE 가 지운다 (JPA cascade 를 걸지 않는다 — BACKEND_CONVENTION.md 3.1장 규칙 12).
  */
 @Entity
 @Table(name = "user")
@@ -51,6 +50,15 @@ public class User extends BaseTimeEntity {
     /** 아침 브리핑 수신 시각. NULL 이면 브리핑을 보내지 않는다 (REQ-NTF-003). */
     @Column(name = "briefing_time")
     private LocalTime briefingTime;
+
+    /**
+     * 밤 브리핑 수신 시각. NULL 이면 보내지 않는다.
+     *
+     * <p>아침 브리핑은 <b>오늘 남은</b> 일정을, 밤 브리핑은 <b>내일</b> 일정을 알린다.
+     * 성격이 다른 알림이라 시각을 따로 둔다.
+     */
+    @Column(name = "night_briefing_time")
+    private LocalTime nightBriefingTime;
 
     /** 알림 전체 토글. false 여도 notification 행은 만들고 발송만 억제한다. */
     @Column(name = "is_alarm", nullable = false)
@@ -102,17 +110,19 @@ public class User extends BaseTimeEntity {
         this.briefingTime = briefingTime;
     }
 
+    public void changeNightBriefingTime(LocalTime nightBriefingTime) {
+        this.nightBriefingTime = nightBriefingTime;
+    }
+
     public void changeAlarm(boolean alarm) {
         this.alarm = alarm;
     }
 
-    /**
-     * 이동기록 동의 토글. 동의 시각은 서버가 찍고, 철회하면 NULL 로 되돌린다.
-     * 철회해도 이미 저장된 실측 기록을 지우지는 않는다.
-     */
+    /** 이동기록 동의 토글. 동의 시각은 서버가 찍고, 철회하면 NULL 로 되돌린다. 철회해도 이미 저장된 실측 기록을 지우지는 않는다. */
     public void changeHistoryConsent(boolean consented) {
-        this.historyConsentedAt = consented
-                ? (historyConsentedAt != null ? historyConsentedAt : LocalDateTime.now())
-                : null;
+        this.historyConsentedAt =
+                consented
+                        ? (historyConsentedAt != null ? historyConsentedAt : BusinessTime.now())
+                        : null;
     }
 }

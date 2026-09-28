@@ -11,7 +11,7 @@ import importlib.metadata
 import importlib.util
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 from zoneinfo import ZoneInfo
@@ -78,6 +78,27 @@ class Predictor:
         self.model = joblib.load(self.root / "selected_model.joblib")
         self.model.set_params(n_jobs=2)
         self.vocab = {name: set(values) for name, values in self.spec["vocab"].items()}
+        # 운영 승인 번들은 승인 boolean 하나만으로 열지 않는다. Backend가 검증하는 버전·관측시각·ID 검증
+        # 근거까지 manifest에 함께 있어야 시작할 수 있다. 현재 v12는 미승인이므로 이 경로를 타지 않는다.
+        self.production_ready = bool(self.manifest.get("production_ready", False))
+        self.feature_version = self.manifest.get("feature_version") or self.spec.get("feature_version")
+        self.features_as_of = self.manifest.get("features_as_of")
+        self.training_ids_verified = self.manifest.get("training_ids_verified") is True
+        if self.production_ready:
+            if not isinstance(self.feature_version, str) or not self.feature_version.strip():
+                raise BundleError("PRODUCTION_FEATURE_VERSION_MISSING")
+            if not isinstance(self.features_as_of, str) or not self.features_as_of.strip():
+                raise BundleError("PRODUCTION_FEATURE_TIMESTAMP_MISSING")
+            try:
+                parsed_features_at = datetime.fromisoformat(self.features_as_of.replace("Z", "+00:00"))
+            except ValueError as error:
+                raise BundleError("PRODUCTION_FEATURE_TIMESTAMP_INVALID") from error
+            if (
+                parsed_features_at.tzinfo is None
+                or parsed_features_at > datetime.now(parsed_features_at.tzinfo)
+                or not self.training_ids_verified
+            ):
+                raise BundleError("PRODUCTION_EVIDENCE_INCOMPLETE")
         # 3. 검증된 portable 함수의 파일 읽기만 캐시한다. 모델·계산식·묶음 SHA는 변경하지 않는다.
         # 캐시는 지연 로딩하며 새 버전은 새 Predictor/프로세스로만 반영한다.
         self.reference = self.root / "references"
@@ -88,12 +109,15 @@ class Predictor:
 
     def metadata(self):
         """수치 확인용 서비스 준비 상태와 지원 날짜를 반환한다. 운영 승인과 구분한다."""
+        production_ready = getattr(self, "production_ready", bool(self.manifest.get("production_ready", False)))
         return {
             "model_version": self.manifest["version"],
             "model_type": self.manifest["model"],
             "target": self.manifest["target"],
-            "production_ready": False,
+            "production_ready": production_ready,
             "bundle_production_ready": bool(self.manifest.get("production_ready", False)),
+            "feature_version": getattr(self, "feature_version", self.spec.get("feature_version")),
+            "features_as_of": getattr(self, "features_as_of", self.manifest.get("features_as_of")),
             "supported_from": self.bundle["supported_from"],
             "supported_until": self.bundle["supported_until"],
         }
@@ -154,26 +178,33 @@ class Predictor:
                 timings["inference_seconds"] = time.perf_counter() - inference_start
             if len(values) != len(supported) or not np.isfinite(values).all():
                 raise BundleError("MODEL_OUTPUT_INVALID")
-            # 3. 결측 대체를 성공적인 관측으로 표시하지 않는다. 운영 승인은 항상 별도다.
+            # 3. 결측 대체를 성공적인 관측으로 표시하지 않는다. 운영 상태는 manifest의 완전한 승인
+            # 증거를 통과한 경우에만 사용하며, 현재 v12는 계속 PREVIEW다.
             for i, position in enumerate(positions):
                 missing = [name for name in self.spec["numeric"] if pd.isna(features.iloc[i].get(name, np.nan))]
                 count = int(features.iloc[i]["history_count_8obs"])
+                seconds = float(values[i])
+                if not 0 < seconds <= 86400:
+                    results[position]["reason"] = "INVALID_DURATION"
+                    continue
                 results[position].update(
-                    status="PREVIEW",
-                    reason="MODEL_NOT_PRODUCTION_READY",
+                    status="PRODUCTION" if getattr(self, "production_ready", False) else "PREVIEW",
+                    reason=None if getattr(self, "production_ready", False) else "MODEL_NOT_PRODUCTION_READY",
                     prediction={
-                        "mean_seconds": float(values[i]),
+                        "mean_seconds": seconds,
                         "missing_feature_count": len(missing),
                         "missing_features": missing,
                         "unseen_id_count": 0,
                         "history_sample_count": count,
                         "data_insufficient": count == 0,
-                        "training_ids_verified": False,
+                        "training_ids_verified": getattr(self, "training_ids_verified", False),
                     },
                 )
+        computed_at = datetime.now(SEOUL)
         return {
             "request_id": request.request_id,
             **self.metadata(),
-            "computed_at": datetime.now(SEOUL).isoformat(),
+            "computed_at": computed_at.isoformat(),
+            "valid_until": (computed_at + timedelta(minutes=5)).isoformat(),
             "results": results,
         }

@@ -67,31 +67,47 @@ List<SavedRouteSummary> fixture33() {
 }
 
 void main() {
-  test('후보 33개를 사용자 화면용 5개로 줄이고 선택 추천을 맨 앞에 둔다', () {
+  test('후보 33개여도 화면에는 제일 추천하는 경로 하나만 남는다', () {
     final all = fixture33();
     final display = SavedRouteDisplay.from(all);
 
     expect(all, hasLength(33));
     expect(display.total, 33);
-    expect(display.visible, hasLength(SavedRouteDisplay.maxVisible));
-    expect(display.visible.first.selected, isTrue);
-    expect(display.visible.first.routeId, 'sel');
-    expect(display.visible.where((r) => r.selected), hasLength(1));
+    expect(display.visible, hasLength(1));
+    expect(display.visible.single.selected, isTrue);
+    expect(display.visible.single.routeId, 'sel');
   });
 
-  test('구분할 수 없는 중복만 묶고 의미가 다른 경로는 남긴다', () {
+  test('서버가 제안한 경로가 있으면 선택된 경로와 둘만 보여준다', () {
+    final all = [
+      ...fixture33(),
+      route(id: 'proposed', rank: 20, from: '제안출발', to: '제안도착', minutes: 38),
+    ];
+    final display = SavedRouteDisplay.from(all, proposedRouteId: 'proposed');
+
+    expect(display.visible, hasLength(2));
+    expect(display.visible.first.routeId, 'sel');
+    expect(display.visible.last.routeId, 'proposed');
+  });
+
+  test('제안된 경로는 중복 묶음에 속해도 접히지 않는다', () {
+    // 선택된 경로와 카드 내용이 똑같이 보이는 후보가 제안으로 올라온 상황.
+    final all = [
+      route(id: 'sel', rank: 1, selected: true),
+      route(id: 'same', rank: 2),
+    ];
+    final display = SavedRouteDisplay.from(all, proposedRouteId: 'same');
+
+    expect(display.visible.map((r) => r.routeId), ['sel', 'same']);
+  });
+
+  test('구분할 수 없는 중복만 묶고 의미가 다른 경로는 진단에 남는다', () {
     final display = SavedRouteDisplay.from(fixture33());
 
     // 중복 묶음 3개(각각 1개만 남음) + 서로 다른 경로 13개 = 16개.
     expect(display.distinct, 16);
-    // 화면에 남은 카드끼리는 같은 묶음이 없다.
-    final keys = display.visible.map(SavedRouteDisplay.groupKey).toList();
-    expect(keys.toSet(), hasLength(keys.length));
-    // 묶인 뒤에도 선택 추천과 다른 노선 구성이 함께 보인다.
-    expect(
-      display.visible.map((r) => r.modes.join('>')).toSet().length,
-      greaterThan(1),
-    );
+    // 묶은 결과는 진단에만 남고 화면에는 한 장만 나간다.
+    expect(display.visible, hasLength(1));
   });
 
   test('선택 추천은 중복 묶음에 속해도 반드시 남는다', () {
@@ -107,7 +123,7 @@ void main() {
     expect(display.visible, hasLength(1));
   });
 
-  test('후보가 5개 이하이고 서로 다르면 하나도 제거하지 않는다', () {
+  test('후보가 적고 서로 달라도 화면에는 첫 번째 하나만 보여준다', () {
     final all = [
       route(id: 'a', rank: 1, selected: true),
       route(id: 'b', rank: 2, to: '다른곳', minutes: 50),
@@ -116,9 +132,8 @@ void main() {
     ];
     final display = SavedRouteDisplay.from(all);
 
-    expect(display.visible, hasLength(4));
+    expect(display.visible.map((r) => r.routeId), ['a']);
     expect(display.distinct, 4);
-    expect(display.visible.map((r) => r.routeId), ['a', 'b', 'c', 'd']);
   });
 
   test('서버 응답 원본 목록은 바뀌지 않고 정렬은 안정적이다', () {
@@ -141,12 +156,7 @@ void main() {
     final ranks = display.visible.map((r) => r.rankNo).join(',');
     expect(
       display.diagnosticsLine,
-      '전체 후보 33 · 중복 제거 후 16 · 표시 5 · 서버 순위 $ranks',
-    );
-    // 화면 순번(1~5)과 서버 순위는 다를 수 있다. 진단에서 원본을 확인할 수 있어야 한다.
-    expect(
-      display.visible.map((r) => r.rankNo).toList(),
-      isNot([1, 2, 3, 4, 5]),
+      '전체 후보 33 · 중복 제거 후 16 · 표시 1 · 서버 순위 $ranks',
     );
   });
 }

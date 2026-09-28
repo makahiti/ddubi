@@ -10,7 +10,7 @@
 # - archive          : archiver 가 Parquet 으로 보관하는 대상인지
 #
 # 위치 처리 원칙: 공간 연산은 DB 에서 하지 않는다. 행사·사고·통제 위치는 수집·전처리 단계에서
-# 뚜비 내부 구간 ID(segmentIds)로 변환되고, 구간 상태는 segment.status 로 흘러 Redis 에 저장된다.
+# 뚜비 내부 구간 ID(segmentIds)로 변환되어 Redis 최신값·Snapshot 으로 저장된다. (구간 판정 토픽 segment.status 는 2026-09-23 폐기)
 
 topics:
   source.poll-status:
@@ -52,17 +52,8 @@ topics:
     consumers: [spark, archiver]
     archive: true
 
-  segment.status:
-    description: Spark가 계산한 구간(segment_id)별 최신 상태와 판정 이력. Redis segment:status:{segmentId} 와 같은 값이며 HDFS 아카이브로 재현한다.
-    partitions: 3
-    replicationFactor: 1
-    retentionHours: 24
-    retentionBytes: 1073741824
-    schema: events/segment-status.schema.json
-    key: segmentId
-    producer: spark
-    consumers: [backend, archiver]
-    archive: true
+  # segment.status·segment.observation 은 2026-09-23 dt 결정으로 segment-observations·segment-status 잡을 폐기했다(앞으로도 쓸 계획 없음). 생산 잡·compose·아카이브 목록에서 뺐고 서버 토픽도 지운다.
+  # backend 의 segment:status 읽기(RedisSegmentStateReader)는 값이 없으면 폴백만 타므로 그대로 두어도 된다(backend 결정).
 
   # ⚠️ 미구현 — 발행자도 소비자도 없다 (2026-09-09 확인, 백엔드)
   #
@@ -105,14 +96,3 @@ topics:
     consumers: [backend]
     archive: false
 
-  segment.observation:
-    description: "실제 통과시각 원천을 확보한 생산자의 정규화 사실. 도착예측·평균통계는 이 토픽에 발행하지 않는다. Spark가 원문과 offset을 별도 Parquet에 보존한다."
-    partitions: 3
-    replicationFactor: 1
-    retentionHours: 504
-    retentionBytes: 1073741824
-    schema: segment-observation.schema.json
-    key: segmentId
-    producer: verified-observation-adapter
-    consumers: [spark]
-    archive: false

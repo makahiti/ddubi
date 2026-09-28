@@ -21,6 +21,7 @@ import httpx
 API_HOST = "http://openapi.seoul.go.kr:8088"
 SERVICE_NAME = "getNtceList"
 API_KEY_ENV_NAME = "SUBWAY_ALERT_API_KEY"
+PORTAL_API_KEY_ENV_NAME = "SEOUL_OPEN_DATA_API_KEY"
 MAX_PAGE_SIZE = 1_000
 DEFAULT_PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 30
@@ -52,9 +53,11 @@ def load_env_file(path: Path = DEFAULT_ENV_PATH) -> None:
 
 def require_api_key() -> str:
     load_env_file()
-    api_key = os.getenv(API_KEY_ENV_NAME, "").strip()
+    api_key = (os.getenv(API_KEY_ENV_NAME) or os.getenv(PORTAL_API_KEY_ENV_NAME, "")).strip()
     if not api_key:
-        raise SubwayAlertError(f"{DEFAULT_ENV_PATH}에 {API_KEY_ENV_NAME}를 설정해야 합니다.")
+        raise SubwayAlertError(
+            f"{DEFAULT_ENV_PATH}에 {API_KEY_ENV_NAME} 또는 {PORTAL_API_KEY_ENV_NAME}를 설정해야 합니다."
+        )
     return api_key
 
 

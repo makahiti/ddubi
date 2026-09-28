@@ -7,10 +7,14 @@ import com.ssafy.ddubi.domain.recommendation.evaluation.RouteTimelineEvaluator.R
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.Optional;
 
 /**
@@ -32,6 +36,11 @@ import java.util.Optional;
  * </pre>
  *
  * 지각이 더 급한 소식이라 먼저 본다. 둘 다 해당하면 지각을 알리되 대안이 있다는 것도 본문에 적는다.
+ *
+ * <h3>문구 규칙</h3>
+ * 제목은 무슨 일인지 한 줄로, 본문은 <b>시각 먼저 그다음 안내</b>로 적고 {@code ·} 로 잇는다.
+ * 잠금화면은 두세 줄만 보여주므로 마침표와 군더더기 말은 넣지 않는다. 알림을 열지 않아도
+ * 몇 시인지 알 수 있어야 한다.
  */
 @Service
 public class EvaluationNotificationPlanner {
@@ -71,9 +80,9 @@ public class EvaluationNotificationPlanner {
         if(outcome.conditional()!=null && fastest!=null
                 && outcome.conditional().decision()==com.ssafy.ddubi.domain.recommendation.evaluation.ConditionalDeparturePolicy.Decision.ADVANCE_DEPARTURE
                 && Duration.between(fastest.departureAt(),job.departure()).compareTo(meaningfulGain)>=0) {
-            String key="EARLY_DEPART:"+fastest.journeyKey()+":"+(fastest.departureAt().getEpochSecond()/300);
-            return Optional.of(new Planned(command(job,outcome,NotificationType.EARLY_DEPART,"출발 계획을 확인해 주세요",
-                    at(fastest.departureAt())+" 출발 시 "+at(fastest.estimatedArrivalAt())+" 도착 예상입니다.",key),key));
+            String key=shortKey("EARLY_DEPART", fastest.journeyKey()+":"+(fastest.departureAt().getEpochSecond()/300));
+            return Optional.of(new Planned(command(job,outcome,NotificationType.EARLY_DEPART,"조금 일찍 나서야 해요",
+                    at(fastest.departureAt())+" 출발 · "+at(fastest.estimatedArrivalAt())+" 도착 예상",key),key));
         }
         if (selected != null && late(selected.assessment())) {
             return Optional.of(lateness(job, outcome, selected, fastest));
@@ -105,36 +114,85 @@ public class EvaluationNotificationPlanner {
 
     private Planned lateness(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
                              Result selected, Result fastest) {
+        // 지금 경로가 통제로 막히면 그 경로에는 도착 예정이 없다. 예전에는 그 빈 값 때문에
+        // "도착 시각을 계산하지 못했어요" 가 나갔는데, 다른 경로는 이미 계산돼 있었다(2026-09-26 제보).
+        // 막혔으면 막혔다고 말하고, 다른 경로로 언제 닿는지를 알린다.
+        if (selected.assessment() == Assessment.BLOCKED) {
+            String key = shortKey("ON_TIME_UNLIKELY", selected.journeyKey());
+            boolean alternative = fastest != null && !fastest.journeyKey().equals(selected.journeyKey())
+                    && fastest.estimatedArrivalAt() != null && !late(fastest.assessment());
+            if (alternative && !fastest.estimatedArrivalAt().isAfter(job.arriveBy())) {
+                return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
+                        "지금 경로가 막혔어요",
+                        "다른 경로로 가면 " + at(fastest.estimatedArrivalAt()) + " 도착 예상 · 목표 " + at(job.arriveBy()),
+                        key), key);
+            }
+            return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
+                    "제시간 도착이 어려울 수 있어요",
+                    alternative
+                            ? "지금 경로가 막혔어요 · 다른 경로도 " + at(fastest.estimatedArrivalAt()) + " 도착 예상 · 목표 "
+                                    + at(job.arriveBy())
+                            : "지금 경로가 막혔어요 · 앱에서 다른 경로를 확인해 주세요",
+                    key), key);
+        }
         boolean hasAlternative = betterRouteExists(selected, fastest);
         String body = selected.estimatedArrivalAt() == null
-                ? "지금 경로로는 도착 시각을 계산할 수 없습니다. 앱에서 경로를 다시 확인해 주세요."
-                : "예상 도착 " + at(selected.estimatedArrivalAt()) + " · 목표 " + at(job.arriveBy())
-                        + (hasAlternative ? ". 더 빠른 경로가 있습니다." : "");
+                ? "도착 시각을 계산하지 못했어요 · 앱에서 경로를 다시 확인해 주세요"
+                : at(selected.estimatedArrivalAt()) + " 도착 예상 · 목표 " + at(job.arriveBy())
+                        + (hasAlternative ? " · 더 빠른 경로가 있어요" : "");
         // 키에 시각을 넣지 않는다. 분마다 1초씩 밀리는 값을 키에 넣으면 상황이 그대로인데도
         // 매 평가가 새 알림이 된다. 경로가 바뀌거나 종류가 바뀔 때만 다시 알린다.
+        String key = shortKey("ON_TIME_UNLIKELY", selected.journeyKey());
         return new Planned(command(job, outcome, NotificationType.ON_TIME_UNLIKELY,
-                "제시간 도착이 어려울 수 있어요", body,
-                "ON_TIME_UNLIKELY:" + selected.journeyKey()),
-                "ON_TIME_UNLIKELY:" + selected.journeyKey());
+                "제시간 도착이 어려울 수 있어요", body, key), key);
     }
 
     private Planned routeChange(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
                                 Result selected, Result fastest) {
         long gainMinutes = Duration.between(fastest.estimatedArrivalAt(), selected.estimatedArrivalAt()).toMinutes();
-        String key = "ROUTE_CHANGE:" + selected.journeyKey() + ">" + fastest.journeyKey();
+        String key = shortKey("ROUTE_CHANGE", selected.journeyKey() + ">" + fastest.journeyKey());
         return new Planned(command(job, outcome, NotificationType.ROUTE_CHANGE,
-                "더 빠른 경로가 있어요", gainMinutes + "분 빠른 경로를 찾았습니다. 예상 도착 "
-                        + at(fastest.estimatedArrivalAt()) + ".", key),
+                "더 빠른 경로가 있어요",
+                gainMinutes + "분 빠름 · " + at(fastest.estimatedArrivalAt()) + " 도착 예상", key),
                 key);
+    }
+
+    /**
+     * 알림 식별 키를 64자 안에 담는다.
+     *
+     * <p>이 값은 {@code schedule_evaluation.notification_key} 와 {@code notification.suppress_key}
+     * 에 그대로 들어가는데 두 칸 모두 {@code varchar(64)} 다. 경로 키(journeyKey)는 53자라
+     * ROUTE_CHANGE 처럼 둘을 이어 붙이면 120자가 되어 저장이 실패한다(ER_DATA_TOO_LONG).
+     *
+     * <p>종류는 읽을 수 있게 남기고 나머지만 고정 길이로 줄인다. 같은 상황이면 같은 값이
+     * 나와야 중복 발송을 막을 수 있으므로 해시를 쓴다 — 자르기는 서로 다른 경로가 같은 키로
+     * 뭉개질 수 있어 쓰지 않는다.
+     */
+    static String shortKey(String type, String detail) {
+        return type + ":" + sha256Hex(detail).substring(0, 32);
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            return HexFormat.of()
+                    .formatHex(
+                            MessageDigest.getInstance("SHA-256")
+                                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 지원 없음", impossible);
+        }
     }
 
     private NotificationCommand command(ScheduleEvaluationStore.Job job, ScheduleEvaluationWorkflow.Outcome outcome,
                                         NotificationType type, String title, String body, String suppressKey) {
+        // 발표용 통제가 원인인 계산이면 제목 앞에 "[시연]" 만 붙이고 문구는 실제 알림과 같게 둔다(2026-09-25).
+        boolean demo = outcome.evidence() != null
+                && outcome.evidence().reasons().contains("DEMO_TOPIS_ROAD_CONTROL");
         return NotificationCommand.builder()
                 .userId(job.userId())
                 .scheduleId(outcome.scheduleId())
                 .type(type)
-                .title(title)
+                .title(demo ? "[시연] " + title : title)
                 .body(outcome.preview()!=null&&!outcome.preview().productionReady()?"[검증용] "+body:body)
                 .suppressKey(suppressKey)
                 .evaluationId(outcome.evaluationId())

@@ -13,6 +13,7 @@ import com.ssafy.ddubi.domain.user.entity.User;
 import com.ssafy.ddubi.domain.user.repository.UserRepository;
 import com.ssafy.ddubi.global.exception.BusinessException;
 import com.ssafy.ddubi.global.exception.ErrorCode;
+import com.ssafy.ddubi.global.util.BusinessTime;
 import com.ssafy.ddubi.support.IntegrationTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -52,7 +53,7 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
                 userRepository
                         .save(User.builder().email("other@ddubi.com").nickname("남").build())
                         .getId();
-        tomorrow = LocalDateTime.now().plusDays(1).withNano(0);
+        tomorrow = BusinessTime.now().plusDays(1).withNano(0);
     }
 
     private ScheduleResponse createDefault() {
@@ -84,7 +85,7 @@ class ScheduleIntegrationTest extends IntegrationTestSupport {
                                                 "과거",
                                                 GANGNAM,
                                                 GWANGHWAMUN,
-                                                LocalDateTime.now().minusHours(1),
+                                                BusinessTime.now().minusHours(1),
                                                 null,
                                                 null)))
                 .isInstanceOf(BusinessException.class)

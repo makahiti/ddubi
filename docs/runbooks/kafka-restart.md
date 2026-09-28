@@ -49,7 +49,7 @@ docker inspect kafka --format "{{.State.Health.Status}}"                        
 docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list     # 토픽 6개
 docker exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server kafka:9092 --topic city.raw   # 오프셋 합계 — 재시작 전과 같거나 커야 함 (줄면 데이터 볼륨 문제)
 docker logs collector-weather --since 15m 2>&1 | grep "cycle ok" | tail -2                 # 다음 사이클 sent=14 failed=0 pending=0
-docker logs spark-streaming-weather --since 15m 2>&1 | grep "batch=" | tail -1
+docker logs spark-streaming-light --since 15m 2>&1 | grep "batch=" | tail -1
 docker logs archiver --since 15m 2>&1 | grep -ciE "error|exception"                        # 재연결 후 0
 ```
 

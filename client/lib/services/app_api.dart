@@ -90,16 +90,30 @@ class RepeatScheduleApi implements RepeatScheduleRepository {
       );
 
   @override
-  Future<void> updateRepeatSchedule(RepeatScheduleRule rule) async {
+  Future<void> updateRepeatSchedule(
+    RepeatScheduleRule rule, {
+    DateTime? effectiveFrom,
+  }) async {
     await _dio.patch<Map<String, dynamic>>(
       ApiPaths.scheduleRepeat(rule.id),
-      data: rule.toUpdateRequestJson(),
+      data: {
+        ...rule.toUpdateRequestJson(),
+        // 안 보내면 서버가 지금부터로 본다. 예전 동작과 같다.
+        if (effectiveFrom != null)
+          'effectiveFrom': effectiveFrom.toIso8601String(),
+      },
     );
   }
 
   @override
-  Future<void> deactivateRepeatSchedule(String id) async {
-    await _dio.delete<void>(ApiPaths.scheduleRepeat(id));
+  Future<void> deactivateRepeatSchedule(
+    String id, {
+    bool cancelFutureInstances = false,
+  }) async {
+    await _dio.delete<void>(
+      ApiPaths.scheduleRepeat(id),
+      queryParameters: {'cancelFutureInstances': cancelFutureInstances},
+    );
   }
 }
 
@@ -107,6 +121,11 @@ class ArrivalApi {
   const ArrivalApi(this._dio);
   final Dio _dio;
 
+  /// ARRIVAL-001 도착 보고.
+  ///
+  /// [actualArrival] 과 [locationConsent] 는 **함께** 보내야 뜻이 있다. 서버는 계정 동의와 이번
+  /// 요청 동의가 둘 다 참일 때만 실제 도착 시각을 저장하고, 저장한 시각이 있어야 정시·빠듯·지연을
+  /// 판정한다. 둘 중 하나라도 빠지면 일정만 완료되고 판정은 비어 있는 기록이 남는다.
   Future<ArrivalRecord> record(
     String scheduleId, {
     DateTime? actualArrival,
@@ -278,7 +297,7 @@ class UserApi {
         nickname: '뚜비 사용자',
         notifyLeadMin: 20,
         alarmEnabled: true,
-        transportPrefs: [],
+        briefingTime: null,
       );
     }
     return UserProfile.fromJson(
@@ -290,7 +309,12 @@ class UserApi {
     String? nickname,
     int? notifyLeadMin,
     bool? alarmEnabled,
-    List<Map<String, String>>? transportPrefs,
+    // "07:00" 형식. 빈 문자열을 보내면 서버가 "브리핑 안 받음" 으로 지운다.
+    String? briefingTime,
+    // 밤 브리핑 시각. 규칙은 briefingTime 과 같다.
+    String? nightBriefingTime,
+    // 이동 기록(실제 도착 시각) 저장 동의. 서버가 동의 시각을 찍거나 지운다.
+    bool? historyConsent,
   }) async {
     if (_sessionStore.session == null) return getMe();
     return UserProfile.fromJson(
@@ -301,7 +325,13 @@ class UserApi {
             'nickname': ?nickname,
             'notifyLeadMin': ?notifyLeadMin,
             'alarmEnabled': ?alarmEnabled,
-            'transportPrefs': ?transportPrefs,
+            if (briefingTime != null)
+              'briefingTime': briefingTime.isEmpty ? null : briefingTime,
+            if (nightBriefingTime != null)
+              'nightBriefingTime': nightBriefingTime.isEmpty
+                  ? null
+                  : nightBriefingTime,
+            'historyConsent': ?historyConsent,
           },
         ),
       ),

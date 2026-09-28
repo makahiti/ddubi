@@ -3,15 +3,14 @@ package com.ssafy.ddubi.domain.schedule.dto.response;
 import com.ssafy.ddubi.domain.schedule.entity.Importance;
 import com.ssafy.ddubi.domain.schedule.entity.Schedule;
 import com.ssafy.ddubi.domain.schedule.entity.ScheduleStatus;
-
 import java.time.LocalDateTime;
 
 /**
  * SCH-001~004 공통 일정 응답.
  *
- * @param displayState  화면 표시용 파생 상태. DB status 에 없는 OVERDUE(도착 시각 지남)를 구분한다
- * @param recommendationStatus 저장 직후는 PENDING. 실제 평가 상태는 recommendations/latest에서 조회하며,
- *                             조회 응답에서는 null(미노출 — jackson non_null)
+ * @param displayState 화면 표시용 파생 상태. DB status 에 없는 OVERDUE(도착 시각 지남)를 구분한다
+ * @param recommendationStatus 저장 직후는 PENDING. 실제 평가 상태는 recommendations/latest에서 조회하며, 조회 응답에서는
+ *     null(미노출 — jackson non_null)
  */
 public record ScheduleResponse(
         Long id,
@@ -33,14 +32,14 @@ public record ScheduleResponse(
         String planSource,
         LocalDateTime actualDepartAt,
         String journeyState,
-        long inputRevision
-) {
+        long inputRevision) {
 
     public static ScheduleResponse from(Schedule schedule, LocalDateTime now) {
         return of(schedule, now, null);
     }
 
-    public static ScheduleResponse of(Schedule schedule, LocalDateTime now, String recommendationStatus) {
+    public static ScheduleResponse of(
+            Schedule schedule, LocalDateTime now, String recommendationStatus) {
         return new ScheduleResponse(
                 schedule.getId(),
                 schedule.repeatId(),
@@ -48,15 +47,20 @@ public record ScheduleResponse(
                 LocationResponse.from(schedule.getOrigin()),
                 LocationResponse.from(schedule.getDestination()),
                 schedule.getArriveBy(),
-                schedule.getImportance(),
+                schedule.getImportance().exposed(),
                 schedule.isConsiderLastTrip(),
                 schedule.isCustomized(),
                 schedule.getStatus(),
                 displayState(schedule, now),
                 recommendationStatus,
                 schedule.getCreatedAt(),
-                schedule.getUpdatedAt(), schedule.getPlannedDepartAt(),schedule.getUserInputDepartAt(),
-                schedule.getPlanSource(),schedule.getActualDepartAt(),schedule.getJourneyState(),schedule.getInputRevision());
+                schedule.getUpdatedAt(),
+                schedule.getPlannedDepartAt(),
+                schedule.getUserInputDepartAt(),
+                schedule.getPlanSource(),
+                schedule.getActualDepartAt(),
+                schedule.getJourneyState(),
+                schedule.getInputRevision());
     }
 
     private static String displayState(Schedule schedule, LocalDateTime now) {

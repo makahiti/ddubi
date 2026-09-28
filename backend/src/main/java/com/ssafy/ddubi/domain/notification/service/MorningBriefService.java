@@ -118,13 +118,14 @@ public class MorningBriefService {
         return "MORNING_BRIEF:" + now.toLocalDate();
     }
 
-    /** {@code 09:00 회사 · 14:00 병원 · 19:00 저녁약속 외 2건} */
+    /** {@code 09:00 회사 · 14:00 병원 외 2건 · 오늘 일정을 확인해 보세요} */
     private String body(List<Schedule> today) {
         String listed = today.stream().limit(LISTED)
                 .map(schedule -> schedule.getArriveBy().toLocalTime().format(AT) + " " + schedule.getTitle())
                 .collect(Collectors.joining(" · "));
         int remaining = today.size() - LISTED;
-        return remaining > 0 ? listed + " 외 " + remaining + "건" : listed;
+        String times = remaining > 0 ? listed + " 외 " + remaining + "건" : listed;
+        return times + " · 오늘 일정을 확인해 보세요";
     }
 
     /**

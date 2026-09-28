@@ -283,6 +283,60 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  // 2026-09-25 요청: 일정 상세의 이동 예측 카드는 없앤다. 그래도 평가는 계속 읽어 맨 위 결론·시연 시작에 쓴다.
+  testWidgets('카드를 숨겨도 평가를 읽어 결론 값과 첫 결과 콜백을 채운다', (tester) async {
+    final repository = _FakeEvaluationRepository([fixtures['keep']!]);
+    final headline = ValueNotifier<ScheduleEvaluationV2?>(null);
+    var displayed = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScheduleEvaluationCard(
+            repository: repository,
+            scheduleId: 'schedule-1',
+            headline: headline,
+            showCard: false,
+            onFirstReadyDisplayed: () => displayed++,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('scheduleEvaluationCard')), findsNothing);
+    expect(headline.value, isNotNull);
+    expect(displayed, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('첫 READY 표시 뒤 시연 콜백은 한 번만 실행되고 이벤트 후 즉시 재조회한다', (tester) async {
+    final repository = _FakeEvaluationRepository([fixtures['keep']!]);
+    var displayed = 0;
+    Widget card(int generation) => MaterialApp(
+      home: Scaffold(
+        body: ScheduleEvaluationCard(
+          repository: repository,
+          scheduleId: 'schedule-1',
+          refreshGeneration: generation,
+          onFirstReadyDisplayed: () => displayed++,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(card(0));
+    await tester.pumpAndSettle();
+    expect(displayed, 1);
+    expect(repository.latestCalls, 1);
+
+    await tester.pumpWidget(card(1));
+    await tester.pumpAndSettle();
+    expect(repository.latestCalls, 2);
+    expect(displayed, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('409 수락 충돌 후 최신 평가를 다시 조회하고 자동 수락하지 않는다', (tester) async {
     final first = fixtures['keep']!;
     final latest = fixtures['advance']!;
@@ -444,6 +498,65 @@ void main() {
     await tester.pump();
     expect(repository.latestCalls, 2);
     expect(find.text('평가가 완료됐습니다.'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('주기 재계산 PENDING 동안 직전 평가와 상단 결론을 유지한다', (tester) async {
+    final repository = _FakeEvaluationRepository([
+      fixtures['keep']!,
+      fixtures['pending']!,
+      fixtures['advance']!,
+    ]);
+    final headline = ValueNotifier<ScheduleEvaluationV2?>(null);
+    addTearDown(headline.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScheduleEvaluationCard(
+            repository: repository,
+            scheduleId: 'schedule-1',
+            headline: headline,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(headline.value?.evaluationId, 'eval-keep');
+
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pump();
+    expect(repository.latestCalls, 2);
+    expect(headline.value?.evaluationId, 'eval-keep');
+    expect(find.text('계산 중'), findsOneWidget);
+    expect(find.text('현재 출발 계획을 유지해도 일정 전에 도착할 것으로 예상됩니다.'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(headline.value?.evaluationId, 'eval-advance');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('실제 출발 시각이 등록되면 다음 정기 확인을 기다리지 않고 다시 읽는다', (tester) async {
+    final repository = _FakeEvaluationRepository([
+      fixtures['keep']!,
+      fixtures['stopped']!,
+    ]);
+    Widget card(DateTime? departedAt) => MaterialApp(
+      home: Scaffold(
+        body: ScheduleEvaluationCard(
+          repository: repository,
+          scheduleId: 'schedule-1',
+          departedAt: departedAt,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(card(null));
+    await tester.pump();
+    expect(repository.latestCalls, 1);
+    await tester.pumpWidget(card(DateTime(2026, 9, 23, 8, 11)));
+    await tester.pump();
+    expect(repository.latestCalls, 2);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

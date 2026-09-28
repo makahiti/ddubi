@@ -21,17 +21,27 @@ public class RouteEvidenceAssembler {
     private final StringRedisTemplate redis;
     private final ObjectMapper json;
     private final RoadImpactEvidence road;
+    private final ProvisionalRoadEvidence provisionalRoad;
 
     public RouteEvidenceAssembler(StringRedisTemplate redis, ObjectMapper json) {
-        this(redis, json, null);
+        this(redis, json, null, null);
+    }
+
+    public RouteEvidenceAssembler(
+            StringRedisTemplate redis, ObjectMapper json, RoadImpactEvidence road) {
+        this(redis, json, road, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public RouteEvidenceAssembler(
-            StringRedisTemplate redis, ObjectMapper json, RoadImpactEvidence road) {
+            StringRedisTemplate redis,
+            ObjectMapper json,
+            RoadImpactEvidence road,
+            ProvisionalRoadEvidence provisionalRoad) {
         this.redis = redis;
         this.json = json;
         this.road = road;
+        this.provisionalRoad = provisionalRoad;
     }
 
     /** 외부 원본을 노출하지 않는 고정 스냅샷. 검증된 상태 JSON과 오류 이유로 Replay할 수 있다. */
@@ -111,16 +121,56 @@ public class RouteEvidenceAssembler {
                 reasons.add(id + ":INVALID_PAYLOAD");
             }
         }
-        return new Snapshot(states, reasons, road == null ? Map.of() : road.read(candidates, asOf));
+        return new Snapshot(states, reasons, roads(candidates, asOf));
     }
 
     /**
-     * 보강된 접근·이탈 도보와 원본 환승·탑승 step을 초 단위 fallback으로 제공한다. 총시간과 step 합의 차이는 사용하지 않는다. 대기는 서비스에서 계산 성공
-     * 시에만 삽입한다. Redis는 통제 근거이며 이 단계에서 이동시간을 교체하지 않는다.
+     * 승인된 도로 근거가 있으면 그것만 쓴다. 없을 때만 후보 대응표로 만든 근거를 쓴다 — 사고 자료를 받아 두고도 검토가 끝나기 전까지 아무것도 못 쓰는 것을 막기
+     * 위해서다. 후보 근거로 나오는 원인은 "가능성" 이며 경로를 막거나 예상 시각을 바꾸지 않는다.
+     */
+    private Map<String, JsonNode> roads(List<RouteCandidate> candidates, Instant asOf) {
+        // 승인 파일이 설정돼 있으면 결과가 비어도 그쪽이 권위다. 설정이 없을 때 돌아오는 "설정 없음" 값은
+        // 근거가 아니므로 후보 근거로 넘어간다(2026-09-23: 이 구분이 없어 후보 근거가 한 번도 쓰이지 않았다).
+        if (road != null && road.configured()) return road.read(candidates, asOf);
+        if (provisionalRoad != null && provisionalRoad.enabled())
+            return provisionalRoad.read(candidates, asOf);
+        // 둘 다 없으면 예전처럼 승인 부품의 "설정 없음" 사유를 남긴다. 사고 없음으로 바꾸지 않는다.
+        return road == null ? Map.of() : road.read(candidates, asOf);
+    }
+
+    /**
+     * 보강된 접근·이탈 도보와 원본 환승·탑승 step을 초 단위 fallback으로 제공한다. 끝점 도보시간 자체가 없으면 provider 전체시간 하나로 내리고,
+     * 일반적인 미분류 비용은 별도 UNASSIGNED 요소로 보존한다. 미분류 값에는 대기가 이미 포함됐을 수 있어 호출자가 실시간 대기를 다시 더하지 않는다. Redis는
+     * 통제 근거이며 이 단계에서 이동시간을 교체하지 않는다.
      */
     public Journey assemble(RouteCandidate candidate, Snapshot snapshot, Instant asOf) {
-        // 구간별 합산 정책: provider 총시간과의 차이를 대기/도보로 배분하지 않는다.
-        // 대기는 JourneyEvaluationService에서 실제 계산 성공 시에만 추가한다.
+        boolean endpointDurationUnknown =
+                candidate.segments().stream()
+                        .anyMatch(
+                                segment ->
+                                        "EVALUATION_ENDPOINT_WALK"
+                                                        .equals(segment.providerRouteKey())
+                                                && segment.durationSeconds() == 0);
+        if (endpointDurationUnknown) {
+            var ids =
+                    candidate.segments().stream()
+                            .flatMap(segment -> edges(segment).stream())
+                            .map(MappedTransitSegment::segmentId)
+                            .distinct()
+                            .toList();
+            return new Journey(
+                    key(candidate),
+                    List.of(
+                            new Leg(
+                                    "provider-total",
+                                    Kind.PROVIDER_TOTAL,
+                                    ids,
+                                    candidate.totalDurationSeconds(),
+                                    null,
+                                    null,
+                                    List.of())));
+        }
+
         long unassigned = 0;
         var legs = new ArrayList<Leg>();
         for (RouteSegment segment : candidate.segments()) {
@@ -138,6 +188,16 @@ public class RouteEvidenceAssembler {
                             List.of(),
                             unassigned));
         }
+        if (candidate.unassignedDurationSeconds() > 0)
+            legs.add(
+                    new Leg(
+                            "provider-unassigned",
+                            Kind.UNASSIGNED,
+                            List.of(),
+                            candidate.unassignedDurationSeconds(),
+                            null,
+                            null,
+                            List.of()));
 
         return new Journey(key(candidate), legs);
     }

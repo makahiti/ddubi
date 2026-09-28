@@ -19,15 +19,15 @@ public record ScheduleEvaluationV2(
         String state,
         String decision,
         String triggerReason,
-        Instant userInputDepartAt,
-        Instant plannedDepartAt,
-        Instant effectiveDepartAt,
-        Instant arriveBy,
-        Instant originalEstimatedArrivalAt,
-        Instant targetArriveAt,
+        LocalDateTime userInputDepartAt,
+        LocalDateTime plannedDepartAt,
+        LocalDateTime effectiveDepartAt,
+        LocalDateTime arriveBy,
+        LocalDateTime originalEstimatedArrivalAt,
+        LocalDateTime targetArriveAt,
         int appliedBufferSeconds,
-        Instant proposedDepartAt,
-        Instant estimatedArrivalAt,
+        LocalDateTime proposedDepartAt,
+        LocalDateTime estimatedArrivalAt,
         Long durationSeconds,
         Long latenessSeconds,
         Boolean arrivesBeforeSchedule,
@@ -35,6 +35,7 @@ public record ScheduleEvaluationV2(
         boolean departureMissed,
         Long selectedRouteId,
         Long proposedRouteId,
+        com.ssafy.ddubi.domain.route.model.FareRange fare,
         Quality quality,
         ConditionalDepartureEvaluator.Search search,
         String bestKnownDecision,
@@ -48,13 +49,15 @@ public record ScheduleEvaluationV2(
         EvaluationGuidance guidance,
         List<CandidateEstimate> candidateEstimates) {
     /** 같은 평가·같은 출발시각에서 비교한 순위다. 원본 route.baseDurationMin과 구별한다. */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)
     public record CandidateEstimate(
             String candidateKey,
             Long routeId,
             int rank,
             String assessment,
-            Instant departAt,
-            Instant estimatedArrivalAt,
+            LocalDateTime departAt,
+            LocalDateTime estimatedArrivalAt,
             Long durationSeconds,
             boolean selected,
             boolean proposed) {}
@@ -66,6 +69,7 @@ public record ScheduleEvaluationV2(
             String candidateKey,
             int sequence,
             String mode,
+            String routeLabel,
             String fromName,
             String toName,
             String legRole,
@@ -147,6 +151,25 @@ public record ScheduleEvaluationV2(
 
     private static Instant earlier(Instant left, Instant right) {
         return left.isBefore(right) ? left : right;
+    }
+
+    /**
+     * 감시 창 안에서 다음 정기 계산이 가장 멀 때의 간격({@link ScheduleMonitoringPolicy} 의 farInterval 과 같다). 다음 정기 계산이
+     * 이보다 멀면 아직 감시 창(출발 1시간 전)이 열리지 않은 것이다.
+     */
+    static final java.time.Duration WATCH_MAX_INTERVAL = java.time.Duration.ofMinutes(10);
+
+    /**
+     * 감시 창(출발 1시간 전)이 열리기 전이라, 다음 정기 계산이 {@link ScheduleMonitoringPolicy.PreWatch} 의
+     * 간격(3일·하루·1시간·30분)으로 멀리 잡혀 있는가.
+     *
+     * <p>이때는 결과를 다음 정기 계산까지 유효로 두고, 기본 유효시간(10분)이나 도보·실시간 근거 만료로 계산을 당기지 않는다. 당기면 정한 간격이 무시되고 몇 주 뒤
+     * 반복 일정까지 10분마다 다시 계산된다. 2026-09-25 에 9/28~10/7 출근 반복 9건이 그렇게 하루 약 1,300번 계산됐고, 그때마다 추천 기록(한 줄
+     * 약 800KB)과 평가 행(약 1.4MB)을 새로 써서 DB 가 하루 1GB 넘게 늘고 변경 기록(binlog)이 하루 16~19GB 쌓였다. 창이 열리면 평소처럼
+     * 10분·5분·1분 간격으로 새로 계산한다.
+     */
+    public static boolean waitingForWatch(Instant now, Instant scheduled) {
+        return scheduled.isAfter(now.plus(WATCH_MAX_INTERVAL));
     }
 
     /** 만료 후 정기 갱신까지 빈 화면으로 남지 않도록 증거 만료에도 깨운다. 과거 만료의 즉시 반복은 피한다. */
@@ -264,6 +287,15 @@ public record ScheduleEvaluationV2(
         var p = e.proposed();
         Instant eta = p == null ? null : p.estimatedArrivalAt();
         var comparison = e.proposedComparison();
+        var fare =
+                p == null || routes == null
+                        ? null
+                        : routes.stream()
+                                .filter(r -> RouteEvidenceAssembler.key(r).equals(p.journeyKey()))
+                                .map(com.ssafy.ddubi.domain.route.model.RouteCandidate::fare)
+                                .filter(Objects::nonNull)
+                                .findFirst()
+                                .orElse(null);
         var scopedIds =
                 routes == null
                         ? List.<String>of()
@@ -511,8 +543,8 @@ public record ScheduleEvaluationV2(
                             routeIds.get(candidate.journeyKey()),
                             candidateEstimates.size() + 1,
                             candidate.assessment().name(),
-                            candidate.departureAt(),
-                            candidate.estimatedArrivalAt(),
+                            kst(candidate.departureAt()),
+                            kst(candidate.estimatedArrivalAt()),
                             candidate.estimatedArrivalAt() == null
                                     ? null
                                     : Duration.between(
@@ -532,15 +564,15 @@ public record ScheduleEvaluationV2(
                 "READY",
                 e.decision().name(),
                 trigger,
-                userInput,
-                planned,
-                planned.isBefore(now) ? now : planned,
-                deadline,
-                e.original() == null ? null : e.original().estimatedArrivalAt(),
-                e.targetArriveAt() == null ? deadline : e.targetArriveAt(),
+                kst(userInput),
+                kst(planned),
+                kst(planned.isBefore(now) ? now : planned),
+                kst(deadline),
+                e.original() == null ? null : kst(e.original().estimatedArrivalAt()),
+                kst(e.targetArriveAt() == null ? deadline : e.targetArriveAt()),
                 e.appliedBufferSeconds(),
-                p == null ? null : p.departureAt(),
-                eta,
+                p == null ? null : kst(p.departureAt()),
+                kst(eta),
                 eta == null ? null : Duration.between(p.departureAt(), eta).getSeconds(),
                 eta == null ? null : Math.max(0, Duration.between(deadline, eta).getSeconds()),
                 eta == null ? null : eta.isBefore(deadline),
@@ -548,6 +580,7 @@ public record ScheduleEvaluationV2(
                 e.departureMissed(),
                 selectedRouteId,
                 proposedRouteId,
+                fare,
                 new Quality(
                         true,
                         false,
@@ -570,6 +603,14 @@ public record ScheduleEvaluationV2(
                 legs,
                 EvaluationGuidance.from(e),
                 List.copyOf(candidateEstimates));
+    }
+
+    /**
+     * 사용자에게 보여 주는 일정 시각은 기존 일정 API와 같은 Asia/Seoul 업무시각으로 직렬화한다. 내부 계산과 만료 판정은 계속 {@link Instant}를
+     * 사용하며, 응답 경계에서만 변환한다. 서버 JVM의 기본 시간대에 기대면 배포 환경에 따라 다시 9시간이 어긋날 수 있으므로 고정 ZoneId를 사용한다.
+     */
+    private static LocalDateTime kst(Instant value) {
+        return value == null ? null : LocalDateTime.ofInstant(value, ZoneId.of("Asia/Seoul"));
     }
 
     /** 호출 성공만으로 applied를 만들지 않는다. 최종 타임라인에 해당 WALK와 교체 시간이 실제 남아 있어야 한다. */
@@ -643,6 +684,7 @@ public record ScheduleEvaluationV2(
                             original == null && leg.legRole().endsWith("WALK")
                                     ? "WALK"
                                     : original == null ? null : original.mode().name(),
+                            original == null ? null : original.providerRouteKey(),
                             original == null ? null : original.fromName(),
                             original == null ? null : original.toName(),
                             leg.legRole(),

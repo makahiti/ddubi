@@ -167,12 +167,13 @@ def redis_rows(df):
     )
 
 
-def main():
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    settings, target = Settings.from_env(), silver_uri(os.environ)
-    spark = (
-        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
-    )
+def prepare(spark, settings):
+    """스트림을 준비하고 (필수 Redis 시작 함수, 선택 Silver 시작 함수)를 돌려준다.
+
+    main() 과 합친 실행기(light_streaming.py)가 같이 쓴다. 쿼리 이름·체크포인트 경로는 그대로라
+    어느 쪽으로 실행해도 읽던 자리부터 이어서 읽는다.
+    """
+    target = silver_uri(os.environ)
     gms, geocoder = clients()
     events = read_events_stream(spark, settings, TOPIC)
 
@@ -230,6 +231,16 @@ def main():
         start_silver = start_silver_query
     else:
         log.warning("TOPIS_SILVER_OUTPUT_URI is empty; HDFS disabled while Redis remains enabled")
+    return start_redis, start_silver
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    settings = Settings.from_env()
+    spark = (
+        SparkSession.builder.appName("ddubi-" + JOB).config("spark.sql.session.timeZone", "Asia/Seoul").getOrCreate()
+    )
+    start_redis, start_silver = prepare(spark, settings)
     try:
         supervise(start_redis, start_silver)
     finally:

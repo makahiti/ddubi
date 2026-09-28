@@ -73,14 +73,15 @@ class EvaluationRecoveryTest {
                         true);
         var failed = service.prepare(List.of(route), f.origin, f.destination, f.now);
         assertThat(failed.candidates().get(0).totalDurationSeconds()).isEqualTo(600);
-        assertThat(failed.candidates().get(0).segments()).hasSize(1);
+        assertThat(failed.candidates().get(0).segments()).hasSize(3);
         assertThat(failed.evidence().fallbackReasons())
                 .contains("WALK_ENDPOINT_DURATION_UNAVAILABLE");
         var residual =
                 new RouteCandidate(0, RouteType.BUS, 1000, 900, 0, null, 0, 300, List.of(ride));
         var unknown = service.prepare(List.of(residual), f.origin, f.destination, f.now);
         assertThat(unknown.evidence().apiCalls()).isEqualTo(2);
-        assertThat(unknown.candidates().get(0).totalDurationSeconds()).isEqualTo(600);
+        assertThat(unknown.candidates().get(0).totalDurationSeconds()).isEqualTo(900);
+        assertThat(unknown.candidates().get(0).unassignedDurationSeconds()).isEqualTo(300);
         assertThat(unknown.evidence().fallbackReasons()).contains("WALK_HTTP_403");
     }
 
@@ -146,7 +147,7 @@ class EvaluationRecoveryTest {
     }
 
     @Test
-    void testAppliedModelRemainsUnacceptable() {
+    void explicitlyTestAppliedModelCanBeAcceptedForManualQa() {
         var f = new MlApplyModeTest();
         when(f.client.predict(any())).thenReturn(f.sufficient(30));
         var e =
@@ -168,7 +169,9 @@ class EvaluationRecoveryTest {
                                                         at,
                                                         f.now.plusSeconds(1000)));
         assertThat(EvaluationGuidance.from(e).canDisplayEstimate()).isTrue();
-        assertThat(EvaluationGuidance.from(e).canAccept()).isFalse();
+        assertThat(EvaluationGuidance.from(e).canAccept()).isTrue();
+        assertThat(EvaluationGuidance.from(e).source()).isEqualTo("EXPERIMENTAL_ESTIMATE");
+        assertThat(EvaluationGuidance.from(e).reasons()).contains("ML_TEST_APPLIED");
     }
 
     @Test

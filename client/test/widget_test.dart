@@ -4,6 +4,7 @@ import 'package:ddubi/data/mock_repository.dart';
 import 'package:ddubi/core/theme.dart';
 import 'package:ddubi/domain/auth.dart';
 import 'package:ddubi/domain/models.dart';
+import 'package:ddubi/domain/schedule_evaluation.dart';
 import 'package:ddubi/presentation/auth_screens.dart';
 import 'package:ddubi/presentation/screens.dart';
 import 'package:ddubi/presentation/widgets.dart';
@@ -362,10 +363,10 @@ void main() {
     final router = container.read(appRouterProvider);
     router.go('/schedules');
     await tester.pumpAndSettle();
-    bool? navigationResult;
+    Schedule? navigationResult;
     // 도착 기본값 19:30보다 현재 시각이 늦어도 출발 < 도착인 저장 시나리오를 유지한다.
     final navigation = router
-        .push<bool>(
+        .push<Schedule>(
           '/schedules/new',
           extra: DateTime.now().add(const Duration(days: 2)),
         )
@@ -417,8 +418,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('필수 입력 항목입니다.'), findsNothing);
     // 저장 실패 시 미완료 Future를 기다려 CI가 장시간 멈추지 않도록 먼저 검사한다.
-    expect(navigationResult, isTrue);
-    expect(await navigation, isTrue);
+    expect(navigationResult?.title, '병원 예약');
+    expect((await navigation)?.title, '병원 예약');
 
     final saved = await repository.schedules();
     expect(saved.any((schedule) => schedule.title == '병원 예약'), isTrue);
@@ -510,12 +511,12 @@ void main() {
       origin: MockDdubiRepository.home,
       destination: const PlaceLocation(name: '서울병원', lat: 37.492, lng: 127.014),
       arriveBy: DateTime(2026, 9, 10, 19),
-      importance: ScheduleImportance.critical,
+      importance: ScheduleImportance.high,
       considerLastTrip: true,
       updatedAt: updatedAt,
     );
 
-    expect(schedule.toCreateRequestJson()['importance'], 'CRITICAL');
+    expect(schedule.toCreateRequestJson()['importance'], 'HIGH');
     expect(schedule.toCreateRequestJson()['considerLastTrip'], isTrue);
     expect(
       (schedule.toCreateRequestJson()['destination'] as Map)['lat'],
@@ -593,6 +594,7 @@ void main() {
           recommendationApi: _SavedRouteRecommendationApi(),
           scheduleId: schedule.id,
           arrivalApi: ArrivalApi(Dio()),
+          userApi: UserApi(Dio(), AuthSessionStore()),
           initialSchedule: schedule,
         ),
       ),
@@ -606,6 +608,10 @@ void main() {
 
     expect(find.byKey(const Key('mobileSavedRouteLayout')), findsOneWidget);
     expect(find.byKey(const Key('savedRouteDetail')), findsOneWidget);
+    // 지도가 직접 그리는 선은 위젯 검사에 뜨지 않으므로 지도 자리만 확인한다.
+    // 대체 그림(예전 방식)은 지도가 선을 못 그렸을 때만 붙는데, 검사 환경에는
+    // 실제 지도가 없어 늘 대체 쪽이다.
+    expect(find.byKey(const Key('savedRouteMap')), findsOneWidget);
     expect(find.byKey(const Key('savedRoutePolyline')), findsOneWidget);
     expect(find.textContaining('버스 146'), findsOneWidget);
     expect(find.text('서버 경로 좌표 · 2개 점'), findsOneWidget);
@@ -662,6 +668,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('placeSearchResult0')));
     await tester.pumpAndSettle();
+    // 출발 예정시각은 서버가 생성 때 필수로 받는다. 앱이 임의로 채우지 않으므로
+    // 사용자가 직접 넣어야 저장된다.
+    await tester.enterText(
+      find.byKey(const Key('repeatDepartTimeField')),
+      '08:10',
+    );
     await tester.drag(find.byType(ListView).last, const Offset(0, -450));
     await tester.pumpAndSettle();
     expect(find.text('반복 요일'), findsOneWidget);
@@ -770,10 +782,8 @@ void main() {
     expect(find.byKey(const Key('webRouteResultsLayout')), findsOneWidget);
     expect(find.byKey(const Key('webRouteResultsGrid')), findsOneWidget);
     expect(find.byKey(const Key('mobileRouteResultsLayout')), findsNothing);
-    expect(
-      find.byType(RouteCard),
-      findsNWidgets(MockDdubiRepository.routeData.length),
-    );
+    // 후보가 여러 개여도 화면에는 제일 추천하는 경로 한 장만 남는다.
+    expect(find.byType(RouteCard), findsOneWidget);
   });
 
   testWidgets('전체 지도는 Web에서 지도와 상세 정보를 좌우로 표시한다', (tester) async {
@@ -829,7 +839,8 @@ void main() {
     expect(find.byKey(const Key('webSettingsLayout')), findsOneWidget);
     expect(find.byKey(const Key('mobileSettingsLayout')), findsNothing);
     expect(find.text('뚜비와 더 편리한 이동을 위한 설정을 관리해요.'), findsOneWidget);
-    expect(find.byKey(const Key('weeklyStampBoardCard')), findsOneWidget);
+    // 도장판(미션 스탬프)은 제공하지 않기로 했다. 화면에 남아 있으면 안 된다.
+    expect(find.byKey(const Key('weeklyStampBoardCard')), findsNothing);
     expect(find.text('서비스 상태'), findsNothing);
     expect(find.text('회원 탈퇴'), findsNothing);
   });
@@ -868,8 +879,8 @@ void main() {
     expect(find.text('도보'), findsNothing);
     expect(find.text('택시'), findsNothing);
     expect(find.text('더보기'), findsWidgets);
-    expect(find.byKey(const Key('weeklyStampBoardCard')), findsOneWidget);
-    expect(find.byKey(const Key('stampBoardPreparing')), findsOneWidget);
+    expect(find.byKey(const Key('weeklyStampBoardCard')), findsNothing);
+    expect(find.byKey(const Key('stampBoardPreparing')), findsNothing);
     expect(find.byKey(const Key('stampMissionPreviewRow')), findsNothing);
     expect(find.byKey(const Key('stampMissionGrid')), findsNothing);
     expect(find.byKey(const Key('stampBoardProgress')), findsNothing);
@@ -892,12 +903,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('accountPasswordDialog')), findsNothing);
 
+    // 아침 브리핑 카드가 생기면서 설정 화면이 길어졌다. 한 번에 끌어서는 문의 버튼까지
+    // 닿지 않아 두 번 나눠 내린다.
+    await tester.drag(
+      find.byKey(const Key('mobileSettingsLayout')),
+      const Offset(0, -500),
+    );
+    await tester.pumpAndSettle();
     await tester.drag(
       find.byKey(const Key('mobileSettingsLayout')),
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('helpInquiryButton')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('helpInquiryButton')));
     await tester.pumpAndSettle();
     expect(find.text('무엇을 도와드릴까요?'), findsOneWidget);
@@ -1062,13 +1081,15 @@ void main() {
     expect(find.byKey(const Key('routeDeviationBanner')), findsNothing);
   });
 
-  testWidgets('출발 안내 후 이동 중 상태로 전환한다', (tester) async {
+  testWidgets('일정과 이어지지 않은 경로는 출발을 서버에 남기지 않는다고 알린다', (tester) async {
     final repository = MockDdubiRepository();
     await tester.pumpWidget(
-      MaterialApp(
-        home: MovingScreen(
-          repository: repository,
-          route: MockDdubiRepository.routeData.first,
+      ProviderScope(
+        child: MaterialApp(
+          home: MovingScreen(
+            repository: repository,
+            route: MockDdubiRepository.routeData.first,
+          ),
         ),
       ),
     );
@@ -1076,7 +1097,7 @@ void main() {
 
     expect(find.text('출발 안내'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('출발했어요'), 300);
-    expect(find.text('출발했어요'), findsOneWidget);
+    expect(find.byKey(const Key('departureNotLinkedNotice')), findsOneWidget);
 
     await tester.tap(find.text('출발했어요'));
     await tester.pump();
@@ -1085,6 +1106,109 @@ void main() {
     await tester.scrollUntilVisible(find.text('도착했어요'), 300);
     expect(find.text('도착했어요'), findsOneWidget);
   });
+
+  /// "출발했어요" 가 화면 글자만 바꾸던 회귀를 막는다. 서버에 알리지 않으면 그 일정의 출발
+  /// 안내가 끝나지 않고, 앱을 다시 열면 출발한 적 없는 것처럼 보인다.
+  testWidgets('일정에 연결된 이동 안내는 출발을 서버에 알린다', (tester) async {
+    final repository = _DepartureRecordingRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [scheduleRepositoryProvider.overrideWithValue(repository)],
+        child: MaterialApp(
+          home: MovingScreen(
+            repository: MockDdubiRepository(),
+            route: MockDdubiRepository.routeData.first,
+            scheduleId: 'schedule-1',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('departureNotLinkedNotice')), findsNothing);
+    await tester.scrollUntilVisible(find.text('출발했어요'), 300);
+    await tester.tap(find.text('출발했어요'));
+    // 뚜비 달리기 애니메이션이 계속 돌아 pumpAndSettle 은 끝나지 않는다. 두 번만 그린다.
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.departedIds, ['schedule-1']);
+    expect(find.text('이동 중'), findsOneWidget);
+  });
+
+  /// 서버에 알리지 못해도 안내는 계속 봐야 한다. 대신 알리지 못했다는 사실을 숨기지 않는다.
+  testWidgets('출발을 서버에 알리지 못하면 이동 중으로 넘어가되 사실을 적는다', (tester) async {
+    final repository = _DepartureRecordingRepository(fail: true);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [scheduleRepositoryProvider.overrideWithValue(repository)],
+        child: MaterialApp(
+          home: MovingScreen(
+            repository: MockDdubiRepository(),
+            route: MockDdubiRepository.routeData.first,
+            scheduleId: 'schedule-1',
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.scrollUntilVisible(find.text('출발했어요'), 300);
+    await tester.tap(find.text('출발했어요'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('이동 중'), findsOneWidget);
+    expect(find.byKey(const Key('departureUnsyncedNotice')), findsOneWidget);
+  });
+
+  /// 서버에 이미 출발이 기록된 일정은 화면을 열자마자 이동 중이어야 한다. 예전에는 화면 안의
+  /// 임시 상태만 있어서 뒤로 나갔다 들어오면 다시 "출발 전" 이 됐다.
+  testWidgets('이미 출발한 일정은 이동 중으로 열린다', (tester) async {
+    final repository = _DepartureRecordingRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        // 출발 기준 ETA 조회는 provider에서 저장소를 읽는다. 실제 HTTP 요청이
+        // 테스트 밖으로 새지 않게 같은 Mock을 화면과 provider에 함께 넣는다.
+        overrides: [scheduleRepositoryProvider.overrideWithValue(repository)],
+        child: MaterialApp(
+          home: MovingScreen(
+            repository: repository,
+            route: MockDdubiRepository.routeData.first,
+            scheduleId: 'schedule-1',
+            departedAlready: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('이동 중'), findsOneWidget);
+    expect(find.text('출발했어요'), findsNothing);
+  });
+}
+
+/// 출발 보고만 기록하는 저장소. [fail] 이면 서버 실패를 흉내 낸다.
+class _DepartureRecordingRepository extends MockDdubiRepository
+    implements ScheduleEvaluationRepository {
+  _DepartureRecordingRepository({this.fail = false});
+
+  final bool fail;
+  final List<String> departedIds = [];
+
+  @override
+  Future<ScheduleEvaluationV2> latestEvaluation(String id) async =>
+      ScheduleEvaluationV2.fromLegacyJson({'state': 'PENDING'});
+  @override
+  Future<void> refreshEvaluation(String id) async {}
+  @override
+  Future<void> acceptEvaluation(String id, String evaluationId) async {}
+  @override
+  Future<void> confirmDeparture(String id) async {
+    if (fail) throw StateError('서버 실패');
+    departedIds.add(id);
+  }
 }
 
 class _FakeKakaoLoginService implements KakaoLoginService {
@@ -1139,6 +1263,17 @@ class _FakePlaceSearchService implements PlaceSearchService {
         lng: 127.014,
       ),
   ];
+
+  @override
+  Future<PlaceSearchPage> searchPage(
+    String query, {
+    int page = 0,
+    int size = 10,
+  }) async => PlaceSearchPage(
+    items: await search(query, page: page, size: size),
+    hasNext: false,
+    totalElements: 1,
+  );
 }
 
 class _FakeRecommendationApi extends RecommendationApi {

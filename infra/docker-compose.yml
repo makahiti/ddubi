@@ -44,22 +44,55 @@ x-collector-env: &collector-env
   KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
   COLLECTOR_INTERVAL_SECONDS: ${COLLECTOR_INTERVAL_SECONDS:-}   # 비우면 소스별 기본 주기
   WEATHER_GRID_POINTS: ${WEATHER_GRID_POINTS:-}                 # 비우면 서울 25개 구
-  # --- API 키: <소스명>_API_KEY 로 통일 (2026-09-10). 값은 서버 .env 의 "수집기 전용" 절 ---
+  # --- 포털별 공통 키 우선. 기존 소스별 변수는 배포 전환용 fallback ---
   KMA_API_KEY: ${KMA_API_KEY:-}                                 # weather (우선)
   DATA_GO_KR_API_KEY: ${DATA_GO_KR_API_KEY:-}                   # weather (KMA 없을 때)
-  BUS_ARRIVAL_API_KEY: ${BUS_ARRIVAL_API_KEY:-}
-  BUS_LOCATION_API_KEY: ${BUS_LOCATION_API_KEY:-}
+  BUS_API_KEY_A: ${BUS_API_KEY_A:-}                             # 도착·위치 공용 버스 키 풀 A
+  BUS_API_KEY_B: ${BUS_API_KEY_B:-}                             # 도착·위치 공용 버스 키 풀 B
+  SEOUL_OPEN_DATA_API_KEY: ${SEOUL_OPEN_DATA_API_KEY:-}         # 서울 열린데이터광장 일반키
   SUBWAY_API_KEY: ${SUBWAY_API_KEY:-}                           # subway_arrival, subway_location
   SUBWAY_ALERT_API_KEY: ${SUBWAY_ALERT_API_KEY:-}
   CITY_REALTIME_API_KEY: ${CITY_REALTIME_API_KEY:-}
   TOPIS_NOTICE_API_KEY: ${TOPIS_NOTICE_API_KEY:-}
   TRAFFIC_INCIDENT_API_KEY: ${TRAFFIC_INCIDENT_API_KEY:-}
-  # --- 호출 예산: 실제 키 값이 같은 변수끼리 합산해 최근 24시간 한도. sqlite 는 수집기 공용 볼륨(collector-budget) ---
+  # --- 호출 예산: 일반 소스는 키별 합산, 도시·TOPIS·버스는 데이터셋 namespace별 최근 24시간 한도 ---
+  # sqlite 는 수집기 공용 볼륨(collector-budget)을 사용한다.
   API_DAILY_LIMIT: ${API_DAILY_LIMIT:-900}
+  CITY_REALTIME_DAILY_BUDGET: ${CITY_REALTIME_DAILY_BUDGET:-40000}
+  CITY_REALTIME_QUOTA_POOL: ${CITY_REALTIME_QUOTA_POOL:-seoul-open-data:OA-21285}
+  TOPIS_NOTICE_PAGE_SIZE: ${TOPIS_NOTICE_PAGE_SIZE:-100}
+  TOPIS_NOTICE_DAILY_BUDGET: ${TOPIS_NOTICE_DAILY_BUDGET:-500}
+  TOPIS_NOTICE_QUOTA_POOL: ${TOPIS_NOTICE_QUOTA_POOL:-seoul-open-data:OA-22861}
+  TOPIS_NOTICE_WEEKDAY_PEAK_WINDOWS: ${TOPIS_NOTICE_WEEKDAY_PEAK_WINDOWS:-06:30-09:30,16:30-20:00}
+  TOPIS_NOTICE_ACTIVE_WINDOWS: ${TOPIS_NOTICE_ACTIVE_WINDOWS:-05:00-24:00}
+  TOPIS_NOTICE_PEAK_INTERVAL_SECONDS: ${TOPIS_NOTICE_PEAK_INTERVAL_SECONDS:-300}
+  TOPIS_NOTICE_OFFPEAK_INTERVAL_SECONDS: ${TOPIS_NOTICE_OFFPEAK_INTERVAL_SECONDS:-600}
+  TOPIS_NOTICE_OVERNIGHT_INTERVAL_SECONDS: ${TOPIS_NOTICE_OVERNIGHT_INTERVAL_SECONDS:-3600}
+  TRAFFIC_INCIDENT_WEEKDAY_PEAK_WINDOWS: ${TRAFFIC_INCIDENT_WEEKDAY_PEAK_WINDOWS:-06:30-09:30,16:30-20:00}
+  TRAFFIC_INCIDENT_ACTIVE_WINDOWS: ${TRAFFIC_INCIDENT_ACTIVE_WINDOWS:-05:30-23:30}
+  TRAFFIC_INCIDENT_PEAK_INTERVAL_SECONDS: ${TRAFFIC_INCIDENT_PEAK_INTERVAL_SECONDS:-300}
+  TRAFFIC_INCIDENT_OFFPEAK_INTERVAL_SECONDS: ${TRAFFIC_INCIDENT_OFFPEAK_INTERVAL_SECONDS:-600}
+  TRAFFIC_INCIDENT_OVERNIGHT_INTERVAL_SECONDS: ${TRAFFIC_INCIDENT_OVERNIGHT_INTERVAL_SECONDS:-900}
+  BUS_ARRIVAL_DAILY_BUDGET_PER_KEY: ${BUS_ARRIVAL_DAILY_BUDGET_PER_KEY:-9000}
+  BUS_LOCATION_DAILY_BUDGET_PER_KEY: ${BUS_LOCATION_DAILY_BUDGET_PER_KEY:-9000}
+  BUS_ARRIVAL_QUOTA_POOL: ${BUS_ARRIVAL_QUOTA_POOL:-data-go-kr:15000314}
+  BUS_LOCATION_QUOTA_POOL: ${BUS_LOCATION_QUOTA_POOL:-data-go-kr:15000332}
   API_BUDGET_PATH: /app/data/request_budget.sqlite3
   # --- 수집 범위(비우면 코드 안 기본값: 버스 노선 config/bus_route_ids.json, 도시 121장소 config/city_areas.json) ---
   BUS_ROUTE_IDS: ${BUS_ROUTE_IDS:-}
   BUS_ROUTE_LIMIT: ${BUS_ROUTE_LIMIT:-100}
+  BUS_WEEKDAY_PEAK_WINDOWS: ${BUS_WEEKDAY_PEAK_WINDOWS:-06:30-09:30,16:30-20:00}
+  BUS_SERVICE_WINDOWS: ${BUS_SERVICE_WINDOWS:-05:30-23:30}
+  BUS_ARRIVAL_PEAK_INTERVAL_SECONDS: ${BUS_ARRIVAL_PEAK_INTERVAL_SECONDS:-300}
+  BUS_ARRIVAL_OFFPEAK_INTERVAL_SECONDS: ${BUS_ARRIVAL_OFFPEAK_INTERVAL_SECONDS:-900}
+  BUS_ARRIVAL_WEEKEND_INTERVAL_SECONDS: ${BUS_ARRIVAL_WEEKEND_INTERVAL_SECONDS:-1800}
+  BUS_ARRIVAL_OVERNIGHT_INTERVAL_SECONDS: ${BUS_ARRIVAL_OVERNIGHT_INTERVAL_SECONDS:-1800}
+  BUS_LOCATION_DENSE_INTERVAL_SECONDS: ${BUS_LOCATION_DENSE_INTERVAL_SECONDS:-150}
+  BUS_LOCATION_SPARSE_INTERVAL_SECONDS: ${BUS_LOCATION_SPARSE_INTERVAL_SECONDS:-300}
+  BUS_LOCATION_DENSE_ROUTE_COUNT: ${BUS_LOCATION_DENSE_ROUTE_COUNT:-50}
+  BUS_LOCATION_OFFPEAK_INTERVAL_SECONDS: ${BUS_LOCATION_OFFPEAK_INTERVAL_SECONDS:-900}
+  BUS_LOCATION_WEEKEND_INTERVAL_SECONDS: ${BUS_LOCATION_WEEKEND_INTERVAL_SECONDS:-900}
+  BUS_LOCATION_OVERNIGHT_INTERVAL_SECONDS: ${BUS_LOCATION_OVERNIGHT_INTERVAL_SECONDS:-3600}
   SUBWAY_LINES: ${SUBWAY_LINES:-}
   SUBWAY_SKIP_ENABLED: ${SUBWAY_SKIP_ENABLED:-true}
   SUBWAY_SKIP_START: ${SUBWAY_SKIP_START:-03:30}
@@ -152,7 +185,8 @@ services:
     # 후속 프로젝트 kafbat/kafka-ui 로 교체 (Overview·Messages 의 메시지 수·offset 오독 해결)
     image: ${KAFKA_UI_IMAGE:-ghcr.io/kafbat/kafka-ui}:${KAFKA_UI_VERSION:-v1.1.0}
     container_name: kafka-ui
-    profiles: ["core"]
+    # 필요할 때만 켠다: `--profile kafka-ui up -d kafka-ui` (SSH 터널로 8085). 2026-09-25 서버1 메모리가 모자라 기본 배포에서 뺐다.
+    profiles: ["kafka-ui"]
     mem_limit: 512m
     ports:
       - "${KAFKA_UI_PORT:-8085}:8080"
@@ -181,6 +215,9 @@ services:
   collector-bus-arrival:
     <<: *collector
     container_name: collector-bus-arrival
+    # 버스 수집기는 노선 100개 응답과 버스 대응표(crosswalk)를 한 번에 들고 있어 256m 의 85~90% 를 썼다
+    # (2026-09-25). 수집이 5~10분 간격으로 촘촘해져 상한에 걸려 강제 종료되지 않게 여유를 둔다.
+    mem_limit: 512m
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: bus_arrival
@@ -188,6 +225,7 @@ services:
   collector-bus-location:
     <<: *collector
     container_name: collector-bus-location
+    mem_limit: 512m
     environment:
       <<: *collector-env
       COLLECTOR_SOURCE: bus_location
@@ -263,6 +301,11 @@ services:
       - --innodb-log-buffer-size=16M
       - --slow-query-log=ON
       - --long-query-time=1
+      # 바이너리 로그 보존 1일(기본 30일). 복제가 없고 복구는 04:10 일일 덤프(+서버1 사본)로 하므로 binlog 는 덤프 사이의
+      # 시점 복구용으로만 값어치가 있는데, 2026-09-23 실측 58개 53.8GB 가 쌓여 서버2 디스크의 17% 를 차지했다(실제 데이터는 11.6GB).
+      # schedule_evaluation(행 평균 1.5MB)·recommendation(행 750KB) 이 갱신마다 통째로 기록돼 하루 16~19GB 씩 쌓이기 때문이다.
+      # 1일이면 정상 상태 약 17GB. 이 값은 재기동 때 반영되고, 서버에는 SET PERSIST 로 같은 값을 즉시 넣었다.
+      - --binlog-expire-logs-seconds=86400
     environment:
       TZ: ${TZ:-Asia/Seoul}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -285,7 +328,9 @@ services:
     image: redis:${REDIS_VERSION:-7.4-alpine}
     container_name: redis
     profiles: ["data"]
-    mem_limit: 512m
+    # 2026-09-23 512m → 1g. 아래 maxmemory 768mb 에 Redis 자체 부대비용(할당기 조각·클라이언트 버퍼·AOF 재작성 시 사본)을
+    # 더한 값이 들어가야 커널 OOM 이 안 난다. AOF(appendonly) + 볼륨이라 재생성해도 키는 남는다.
+    mem_limit: 1g
     ports:
       - "${REDIS_PORT:-6379}:6379"
     command:
@@ -293,8 +338,12 @@ services:
       - --requirepass
       # 필수 변수다. 비어 있으면 redis 가 비밀번호 없이 뜨므로 compose 가 여기서 멈춘다(2026-09-18).
       - "${REDIS_PASSWORD:?.env 에 REDIS_PASSWORD 를 설정하세요}"
+      # 2026-09-23 384mb → 768mb. dt 대응표 Hash 가 들어오면서 174MB 가 됐고(bus-city 하나가 73.5MB, 104,869 필드),
+      # 예정된 bus-weather·bus-road 정식 대응표(각 50~75MB)와 승격 중 staging 사본·직전 판 잔존(각 73MB)을 더하면 최악 460MB 라
+      # 384 를 넘는다. 상한에 닿으면 volatile-ttl 이 TTL 짧은 실시간 키(transit:latest 18분)부터 지워 서비스 최신값이 먼저 사라진다.
+      # 768 이면 여유 300MB. 그 이상은 dt 쪽 개선(커버리지 밖 81% 제외, 옛 판 삭제)으로 막는다. 계산: docs/data-retention.md 참고.
       - --maxmemory
-      - 384mb
+      - 768mb
       # 메모리가 차면 TTL 이 있는 키 중 만료가 가까운 것부터 지운다 (volatile-ttl).
       # 캐시(weather:latest 2h, route:candidates 10m)가 먼저 나가고 상태 키(auth:refresh 14d, idem 24h)는 마지막까지 남는다.
       # TTL 없는 키는 절대 퇴출되지 않으므로 docs/contracts/redis-keys.yaml 에 명시된 것만 TTL 없이 넣는다 (2026-09-03 점검 결정)
@@ -337,7 +386,9 @@ services:
       # 밀린 요청은 빨리 MODEL_BUSY 로 돌려주고 호출자가 남은 예산을 과거 평균 계산에 쓰게 한다.
       ML_QUEUE_WAIT_SECONDS: ${ML_QUEUE_WAIT_SECONDS:-2}
       ML_REFERENCE_CACHE_MIB: ${ML_REFERENCE_CACHE_MIB:-256}
-      ML_REDIS_LATEST_FEATURES_ENABLED: ${ML_REDIS_LATEST_FEATURES_ENABLED:-false}
+      # TOPIS 정보는 소요시간 모델 입력이 아니라 경로 상태/설명용 최신 Snapshot으로 유지한다.
+      ML_REDIS_LATEST_FEATURES_ENABLED: ${ML_REDIS_LATEST_FEATURES_ENABLED:-true}
+      ROAD_PROVISIONAL_MAPPING_ENABLED: ${ROAD_PROVISIONAL_MAPPING_ENABLED:-true}
       ML_BUS_CROSSWALK_SHA256: ${ML_BUS_CROSSWALK_SHA256:-8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -353,6 +404,33 @@ services:
       retries: 10
       start_period: 60s
 
+  # 새 전체 돌발 스냅샷을 15초 간격으로 확인하고 해당 버스 구간 CURRENT 특성을 갱신한다.
+  ml-incident-feature-refresh:
+    <<: *common
+    build:
+      context: ../ml-serving
+      dockerfile: Dockerfile
+    image: ddubi/ml-serving:${APP_VERSION:-0.1.0}
+    container_name: ml-incident-feature-refresh
+    # Redis가 있는 서비스 서버에서만 실행한다. Spark Silver와 프로필을 분리해
+    # 두 서버가 서로의 작업까지 중복 실행하지 않게 한다.
+    profiles: ["road-feature"]
+    mem_limit: 512m
+    command: ["python", "incident_feature_refresh.py"]
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      ML_BUS_CROSSWALK_SHA256: ${ML_BUS_CROSSWALK_SHA256:-8014da5e1453d426789fa396622a0f0e4069ac484db76860348af517adc1f246}
+      ML_INCIDENT_MASTER_VERSION: ${ML_INCIDENT_MASTER_VERSION:-METRO-BUS-20260917-SEOUL-0902}
+      ML_INCIDENT_REFRESH_POLL_SECONDS: ${ML_INCIDENT_REFRESH_POLL_SECONDS:-15}
+      ROAD_PROVISIONAL_MAPPING_ENABLED: ${ROAD_PROVISIONAL_MAPPING_ENABLED:-true}
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+
   backend:
     <<: *common
     build:
@@ -361,7 +439,11 @@ services:
     image: ddubi/backend:${APP_VERSION:-0.1.0}
     container_name: backend
     profiles: ["serving"]
-    mem_limit: 1g
+    # 2026-09-21 1g → 1.5g. 힙은 아래 JAVA_OPTS 로 512m 에 고정돼 있는데 컨테이너 실사용은 710~917MiB 사이를
+    # 오르내렸다(9/21 실측, 봉우리가 상한의 90%). 늘어난 몫은 힙 밖(메타스페이스·스레드·GC 관리표·네이티브)이라
+    # 컨테이너 상한만 올린다. 힙을 같이 키우면 힙 밖 여유가 도로 줄어든다. 커널이 상한에서 죽이면 자바 로그 없이
+    # exit 137 로 끝나므로(9/17 MySQL 사례) 봉우리 여유를 600MB 로 둔다. 서버2 호스트 여유는 11GB.
+    mem_limit: 1.5g
     # 메일·FCM 자격증명만 이 파일에서 온다. 배포 잡(.gitlab-ci.yml deploy-server2)이
     # GitLab CI/CD 변수를 읽어 서버에 만들어 준다.
     #
@@ -388,6 +470,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:-}
       KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      # 최신 추천 카드 문장화. 계산 자체는 이 기능과 무관하며 GMS 장애 시 템플릿으로 fallback한다.
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URL: ${GMS_BASE_URL:-https://gms.ssafy.io/gmsapi/}
+      GMS_RECOMMENDATION_MODEL: ${GMS_RECOMMENDATION_MODEL:-gpt-5.4-nano}
+      DDUBI_RECOMMENDATION_GUIDE_ENABLED: ${DDUBI_RECOMMENDATION_GUIDE_ENABLED:-true}
       # 소셜 로그인 — 서버의 infra/.env 에서 온다 (PM 이 관리).
       # 값이 없으면 해당 provider 로그인만 실패하고 기동은 된다.
       KAKAO_APP_ID: ${KAKAO_APP_ID:-}
@@ -403,6 +490,9 @@ services:
       # 개발용 테스트 알림 발송(POST /api/v1/dev/notifications/test). 프론트 연동 확인용이다.
       # 기본 false — 켜면 로그인한 본인에게 알림을 임의로 만들 수 있다. 발표 전에 되돌린다.
       DDUBI_DEV_ENDPOINTS_ENABLED: ${DDUBI_DEV_ENDPOINTS_ENABLED:-false}
+      # 발표용 TOPIS 통제는 [시연] 서울 일정 하나의 전용 Redis 키에만 기록한다.
+      # 기본 false: 실제 수집·공용 구간 상태와 운영 사용자에게 영향을 주지 않는다.
+      DDUBI_DEMO_ROAD_CLOSURE_ENABLED: ${DDUBI_DEMO_ROAD_CLOSURE_ENABLED:-false}
       # 평가 결과로 자동 FCM 발송. .env 에 값이 있어도 여기서 넘기지 않으면 컨테이너에
       # 닿지 않아 backend 가 기본값(false)을 쓴다 — 2026-09-18 알림이 0건이던 원인이다.
       #
@@ -410,6 +500,8 @@ services:
       # (production_ready=false) 켜면 검증 안 된 값으로 사용자 폰이 울린다.
       # 연동 확인 때만 켜고 발표 전에 되돌린다.
       DDUBI_AUTO_NOTIFY_ENABLED: ${DDUBI_AUTO_NOTIFY_ENABLED:-false}
+      # 미승인 모델 결과로도 알림을 보낸다(본문에 검증용 표시). 승인 게이트는 그대로 둔다.
+      DDUBI_SHADOW_PREVIEW_NOTIFY_ENABLED: ${DDUBI_SHADOW_PREVIEW_NOTIFY_ENABLED:-false}
       # 아침 브리핑 스케줄러. 끄면 스케줄러 빈 자체가 만들어지지 않는다.
       DDUBI_BRIEFING_ENABLED: ${DDUBI_BRIEFING_ENABLED:-true}
       DDUBI_TRANSIT_MASTER_IMPORT_ENABLED: ${DDUBI_TRANSIT_MASTER_IMPORT_ENABLED:-false}
@@ -424,7 +516,6 @@ services:
       # 후보 끝점 도보 보강. 키 권한/좌표/비용 검증 실패 시 원본 시간과 실패 사유를 유지한다.
       DDUBI_WALKING_ENABLED: ${DDUBI_WALKING_ENABLED:-true}
       DDUBI_WALKING_PROVIDER_ENDPOINTS: ${DDUBI_WALKING_PROVIDER_ENDPOINTS:-true}
-      DDUBI_WALKING_MAX_CALLS: ${DDUBI_WALKING_MAX_CALLS:-10}
       DDUBI_WALKING_ENDPOINT_MAX_METERS: ${DDUBI_WALKING_ENDPOINT_MAX_METERS:-0}
       DDUBI_WALKING_MASTER_COORDINATE_PATH: ${DDUBI_WALKING_MASTER_COORDINATE_PATH:-}
       # 검토 참고자료: 적재 완료와 검증 후에만 버전을 명시한다. 운영 추천 승인 플래그가 아니다.
@@ -442,6 +533,10 @@ services:
       DDUBI_REFERENCE_PACKAGES_SUBWAY_SHA256: ${DDUBI_REFERENCE_PACKAGES_SUBWAY_SHA256:-}
       DDUBI_REFERENCE_PACKAGES_ROAD_PATH: ${DDUBI_REFERENCE_PACKAGES_ROAD_PATH:-}
       DDUBI_REFERENCE_PACKAGES_ROAD_SHA256: ${DDUBI_REFERENCE_PACKAGES_ROAD_SHA256:-}
+      DDUBI_ROAD_PROVISIONAL_MAPPING_ENABLED: ${ROAD_PROVISIONAL_MAPPING_ENABLED:-true}
+      # 후보 대응표로 만든 도로 사고 근거를 추천 계산의 "가능성" 원인으로도 쓴다.
+      # 경로를 막거나 예상 시각을 바꾸지 않는다. 승인 근거 파일이 있으면 그쪽이 이긴다.
+      DDUBI_ROAD_PROVISIONAL_EVIDENCE_ENABLED: ${ROAD_PROVISIONAL_EVIDENCE_ENABLED:-false}
       DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS: ${DDUBI_TRANSIT_MASTER_SUBWAY_REALTIME_STATIONS:-}
       DDUBI_TRANSIT_MASTER_ALIASES: ${DDUBI_TRANSIT_MASTER_ALIASES:-}
       # 수도권 버스 마스터(V4) 관리 적재. 일반 기동은 false. 적재는 backend 팀과 함께 플래그를 켜 한 번 재기동 → 다시 false
@@ -507,7 +602,11 @@ services:
       PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-localhost}
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
-      - ./nginx/html:/usr/share/nginx/html:ro
+      # 웹 정적 파일(Flutter 웹 빌드·.well-known)은 git 이 추적하지 않는 infra/nginx/web 에 둔다(2026-09-23).
+      # 전에는 추적 폴더 infra/nginx/html 을 서빙했는데, 서버에 올린 빌드가 추적 파일(index.html)을 덮어써서
+      # 배포 때마다 pre-deploy 가 그 변경을 치우고 저장소의 안내 페이지로 되돌아갔다. 새 서버는 이 폴더를 만들고
+      # 빌드를 넣어야 한다(infra/README.md "웹 정적 파일 배포"). 폴더가 없으면 도커가 빈 폴더를 만들어 / 가 403 이 된다.
+      - ./nginx/web:/usr/share/nginx/html:ro
       - certbot-certs:/etc/letsencrypt:ro      # certbot 이 발급한 인증서를 읽는다
       - certbot-webroot:/var/www/certbot:ro    # LE 도메인 검증 파일 서빙
     depends_on:
@@ -569,7 +668,12 @@ services:
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-worker-1
     profiles: ["spark", "experiment"]
-    mem_limit: 3g   # 광고 메모리 2560m + JVM 부대비용. 장부(SPARK_WORKER_MEMORY)보다 실제 상한이 커야 OOM 이 안 난다
+    # 워커 컨테이너의 실제 상한. Spark 장부(SPARK_WORKER_MEMORY 2560m)는 executor 의 힙만 세지만, 커널은 힙 밖
+    # 부대비용(스레드·GC 관리표·네트워크 버퍼, executor 당 약 400MB)과 워커 프로세스 자체(약 340MB)까지 센다.
+    # 계산: 칸 3개 × (힙 768m + 부대 약 400m) + 워커 340m ≈ 3.8GB. 그래서 4g. 3g 였을 때 2026-09-22 17:34 버스 유입
+    # 순간 worker-2 안의 executor 3개 합이 3GB 를 넘어 realtime executor 가 exit 137 로 죽었다(자동 재기동, 서비스 2분 공백).
+    # 칸 수(SPARK_WORKER_CORES)나 executor 힙을 올리면 이 값도 같은 식으로 다시 센다.
+    mem_limit: 4g
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
       TZ: ${TZ:-Asia/Seoul}
@@ -587,7 +691,12 @@ services:
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-worker-2
     profiles: ["spark"]
-    mem_limit: 3g   # 광고 메모리 2560m + JVM 부대비용. 장부(SPARK_WORKER_MEMORY)보다 실제 상한이 커야 OOM 이 안 난다
+    # 워커 컨테이너의 실제 상한. Spark 장부(SPARK_WORKER_MEMORY 2560m)는 executor 의 힙만 세지만, 커널은 힙 밖
+    # 부대비용(스레드·GC 관리표·네트워크 버퍼, executor 당 약 400MB)과 워커 프로세스 자체(약 340MB)까지 센다.
+    # 계산: 칸 3개 × (힙 768m + 부대 약 400m) + 워커 340m ≈ 3.8GB. 그래서 4g. 3g 였을 때 2026-09-22 17:34 버스 유입
+    # 순간 worker-2 안의 executor 3개 합이 3GB 를 넘어 realtime executor 가 exit 137 로 죽었다(자동 재기동, 서비스 2분 공백).
+    # 칸 수(SPARK_WORKER_CORES)나 executor 힙을 올리면 이 값도 같은 식으로 다시 센다.
+    mem_limit: 4g
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
       TZ: ${TZ:-Asia/Seoul}
@@ -606,7 +715,12 @@ services:
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-worker-3
     profiles: ["experiment"]
-    mem_limit: 3g   # 광고 메모리 2560m + JVM 부대비용. 장부(SPARK_WORKER_MEMORY)보다 실제 상한이 커야 OOM 이 안 난다
+    # 워커 컨테이너의 실제 상한. Spark 장부(SPARK_WORKER_MEMORY 2560m)는 executor 의 힙만 세지만, 커널은 힙 밖
+    # 부대비용(스레드·GC 관리표·네트워크 버퍼, executor 당 약 400MB)과 워커 프로세스 자체(약 340MB)까지 센다.
+    # 계산: 칸 3개 × (힙 768m + 부대 약 400m) + 워커 340m ≈ 3.8GB. 그래서 4g. 3g 였을 때 2026-09-22 17:34 버스 유입
+    # 순간 worker-2 안의 executor 3개 합이 3GB 를 넘어 realtime executor 가 exit 137 로 죽었다(자동 재기동, 서비스 2분 공백).
+    # 칸 수(SPARK_WORKER_CORES)나 executor 힙을 올리면 이 값도 같은 식으로 다시 센다.
+    mem_limit: 4g
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
       TZ: ${TZ:-Asia/Seoul}
@@ -619,12 +733,90 @@ services:
     depends_on:
       - spark-master
 
-  # 스트리밍 잡 드라이버 (client 모드). 잡 하나당 서비스 하나. 실행: sparkjobs/submit.sh
+  # 스트리밍 잡 드라이버 (client 모드). 실행: sparkjobs/submit.sh
+  #
+  # 가벼운 스트리밍 네 개(날씨·도시·TOPIS 공지·TOPIS 돌발)를 한 Spark 앱으로 돌린다 (2026-09-25).
+  # 잡마다 앱을 띄우면 드라이버 4개(각 약 800MB)와 executor 4개(각 약 1GB)가 따로 떠서 서버1 메모리가 92~96% 에 머물렀다.
+  # 쿼리 이름·체크포인트 경로는 작업별로 돌던 때와 같아서, 합친 뒤에도 읽던 자리부터 이어서 읽는다.
+  # 그래서 아래 작업별 서비스(spark-split 프로필)와 **동시에 켜면 안 된다**(같은 체크포인트를 두 앱이 쓰게 된다).
+  # 네 잡 중 일부만 돌리려면 LIGHT_STREAMING_JOBS 에 쉼표로 적는다. topis 는 GMS·카카오 키, 돌발은 교통 마스터를 쓴다.
+  # 되돌리기: 이 서비스를 멈추고 `--profile spark-split up -d` 로 작업별 서비스 넷을 켠다(docs/runbooks/spark-streaming-crash.md).
+  spark-streaming-light:
+    <<: *common
+    image: ddubi/spark:${APP_VERSION:-0.1.0}
+    container_name: spark-streaming-light
+    profiles: ["spark"]
+    # 드라이버 힙 1g + JVM 부대비용 약 200MB + 파이썬 한 프로세스(네 잡 합쳐 약 400MB). 작업별일 때 자바 약 700MB·파이썬 80~150MB 였다.
+    mem_limit: ${LIGHT_STREAMING_MEM_LIMIT:-2g}
+    working_dir: /opt/ddubi/sparkjobs
+    command: ["sh", "submit.sh", "streaming/light_streaming.py"]
+    ports:
+      - "${SPARK_LIGHT_DRIVER_UI_PORT:-4040}:4040"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
+      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
+      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
+      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
+      LIGHT_STREAMING_JOBS: ${LIGHT_STREAMING_JOBS:-weather_latest,city_realtime_silver,topis_enriched,traffic_incident_silver}
+      # 날씨·도시·TOPIS 는 배치를 드라이버로 모아 계산해 executor 힙을 거의 안 쓴다(각 약 180MB). 돌발만 640~768m 였다.
+      # 한 executor(코어 2개)가 네 잡의 Kafka 읽기와 Redis 쓰기를 나눠 맡는다.
+      SPARK_DRIVER_MEMORY: ${LIGHT_STREAMING_DRIVER_MEMORY:-1g}
+      SPARK_EXECUTOR_MEMORY: ${LIGHT_STREAMING_EXECUTOR_MEMORY:-1g}
+      SPARK_EXECUTOR_CORES: ${LIGHT_STREAMING_EXECUTOR_CORES:-2}
+      SPARK_CORES_MAX: ${LIGHT_STREAMING_CORES_MAX:-2}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # 날씨(weather_latest). Silver 는 서버 .env 에 경로가 있을 때만 켠다. 실패해도 Redis 스트림은 계속 돈다.
+      SILVER_OUTPUT_URI: ${SILVER_OUTPUT_URI:-}
+      WEATHER_REQUIRE_SILVER: ${WEATHER_REQUIRE_SILVER:-false}
+      WEATHER_SILVER_TRIGGER: ${WEATHER_SILVER_TRIGGER:-10 minutes}
+      WEATHER_SILVER_WATERMARK: ${WEATHER_SILVER_WATERMARK:-2 days}
+      # 도시(city_realtime_silver)
+      CITY_SILVER_OUTPUT_URI: ${CITY_SILVER_OUTPUT_URI:-}
+      CITY_SILVER_FRESHNESS_SECONDS: ${CITY_SILVER_FRESHNESS_SECONDS:-900}
+      # TOPIS 공지(topis_enriched). 키가 비어 있으면 이 잡이 기동 때 죽어 앱 전체가 재시작을 반복한다.
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URL: ${GMS_BASE_URL:-https://gms.ssafy.io/gmsapi/}
+      GMS_MODEL: ${GMS_MODEL:-gpt-4o-mini}
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      TOPIS_AI_TIMEOUT_SECONDS: ${TOPIS_AI_TIMEOUT_SECONDS:-30}
+      TOPIS_SILVER_OUTPUT_URI: ${TOPIS_SILVER_OUTPUT_URI:-}
+      # TOPIS 돌발(traffic_incident_silver)
+      TRAFFIC_INCIDENT_SILVER_OUTPUT_URI: ${TRAFFIC_INCIDENT_SILVER_OUTPUT_URI:-}
+      TRAFFIC_LINK_MASTER_PATH: ${TRAFFIC_LINK_MASTER_PATH:-}
+      TRAFFIC_LINK_MASTER_SHA256: ${TRAFFIC_LINK_MASTER_SHA256:-}
+      ROAD_PROVISIONAL_MAPPING_ENABLED: ${ROAD_PROVISIONAL_MAPPING_ENABLED:-true}
+      ROAD_PROVISIONAL_TRAFFIC_LINK_MASTER_VERSION: ${ROAD_PROVISIONAL_TRAFFIC_LINK_MASTER_VERSION:-provisional-accinfo-input-v1}
+      TRAFFIC_INCIDENT_AI_ENABLED: ${TRAFFIC_INCIDENT_AI_ENABLED:-false}
+      TRAFFIC_INCIDENT_AI_MODEL: ${TRAFFIC_INCIDENT_AI_MODEL:-gpt-4o-mini}
+      TRAFFIC_INCIDENT_AI_CACHE_PATH: /opt/ddubi/checkpoints/incident-ai/cache.sqlite3
+      TRAFFIC_INCIDENT_AI_TIMEOUT_SECONDS: ${TRAFFIC_INCIDENT_AI_TIMEOUT_SECONDS:-15}
+      TRAFFIC_INCIDENT_AI_MAX_CALLS_PER_BATCH: ${TRAFFIC_INCIDENT_AI_MAX_CALLS_PER_BATCH:-10}
+      TRAFFIC_INCIDENT_STALE_SECONDS: ${TRAFFIC_INCIDENT_STALE_SECONDS:-2700}
+      TRAFFIC_LINK_COORD_TOLERANCE_METERS: ${TRAFFIC_LINK_COORD_TOLERANCE_METERS:-200}
+      TRAFFIC_NEARBY_MAX_METERS: ${TRAFFIC_NEARBY_MAX_METERS:-100}
+    volumes:
+      - ./spark/conf:/opt/spark/conf:ro
+      - ../backend/transit-master:/opt/ddubi/transit-master:ro   # 돌발 잡의 교통 마스터
+      - ../sparkjobs:/opt/ddubi/sparkjobs
+      - spark-checkpoints:/opt/ddubi/checkpoints
+      - spark-events:/opt/ddubi/spark-events
+      - spark-ivy:/opt/ddubi/ivy
+    depends_on:
+      - spark-master
+      - spark-worker-1
+      - spark-worker-2
+
+  # ---- 아래 네 서비스는 되돌리기용이다(spark-split 프로필). 평소에는 위 spark-streaming-light 가 같은 일을 한다.
   spark-streaming-weather:
     <<: *common
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-streaming-weather
-    profiles: ["spark"]
+    profiles: ["spark-split"]
     mem_limit: 1g
     working_dir: /opt/ddubi/sparkjobs
     command: ["sh", "submit.sh", "streaming/weather_latest.py"]
@@ -638,7 +830,9 @@ services:
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
       # 10분에 14건 처리하는 잡. executor 를 768m·코어 1 로 낮춰 worker 에 실시간·배치 잡 자리를 남긴다 (2026-09-07)
-      SPARK_EXECUTOR_MEMORY: ${STREAMING_EXECUTOR_MEMORY:-768m}
+      # weather 는 계산을 드라이버에서 하므로 executor 힙 실사용이 약 180MB 다. 768m 이면 자바가 힙을 그만큼 붙들어
+      # RSS 가 650MB 를 넘으므로 512m 으로 묶는다(2026-09-23). realtime 은 실제로 힙을 쓰니 768m 을 유지한다.
+      SPARK_EXECUTOR_MEMORY: ${STREAMING_EXECUTOR_MEMORY:-512m}
       SPARK_CORES_MAX: ${STREAMING_CORES_MAX:-1}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
       REDIS_HOST: ${REDIS_HOST}
@@ -711,7 +905,7 @@ services:
     <<: *common
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-streaming-city-realtime
-    profiles: ["spark"]
+    profiles: ["spark-split"]   # 평소에는 spark-streaming-light 안에서 돈다
     mem_limit: 1g
     working_dir: /opt/ddubi/sparkjobs
     command: ["sh", "submit.sh", "streaming/city_realtime_silver.py"]
@@ -724,7 +918,8 @@ services:
       SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
-      SPARK_EXECUTOR_MEMORY: ${CITY_STREAMING_EXECUTOR_MEMORY:-768m}
+      # 배치를 collect() 로 드라이버에 모아 처리하는 구조라 executor 힙은 작아도 된다(2026-09-23, 위 weather 와 같은 이유).
+      SPARK_EXECUTOR_MEMORY: ${CITY_STREAMING_EXECUTOR_MEMORY:-512m}
       SPARK_CORES_MAX: ${CITY_STREAMING_CORES_MAX:-1}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
       REDIS_HOST: ${REDIS_HOST}
@@ -743,110 +938,13 @@ services:
       - spark-worker-1
       - spark-worker-2
 
-  # 검증된 실제 구간 통과 이벤트만 원문/offset과 함께 Parquet으로 보존한다.
-  # 도착예정값이나 8시간 간격 위치값을 실측으로 변환하는 생산자는 아직 없으므로 별도 프로필로만 실행한다.
-  spark-streaming-segment-observations:
-    <<: *common
-    image: ddubi/spark:${APP_VERSION:-0.1.0}
-    container_name: spark-streaming-segment-observations
-    profiles: ["recommendation-data"]
-    mem_limit: 1g
-    working_dir: /opt/ddubi/sparkjobs
-    command: ["sh", "submit.sh", "streaming/segment_observations.py"]
-    ports:
-      - "${SPARK_SEGMENT_OBSERVATIONS_DRIVER_UI_PORT:-4045}:4040"
-    environment:
-      TZ: ${TZ:-Asia/Seoul}
-      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
-      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
-      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
-      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
-      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
-      SPARK_EXECUTOR_MEMORY: ${SEGMENT_OBSERVATIONS_EXECUTOR_MEMORY:-768m}
-      SPARK_CORES_MAX: ${SEGMENT_OBSERVATIONS_CORES_MAX:-1}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      SEGMENT_FACTS_PATH: ${SEGMENT_FACTS_PATH:-hdfs://hdfs-namenode:9000/ddubi/silver/segment-observation/v1}
-    volumes:
-      - ./spark/conf:/opt/spark/conf:ro
-      - ../sparkjobs:/opt/ddubi/sparkjobs
-      - spark-checkpoints:/opt/ddubi/checkpoints
-      - spark-events:/opt/ddubi/spark-events
-      - spark-ivy:/opt/ddubi/ivy
-    depends_on:
-      - spark-master
-      - spark-worker-1
-      - spark-worker-2
-
-  # 위 실측과 검증된 registry/baseline을 매분 평가해 Redis 최신값과 Kafka 판정 이력을 함께 발행한다.
-  # registry/baseline 경로가 비어 있으면 기동을 거부해 미검증 매핑이나 기준선을 사용하지 않는다.
-  spark-streaming-segment-status:
-    <<: *common
-    image: ddubi/spark:${APP_VERSION:-0.1.0}
-    container_name: spark-streaming-segment-status
-    profiles: ["recommendation-data"]
-    mem_limit: 1g
-    working_dir: /opt/ddubi/sparkjobs
-    command:
-      - sh
-      - -c
-      - >-
-        : "$${SEGMENT_REGISTRY_PATH:?SEGMENT_REGISTRY_PATH가 필요합니다}";
-        : "$${SEGMENT_BASELINE_PATH:?SEGMENT_BASELINE_PATH가 필요합니다}";
-        exec sh submit.sh streaming/segment_status_live.py
-        --input "$${SEGMENT_FACTS_PATH}"
-        --registry "$${SEGMENT_REGISTRY_PATH}"
-        --baseline "$${SEGMENT_BASELINE_PATH}"
-        --output "$${SEGMENT_STATUS_OUTPUT_PATH}"
-        --policy-version "$${SEGMENT_STATUS_POLICY_VERSION}"
-        --slow-seconds "$${SEGMENT_STATUS_SLOW_SECONDS}"
-        --delayed-seconds "$${SEGMENT_STATUS_DELAYED_SECONDS}"
-        --min-samples "$${SEGMENT_STATUS_MIN_SAMPLES}"
-        --max-age-seconds "$${SEGMENT_STATUS_MAX_AGE_SECONDS}"
-        --publish
-    ports:
-      - "${SPARK_SEGMENT_STATUS_DRIVER_UI_PORT:-4046}:4040"
-    environment:
-      TZ: ${TZ:-Asia/Seoul}
-      SPARK_VERSION: ${SPARK_VERSION:-3.5.3-python3}
-      SPARK_CHECKPOINT_DIR: ${SPARK_CHECKPOINT_DIR}
-      SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
-      SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
-      SPARK_EXECUTOR_MEMORY: ${SEGMENT_STATUS_EXECUTOR_MEMORY:-768m}
-      SPARK_CORES_MAX: ${SEGMENT_STATUS_CORES_MAX:-1}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      SEGMENT_FACTS_PATH: ${SEGMENT_FACTS_PATH:-hdfs://hdfs-namenode:9000/ddubi/silver/segment-observation/v1}
-      SEGMENT_REGISTRY_PATH: ${SEGMENT_REGISTRY_PATH:-}
-      SEGMENT_BASELINE_PATH: ${SEGMENT_BASELINE_PATH:-}
-      SEGMENT_STATUS_OUTPUT_PATH: ${SEGMENT_STATUS_OUTPUT_PATH:-hdfs://hdfs-namenode:9000/ddubi/derived/segment-status/v1}
-      SEGMENT_STATUS_POLICY_VERSION: ${SEGMENT_STATUS_POLICY_VERSION:-segment-status-v1}
-      SEGMENT_STATUS_SLOW_SECONDS: ${SEGMENT_STATUS_SLOW_SECONDS:-30}
-      SEGMENT_STATUS_DELAYED_SECONDS: ${SEGMENT_STATUS_DELAYED_SECONDS:-60}
-      SEGMENT_STATUS_MIN_SAMPLES: ${SEGMENT_STATUS_MIN_SAMPLES:-3}
-      SEGMENT_STATUS_MAX_AGE_SECONDS: ${SEGMENT_STATUS_MAX_AGE_SECONDS:-300}
-    volumes:
-      - ./spark/conf:/opt/spark/conf:ro
-      - ../sparkjobs:/opt/ddubi/sparkjobs
-      - spark-checkpoints:/opt/ddubi/checkpoints
-      - spark-events:/opt/ddubi/spark-events
-      - spark-ivy:/opt/ddubi/ivy
-    depends_on:
-      - spark-master
-      - spark-worker-1
-      - spark-worker-2
-
-  # TOPIS 공지를 GMS로 구조화하고 Kakao 좌표를 붙이는 별도 잡.
-  # 새 외부 API 기능은 기본 배포에서 분리하고 `--profile topis-ai`로 명시적으로 켠다.
+  # TOPIS 공지를 GMS로 구조화하고 Kakao 좌표를 붙이는 잡. 처음에는 `--profile topis-ai` 로 따로 켰다.
+  # 2026-09-25 부터 평소에는 spark-streaming-light 안에서 돈다(LIGHT_STREAMING_JOBS 에서 빼면 끈다).
   spark-streaming-topis:
     <<: *common
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-streaming-topis
-    profiles: ["topis-ai"]
+    profiles: ["spark-split"]
     mem_limit: 1g
     working_dir: /opt/ddubi/sparkjobs
     command: ["sh", "submit.sh", "streaming/topis_enriched.py"]
@@ -859,7 +957,8 @@ services:
       SPARK_EVENTLOG_DIR: ${SPARK_EVENTLOG_DIR}
       SPARK_EVENTLOG_ENABLED: ${SPARK_EVENTLOG_ENABLED:-false}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-latest}
-      SPARK_EXECUTOR_MEMORY: ${TOPIS_EXECUTOR_MEMORY:-768m}
+      # 공지 구조화는 드라이버에서 GMS·카카오를 부르며 하므로 executor 힙은 작아도 된다(2026-09-23).
+      SPARK_EXECUTOR_MEMORY: ${TOPIS_EXECUTOR_MEMORY:-512m}
       SPARK_CORES_MAX: ${TOPIS_CORES_MAX:-1}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
       REDIS_HOST: ${REDIS_HOST}
@@ -883,13 +982,13 @@ services:
       - spark-worker-1
       - spark-worker-2
 
-  # TOPIS 교통 돌발을 공식 링크 마스터와 좌표로 검증하는 Silver 잡.
-  # 승인된 링크 artifact가 아직 없으므로 기본 spark 배포와 분리한다.
+  # TOPIS 교통 돌발을 공식 링크 마스터와 좌표로 검증하는 Silver 잡. 처음에는 `--profile road-silver` 로 따로 켰다.
+  # 2026-09-25 부터 평소에는 spark-streaming-light 안에서 돈다(LIGHT_STREAMING_JOBS 에서 빼면 끈다).
   spark-streaming-traffic-incident:
     <<: *common
     image: ddubi/spark:${APP_VERSION:-0.1.0}
     container_name: spark-streaming-traffic-incident
-    profiles: ["road-silver"]
+    profiles: ["spark-split"]
     mem_limit: 1g
     working_dir: /opt/ddubi/sparkjobs
     command: ["sh", "submit.sh", "streaming/traffic_incident_silver.py"]
@@ -911,6 +1010,15 @@ services:
       TRAFFIC_INCIDENT_SILVER_OUTPUT_URI: ${TRAFFIC_INCIDENT_SILVER_OUTPUT_URI:-}
       TRAFFIC_LINK_MASTER_PATH: ${TRAFFIC_LINK_MASTER_PATH:-}
       TRAFFIC_LINK_MASTER_SHA256: ${TRAFFIC_LINK_MASTER_SHA256:-}
+      ROAD_PROVISIONAL_MAPPING_ENABLED: ${ROAD_PROVISIONAL_MAPPING_ENABLED:-true}
+      ROAD_PROVISIONAL_TRAFFIC_LINK_MASTER_VERSION: ${ROAD_PROVISIONAL_TRAFFIC_LINK_MASTER_VERSION:-provisional-accinfo-input-v1}
+      TRAFFIC_INCIDENT_AI_ENABLED: ${TRAFFIC_INCIDENT_AI_ENABLED:-false}
+      GMS_API_KEY: ${GMS_API_KEY:-}
+      GMS_BASE_URL: ${GMS_BASE_URL:-https://gms.ssafy.io/gmsapi/}
+      TRAFFIC_INCIDENT_AI_MODEL: ${TRAFFIC_INCIDENT_AI_MODEL:-gpt-4o-mini}
+      TRAFFIC_INCIDENT_AI_CACHE_PATH: /opt/ddubi/checkpoints/incident-ai/cache.sqlite3
+      TRAFFIC_INCIDENT_AI_TIMEOUT_SECONDS: ${TRAFFIC_INCIDENT_AI_TIMEOUT_SECONDS:-15}
+      TRAFFIC_INCIDENT_AI_MAX_CALLS_PER_BATCH: ${TRAFFIC_INCIDENT_AI_MAX_CALLS_PER_BATCH:-10}
       TRAFFIC_INCIDENT_STALE_SECONDS: ${TRAFFIC_INCIDENT_STALE_SECONDS:-2700}
       TRAFFIC_LINK_COORD_TOLERANCE_METERS: ${TRAFFIC_LINK_COORD_TOLERANCE_METERS:-200}
       TRAFFIC_NEARBY_MAX_METERS: ${TRAFFIC_NEARBY_MAX_METERS:-100}
@@ -930,7 +1038,7 @@ services:
   #  - city.replay(재생 토픽)를 읽고 Redis 는 weather:replay:* 에만 써서 운영 키를 건드리지 않는다
   #  - 체크포인트도 별도(weather_replay), 진행률은 Spark UI 의 Input Rows 로 측정한다
   #  - 처리량 상한(maxOffsetsPerTrigger)을 크게 풀어 worker 수 차이가 드러나게 한다
-  # 실험 중에는 운영 스트리밍(spark-streaming-weather)을 잠시 멈춰 워커 자원을 전부 넘기는 것을 권장
+  # 실험 중에는 운영 스트리밍(spark-streaming-light)을 잠시 멈춰 워커 자원을 전부 넘기는 것을 권장
   spark-streaming-replay:
     <<: *common
     image: ddubi/spark:${APP_VERSION:-0.1.0}
@@ -993,6 +1101,7 @@ services:
       WEATHER_GRID_POINTS: ${WEATHER_GRID_POINTS:-}
       BUS_WEATHER_MAPPING_TTL_SECONDS: ${BUS_WEATHER_MAPPING_TTL_SECONDS:-2592000}
       BUS_ROAD_MAPPING_TTL_SECONDS: ${BUS_ROAD_MAPPING_TTL_SECONDS:-2592000}
+      BUS_ROAD_PROVISIONAL_MAPPING_TTL_SECONDS: ${BUS_ROAD_PROVISIONAL_MAPPING_TTL_SECONDS:-604800}
       BUS_CITY_MAPPING_TTL_SECONDS: ${BUS_CITY_MAPPING_TTL_SECONDS:-2592000}
       CITY_MAPPING_MAX_DISTANCE_METERS: ${CITY_MAPPING_MAX_DISTANCE_METERS:-300}
       CITY_MAPPING_AMBIGUITY_METERS: ${CITY_MAPPING_AMBIGUITY_METERS:-50}
@@ -1031,18 +1140,21 @@ services:
     image: ddubi/archiver:${APP_VERSION:-0.1.0}
     container_name: archiver
     profiles: ["archive"]
-    mem_limit: 512m
+    # 2026-09-25 512m → 1g. 버스 도착 수집 주기를 줄인 뒤 transport.raw 가 시간당 3만 4천 → 6만~7만 8천 건으로 늘었다.
+    # 1시간·128MB 묶음을 Parquet 으로 바꿀 때 파이썬 객체와 Arrow 배열로 여러 번 복사돼 512m 을 넘어 606번 OOM 으로 죽었다.
+    # 근본 조치는 아래의 작은 묶음(16MB·5분)이고, 1g 은 밀린 자료를 따라잡는 동안의 안전판이다.
+    mem_limit: ${ARCHIVER_MEM_LIMIT:-1g}
     environment:
       TZ: ${TZ:-Asia/Seoul}
       APP_ENV: ${APP_ENV:-local}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
-      ARCHIVE_TOPICS: ${ARCHIVE_TOPICS:-transport.raw,city.raw,source.poll-status,segment.status}   # topics.yaml 의 archive: true 토픽
+      ARCHIVE_TOPICS: ${ARCHIVE_TOPICS:-transport.raw,city.raw,source.poll-status}   # topics.yaml 의 archive: true 토픽
       ARCHIVE_LOCAL_DIR: ${ARCHIVE_LOCAL_DIR}
       ARCHIVE_URI: ${ARCHIVE_URI}
       ARCHIVE_HDFS_USER: ${ARCHIVE_HDFS_USER:-hadoop}
-      ARCHIVE_FLUSH_MINUTES: ${ARCHIVE_FLUSH_MINUTES:-60}
+      ARCHIVE_FLUSH_MINUTES: ${ARCHIVE_FLUSH_MINUTES:-5}            # 2026-09-25 60 → 5. 작게 자주 써서 메모리를 묶는다
       ARCHIVE_FLUSH_SECONDS: ${ARCHIVE_FLUSH_SECONDS:-}            # 개발·검증용. 비우면 분 단위 사용
-      ARCHIVE_MAX_BYTES: ${ARCHIVE_MAX_BYTES:-134217728}
+      ARCHIVE_MAX_BYTES: ${ARCHIVE_MAX_BYTES:-16777216}            # 2026-09-25 128MB → 16MB
     volumes:
       - archive-data:${ARCHIVE_LOCAL_DIR}
     depends_on:

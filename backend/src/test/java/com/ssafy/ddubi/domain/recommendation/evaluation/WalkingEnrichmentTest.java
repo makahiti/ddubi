@@ -72,7 +72,7 @@ class WalkingEnrichmentTest {
     }
 
     WalkingEnrichmentService service(WalkingRouteClient client) {
-        return new WalkingEnrichmentService(client, new ObjectMapper(), true, 4, 20, "");
+        return new WalkingEnrichmentService(client, new ObjectMapper(), true, 20, "");
     }
 
     @Test
@@ -95,6 +95,35 @@ class WalkingEnrichmentTest {
         assertThat(output.evidence().legs())
                 .extracting(WalkingEnrichmentService.Leg::legRole)
                 .containsExactly("ACCESS_WALK", "RIDE", "EGRESS_WALK");
+    }
+
+    @Test
+    void walkingPathReplacesSegmentGeometryForTheMap() {
+        var line = List.of(new Coordinate(127.0005, 37.5005), new Coordinate(127.001, 37.501));
+        var output =
+                service(
+                                r ->
+                                        new WalkingRouteClient.Evidence(
+                                                120L, now.plusSeconds(60), "fixture", null, line))
+                        .prepare(List.of(route(0)), origin, destination, now, points("BUS_STOP"));
+        var segments = output.candidates().get(0).segments();
+        // 도보 구간은 실제 걷는 길 좌표를 갖고, 대중교통 구간의 좌표는 그대로다.
+        assertThat(segments.get(0).geometry()).isEqualTo(line);
+        assertThat(segments.get(2).geometry()).isEqualTo(line);
+        assertThat(segments.get(1).geometry()).containsExactly(board, alight);
+    }
+
+    @Test
+    void walkingWithoutPathKeepsProviderGeometry() {
+        var output =
+                service(
+                                r ->
+                                        new WalkingRouteClient.Evidence(
+                                                120L, now.plusSeconds(60), "fixture", null))
+                        .prepare(List.of(route(0)), origin, destination, now, points("BUS_STOP"));
+        // 좌표가 없으면 원본 좌표를 그대로 둔다. 시간만 도보 API 값으로 바뀐다.
+        assertThat(output.candidates().get(0).segments().get(0).geometry()).isEmpty();
+        assertThat(output.evidence().legs().get(0).durationSeconds()).isEqualTo(120);
     }
 
     @Test
@@ -150,9 +179,16 @@ class WalkingEnrichmentTest {
                             .prepare(List.of(input), origin, destination, now, points("BUS_STOP"));
             var actual = output.candidates().get(0);
             assertThat(output.evidence().apiCalls()).isEqualTo(2);
-            assertThat(actual.totalDurationSeconds()).isEqualTo(840);
-            assertThat(actual.unassignedDurationSeconds()).isEqualTo(0);
+            long providerTotal = 600 + residual;
+            long expectedTotal = Math.max(840, providerTotal);
+            assertThat(actual.totalDurationSeconds()).isEqualTo(expectedTotal);
+            assertThat(actual.unassignedDurationSeconds()).isEqualTo(expectedTotal - 840);
             assertThat(actual.segments()).hasSize(3);
+            // 합성 도보도 route_segment에 저장되므로 양 끝 이름이 DB NOT NULL 계약을 만족해야 한다.
+            assertThat(actual.segments().get(0).fromName()).isEqualTo("출발지");
+            assertThat(actual.segments().get(0).toName()).isEqualTo("A");
+            assertThat(actual.segments().get(2).fromName()).isEqualTo("B");
+            assertThat(actual.segments().get(2).toName()).isEqualTo("도착지");
             assertThat(actual.totalDurationSeconds())
                     .isEqualTo(
                             actual.unassignedDurationSeconds()
@@ -175,9 +211,14 @@ class WalkingEnrichmentTest {
                                                 : new WalkingRouteClient.Evidence(
                                                         null, null, null, "WALK_TIMEOUT"))
                         .prepare(List.of(input), origin, destination, now, points("BUS_STOP"));
-        assertThat(output.candidates().get(0).totalDurationSeconds()).isEqualTo(720);
-        assertThat(output.candidates().get(0).unassignedDurationSeconds()).isZero();
-        assertThat(output.candidates().get(0).segments()).hasSize(2);
+        assertThat(output.candidates().get(0).totalDurationSeconds()).isEqualTo(900);
+        assertThat(output.candidates().get(0).unassignedDurationSeconds()).isEqualTo(180);
+        assertThat(output.candidates().get(0).segments()).hasSize(3);
+        assertThat(output.candidates().get(0).segments())
+                .anyMatch(
+                        segment ->
+                                "EVALUATION_ENDPOINT_WALK".equals(segment.providerRouteKey())
+                                        && segment.durationSeconds() == 0);
         assertThat(output.evidence().fallbackReasons())
                 .contains("WALK_TIMEOUT", "WALK_ENDPOINT_DURATION_UNAVAILABLE");
     }
@@ -266,6 +307,23 @@ class WalkingEnrichmentTest {
     }
 
     @Test
+    void scheduledWalkingResultRemainsValidUntilScheduleEnds() {
+        var service =
+                service(
+                        r ->
+                                new WalkingRouteClient.Evidence(
+                                        120L, now.plusSeconds(60), "fixture", null));
+        var prepared =
+                service.prepare(List.of(route(0)), origin, destination, now, points("BUS_STOP"));
+        Instant scheduleEndsAt = now.plus(Duration.ofHours(24));
+
+        var retained = service.retainUntil(prepared, scheduleEndsAt);
+
+        assertThat(retained.evidence().validUntil()).isEqualTo(scheduleEndsAt);
+        assertThat(retained.candidates()).isEqualTo(prepared.candidates());
+    }
+
+    @Test
     void missingCoordinateMeaningCannotCrashOrCallProvider() {
         var output =
                 service(
@@ -303,7 +361,7 @@ class WalkingEnrichmentTest {
     }
 
     @Test
-    void candidateRefreshSharesBudgetAndCachedResponses() {
+    void candidateRefreshCachesResponsesWithoutCallLimit() {
         var seen = new ArrayList<WalkingRouteClient.Request>();
         var service =
                 new WalkingEnrichmentService(
@@ -327,8 +385,9 @@ class WalkingEnrichmentTest {
         var changed =
                 service.prepare(
                         List.of(route(0)), destination, origin, now, points("BUS_STOP"), session);
-        assertThat(seen).hasSize(2);
-        assertThat(changed.evidence().fallbackReasons()).contains("WALK_CALL_BUDGET_EXHAUSTED");
+        assertThat(seen).hasSize(4);
+        assertThat(changed.evidence().fallbackReasons()).isEmpty();
+        assertThat(changed.evidence().apiCalls()).isEqualTo(4);
     }
 
     @Test

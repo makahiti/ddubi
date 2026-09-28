@@ -28,13 +28,18 @@ class Settings:
     api_keys: dict[str, str] = field(default_factory=dict)
     extra: dict[str, str] = field(default_factory=dict)  # 소스별 추가 설정 (예: WEATHER_GRID_POINTS)
 
-    # 키 변수 이름은 <소스명>_API_KEY 로 통일한다 (2026-09-10). 같은 실제 키를 여러 변수에 넣어도 되며,
-    # 호출 예산(request_budget)은 실제 키 값 기준으로 합산한다.
+    # 소스별 전용 키가 있으면 그것을 먼저 쓰고, 없을 때만 포털별 공통 키를 쓴다.
+    # 운영 .env 에 남아 있는 전용 키를 조용히 다른 키로 바꾸지 않기 위한 순서다.
+    # 공통 키로 옮길 때는 .env 에서 해당 전용 변수를 지우면 그 소스만 전환된다.
+    # 서울 실시간 지하철은 별도 전용 키이므로 일반키로 대체하지 않는다.
     API_KEY_NAMES = (
+        "SEOUL_OPEN_DATA_API_KEY",
         "GBIS_API_KEY",
         "INCHEON_API_KEY",
         "KMA_API_KEY",  # weather (우선)
         "DATA_GO_KR_API_KEY",  # weather (KMA 없을 때)
+        "BUS_API_KEY_A",  # bus_arrival/bus_location shared pool A
+        "BUS_API_KEY_B",  # bus_arrival/bus_location shared pool B
         "BUS_ARRIVAL_API_KEY",  # bus_arrival
         "BUS_LOCATION_API_KEY",  # bus_location
         "SUBWAY_API_KEY",  # subway_arrival, subway_location
@@ -43,17 +48,58 @@ class Settings:
         "TOPIS_NOTICE_API_KEY",  # topis_notice
         "TRAFFIC_INCIDENT_API_KEY",  # traffic_incident
     )
+    PORTAL_KEY_BY_SOURCE = {
+        "SUBWAY_ALERT_API_KEY": "SEOUL_OPEN_DATA_API_KEY",
+        "CITY_REALTIME_API_KEY": "SEOUL_OPEN_DATA_API_KEY",
+        "TOPIS_NOTICE_API_KEY": "SEOUL_OPEN_DATA_API_KEY",
+        "TRAFFIC_INCIDENT_API_KEY": "SEOUL_OPEN_DATA_API_KEY",
+        "BUS_ARRIVAL_API_KEY": "DATA_GO_KR_API_KEY",
+        "BUS_LOCATION_API_KEY": "DATA_GO_KR_API_KEY",
+        "GBIS_API_KEY": "DATA_GO_KR_API_KEY",
+        "INCHEON_API_KEY": "DATA_GO_KR_API_KEY",
+    }
     # 수집 범위는 코드에 박지 않는다. 운영 환경마다 대상 노선·역·도로 링크와 호출 한도가
     # 다르므로 쉼표 구분 환경변수로 주입하고, 비밀값은 위 API_KEY_NAMES에만 둔다.
     # 소스 코드가 실제로 읽는 것만 남긴다 (2026-09-10 정리: SUBWAY_STATIONS·TRAFFIC_LINK_IDS·CITY_AREA_CODES·SDOT_*·
     # SUBWAY_ALERT_API_URL/SERVICE_NAME·TRAFFIC_INCIDENT_SERVICE_NAME·SEOUL_API_PAGE_SIZE 는 어느 소스도 읽지 않아 제거)
     EXTRA_NAMES = (
         "TOPIS_NOTICE_DEDUP_PATH",
+        "TOPIS_NOTICE_PAGE_SIZE",
+        "TOPIS_NOTICE_DAILY_BUDGET",
+        "TOPIS_NOTICE_QUOTA_POOL",
+        "TOPIS_NOTICE_WEEKDAY_PEAK_WINDOWS",
+        "TOPIS_NOTICE_ACTIVE_WINDOWS",
+        "TOPIS_NOTICE_PEAK_INTERVAL_SECONDS",
+        "TOPIS_NOTICE_OFFPEAK_INTERVAL_SECONDS",
+        "TOPIS_NOTICE_OVERNIGHT_INTERVAL_SECONDS",
+        "TRAFFIC_INCIDENT_WEEKDAY_PEAK_WINDOWS",
+        "TRAFFIC_INCIDENT_ACTIVE_WINDOWS",
+        "TRAFFIC_INCIDENT_PEAK_INTERVAL_SECONDS",
+        "TRAFFIC_INCIDENT_OFFPEAK_INTERVAL_SECONDS",
+        "TRAFFIC_INCIDENT_OVERNIGHT_INTERVAL_SECONDS",
         "REGIONAL_BUS_TARGET_IDS",
         "BUS_CROSSWALK_PATH",
         "BUS_CROSSWALK_SHA256",
         "API_BUDGET_PATH",
         "API_DAILY_LIMIT",
+        "CITY_REALTIME_DAILY_BUDGET",
+        "CITY_REALTIME_QUOTA_POOL",
+        "BUS_ARRIVAL_DAILY_BUDGET_PER_KEY",
+        "BUS_LOCATION_DAILY_BUDGET_PER_KEY",
+        "BUS_ARRIVAL_QUOTA_POOL",
+        "BUS_LOCATION_QUOTA_POOL",
+        "BUS_WEEKDAY_PEAK_WINDOWS",
+        "BUS_SERVICE_WINDOWS",
+        "BUS_ARRIVAL_PEAK_INTERVAL_SECONDS",
+        "BUS_ARRIVAL_OFFPEAK_INTERVAL_SECONDS",
+        "BUS_ARRIVAL_WEEKEND_INTERVAL_SECONDS",
+        "BUS_ARRIVAL_OVERNIGHT_INTERVAL_SECONDS",
+        "BUS_LOCATION_DENSE_INTERVAL_SECONDS",
+        "BUS_LOCATION_SPARSE_INTERVAL_SECONDS",
+        "BUS_LOCATION_DENSE_ROUTE_COUNT",
+        "BUS_LOCATION_OFFPEAK_INTERVAL_SECONDS",
+        "BUS_LOCATION_WEEKEND_INTERVAL_SECONDS",
+        "BUS_LOCATION_OVERNIGHT_INTERVAL_SECONDS",
         "WEATHER_GRID_POINTS",
         "BUS_ROUTE_IDS",
         "BUS_ROUTE_LIMIT",
@@ -100,4 +146,7 @@ class Settings:
         for name in names:
             if name in self.api_keys:
                 return self.api_keys[name]
+            portal_name = self.PORTAL_KEY_BY_SOURCE.get(name)
+            if portal_name and portal_name in self.api_keys:
+                return self.api_keys[portal_name]
         raise ConfigError(f"API 키가 없습니다: {' 또는 '.join(names)} 를 .env 에 설정하세요")

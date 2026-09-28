@@ -1489,6 +1489,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
       confirmation = TextEditingController();
   String? verifiedEmail;
   String? serverError;
+
+  /// 이메일 인증 결과만 담는다. 성공 문구와 같은 자리에 보여주려고 가입 오류(serverError)와
+  /// 나눴다. 한 변수로 두면 오류가 화면 아래 가입 버튼 옆에 떠서, 코드 입력칸을 보고 있는
+  /// 사용자 눈에는 아무 일도 안 일어난 것처럼 보인다.
+  String? verificationError;
   @override
   void dispose() {
     email.dispose();
@@ -1520,10 +1525,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   controller: email,
                   validator: validateEmail,
                   onChanged: (_) {
-                    if (emailVerified) {
+                    // 주소를 바꾸면 이전 결과는 더 이상 이 주소의 것이 아니다.
+                    // 성공 표시뿐 아니라 실패 문구도 같이 지운다.
+                    if (emailVerified || verificationError != null) {
                       setState(() {
                         emailVerified = false;
                         verifiedEmail = null;
+                        verificationError = null;
                       });
                     }
                   },
@@ -1568,12 +1576,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ],
                   ),
                 ],
+                // 인증 결과는 성공·실패 모두 코드 입력칸 바로 아래에 둔다. 두 문구가 다른
+                // 자리에 있으면 실패했을 때 반응이 없는 것처럼 보인다.
                 if (emailVerified)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
                       '이메일 인증이 완료됐어요.',
                       style: TextStyle(color: DdubiColors.green),
+                    ),
+                  )
+                else if (verificationError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      verificationError!,
+                      key: const Key('emailVerificationError'),
+                      style: const TextStyle(color: DdubiColors.red),
                     ),
                   ),
                 const SizedBox(height: 12),
@@ -1763,6 +1782,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() {
       loading = true;
       serverError = null;
+      verificationError = null;
     });
     try {
       await widget.repository.requestEmailVerification(email.text.trim());
@@ -1778,12 +1798,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _confirmVerification() async {
     if (!RegExp(r'^\d{6}$').hasMatch(verificationCode.text.trim())) {
-      setState(() => serverError = '인증 코드는 숫자 6자리예요.');
+      setState(() => verificationError = '인증 코드는 숫자 6자리예요.');
       return;
     }
     setState(() {
       loading = true;
       serverError = null;
+      verificationError = null;
     });
     try {
       final currentEmail = email.text.trim();
@@ -1795,11 +1816,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
         setState(() {
           emailVerified = true;
           verifiedEmail = currentEmail;
+          verificationError = null;
         });
       }
     } on AuthException catch (error) {
+      // 서버 문구를 그대로 쓴다. "(1/5)" 같은 남은 횟수가 들어 있어 사용자가 코드를
+      // 다시 받아야 할 때를 스스로 판단할 수 있다.
       if (mounted) {
-        setState(() => serverError = error.message ?? '인증 코드를 확인해주세요.');
+        setState(() => verificationError = error.message ?? '인증 코드를 확인해주세요.');
+      }
+    } on Object {
+      // AuthException 으로 옮겨지지 않은 예외도 삼키지 않는다. 아무 문구도 없으면
+      // 사용자에게는 버튼이 고장 난 것으로 보인다.
+      if (mounted) {
+        setState(() => verificationError = '인증 코드를 확인하지 못했어요. 잠시 후 다시 시도해주세요.');
       }
     } finally {
       if (mounted) setState(() => loading = false);

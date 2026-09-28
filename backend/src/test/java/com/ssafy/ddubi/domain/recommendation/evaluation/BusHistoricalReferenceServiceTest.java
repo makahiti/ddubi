@@ -146,6 +146,67 @@ class BusHistoricalReferenceServiceTest {
         assertEquals("GTFS_SCHEDULE_FORMULA", result.sampleKind());
     }
 
+    @Test
+    void formulaInputIsRecalculatedByBackendInsteadOfTrustingCachedMean() {
+        var s = service();
+        when(publicReferences.lookup(eq("v1"), any()))
+                .thenAnswer(
+                        call -> {
+                            var q = (BusReferenceService.Query) call.getArgument(1);
+                            var formula =
+                                    new BusTravelTimeFormula.Input(
+                                            BusTravelTimeFormula.METROPOLITAN_GTFS,
+                                            null,
+                                            null,
+                                            null,
+                                            0L,
+                                            80.00032,
+                                            1.25,
+                                            null);
+                            var row =
+                                    new BusReferenceService.Row(
+                                            q.masterVersion(),
+                                            q.namespace(),
+                                            q.routeId(),
+                                            q.fromStopId(),
+                                            q.toStopId(),
+                                            q.fromOrder(),
+                                            q.toOrder(),
+                                            q.dow(),
+                                            q.hourSlot(),
+                                            "GTFS_SCHEDULE_FORMULA",
+                                            100.0,
+                                            5,
+                                            0,
+                                            LocalDate.of(2025, 3, 1),
+                                            LocalDate.of(2030, 12, 31),
+                                            "b".repeat(64),
+                                            formula);
+                            return Map.of(
+                                    "status",
+                                    "STAGED_REFERENCE_NOT_APPROVED",
+                                    "rows",
+                                    List.of(row),
+                                    "truncated",
+                                    false);
+                        });
+
+        var result =
+                s.estimate(
+                        gbisEdges(),
+                        "master",
+                        now,
+                        0,
+                        now,
+                        new BusHistoricalReferenceService.Session(),
+                        System.nanoTime() + Duration.ofSeconds(20).toNanos());
+
+        // 계약상 진단용 meanSeconds와 수식 결과의 차이는 0.001초 이내여야 한다.
+        // 수식값 100.0004초와 저장값 100.0초는 유효하지만 올림 결과가 달라 재계산 여부를 검증한다.
+        assertEquals(101, result.seconds());
+        assertEquals("GTFS_FORMULA_APPLIED", result.reason());
+    }
+
     BusHistoricalReferenceService.Estimate estimate(
             BusHistoricalReferenceService s, Instant entered, int count, long uncertainty) {
         return s.estimate(
@@ -347,8 +408,9 @@ class BusHistoricalReferenceServiceTest {
                         now,
                         now,
                         now.plusSeconds(1000));
-        assertEquals(now.plusSeconds(90), result.fastest().estimatedArrivalAt());
-        assertEquals("BUS_REFERENCE", result.candidates().get(0).quality());
+        // 두 edge의 역사 기준값 45초씩에 provider가 step으로 분해하지 못한 10초를 보존한다.
+        assertEquals(now.plusSeconds(100), result.fastest().estimatedArrivalAt());
+        assertEquals("MIXED_PREVIEW", result.candidates().get(0).quality());
         assertEquals(0, result.candidates().get(0).mlSteps());
         assertEquals("BUS_HISTORICAL_REFERENCE", result.fastest().steps().get(0).source());
         assertTrue(result.fastest().reasons().contains("step-1:HISTORICAL_REFERENCE_APPLIED"));
@@ -389,7 +451,8 @@ class BusHistoricalReferenceServiceTest {
                         session);
         verify(ml, never()).predict(any());
         assertEquals("BUS_HISTORICAL_REFERENCE", result.fastest().steps().get(0).source());
-        assertEquals(now.plusSeconds(90), result.fastest().estimatedArrivalAt());
+        // ML 예산 소진 fallback에서도 provider 미분류 10초를 버리지 않는다.
+        assertEquals(now.plusSeconds(100), result.fastest().estimatedArrivalAt());
         assertTrue(result.fastest().reasons().contains("step-1:ML_BUDGET_EXHAUSTED"));
         assertTrue(result.fastest().reasons().contains("step-1:HISTORICAL_REFERENCE_APPLIED"));
         assertFalse(result.budgetExhausted()); // 보조 ML 실패와 전체 후보 탐색 실패를 구별한다.

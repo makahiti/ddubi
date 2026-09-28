@@ -261,7 +261,7 @@ class MlApplyModeTest {
                                 now.plusSeconds(1000));
         var fastest = result.fastest();
         assertThat(fastest.steps().get(0).source()).isEqualTo("FALLBACK"); // API 값 유지
-        assertThat(fastest.estimatedArrivalAt()).isEqualTo(now.plusSeconds(300));
+        assertThat(fastest.estimatedArrivalAt()).isEqualTo(now.plusSeconds(310));
         assertThat(fastest.reasons())
                 .contains(
                         "step-1:ML_SHADOW_RECORDED",
@@ -288,7 +288,7 @@ class MlApplyModeTest {
                                 now.plusSeconds(1000));
         assertThat(declared.fastest().steps().get(0).source()).isEqualTo("FALLBACK");
         assertThat(declared.fastest().estimatedArrivalAt())
-                .isEqualTo(now.plusSeconds(300)); // API 원본 300+10초 유지
+                .isEqualTo(now.plusSeconds(310)); // API 이동 300초와 미분류 10초를 모두 유지
         assertThat(declared.fastest().reasons())
                 .contains(
                         "step-1:ML_HISTORY_INSUFFICIENT",
@@ -342,7 +342,7 @@ class MlApplyModeTest {
         var fastest = result.fastest();
         assertThat(fastest.steps().get(0).source()).isEqualTo("ML_PREVIEW");
         assertThat(fastest.estimatedArrivalAt())
-                .isEqualTo(now.plusSeconds(30)); // 30초 ML, 미분류 시간 제외
+                .isEqualTo(now.plusSeconds(40)); // 30초 ML과 미분류 10초를 모두 유지
         assertThat(fastest.reasons())
                 .contains(
                         "step-1:ML_TEST_APPLIED",
@@ -398,7 +398,7 @@ class MlApplyModeTest {
                         .compare(List.of(route), empty, now, now, now.plusSeconds(1000));
         assertThat(rejected.fastest().steps().get(0).source()).isEqualTo("FALLBACK");
         assertThat(rejected.fastest().estimatedArrivalAt())
-                .isEqualTo(now.plusSeconds(300)); // API 원본 유지
+                .isEqualTo(now.plusSeconds(310)); // API 이동과 미분류 시간을 함께 유지
         assertThat(rejected.fastest().reasons())
                 .contains(
                         "step-1:ML_NOT_APPLIED:ML_PRODUCTION_CONTRACT_NOT_MET",

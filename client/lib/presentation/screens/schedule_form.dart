@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme.dart';
@@ -47,6 +48,7 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
   final formKey = GlobalKey<FormState>();
   final title = TextEditingController();
   final time = TextEditingController(text: '09:00');
+  final departTime = TextEditingController();
   final weekdays = <int>{1, 2, 3, 4, 5};
   PlaceLocation? origin;
   PlaceLocation? destination;
@@ -55,8 +57,7 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
   late DateTime endDate;
   bool hasEndDate = false;
   bool considerLastTrip = false;
-  ScheduleImportance importance = ScheduleImportance.high;
-  TransportPreferenceChoice transport = TransportPreferenceChoice.balanced;
+  ScheduleImportance importance = ScheduleImportance.normal;
 
   @override
   void initState() {
@@ -64,6 +65,8 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
     final rule = widget.rule;
     title.text = rule?.title ?? '';
     time.text = rule?.time ?? '09:00';
+    // 값을 지어내지 않는다. 기존 규칙에 출발시각이 없으면 빈 칸으로 두고 사용자가 채운다.
+    departTime.text = rule?.departTime ?? '';
     origin = rule?.origin;
     destination = rule?.destination;
     weekdays
@@ -73,14 +76,14 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
     endDate = rule?.untilDate ?? startDate.add(const Duration(days: 84));
     hasEndDate = rule?.untilDate != null;
     considerLastTrip = rule?.considerLastTrip ?? false;
-    importance = rule?.importance ?? ScheduleImportance.high;
-    transport = rule?.preferredTransport ?? TransportPreferenceChoice.balanced;
+    importance = rule?.importance ?? ScheduleImportance.normal;
   }
 
   @override
   void dispose() {
     title.dispose();
     time.dispose();
+    departTime.dispose();
     super.dispose();
   }
 
@@ -98,8 +101,10 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
           return ListView(
             padding: screenPadding,
             children: [
-              const TtubeeGuideCard(
-                '출근이나 수업처럼 정해진 요일에 반복되는 일정을 한 번에 등록해요.',
+              TtubeeGuideCard(
+                widget.rule?.needsDepartTime == true
+                    ? '출발 시간이 없어서 추천 계산이 안 되고 있어요. 아래에 출발 시간을 넣고 저장해주세요.'
+                    : '출근이나 수업처럼 정해진 요일에 반복되는 일정을 한 번에 등록해요.',
                 compact: true,
               ),
               const SizedBox(height: 16),
@@ -168,9 +173,36 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
           searchService: widget.placeSearchService,
           onSelected: (value) => setState(() => origin = value),
         ),
+        _field(
+          '출발하는 시간',
+          departTime,
+          key: const Key('repeatDepartTimeField'),
+          icon: Icons.directions_walk,
+          timeField: true,
+        ),
+        // 자정을 넘겨 도착하는 반복(23:50 출발 → 00:30 도착)은 정상이라 막지 않는다.
+        // 서버가 전날 출발로 처리한다. 대부분은 실수이므로 알리기만 한다.
+        if (_crossesMidnight)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              '출발이 도착보다 늦어요. 전날 밤에 출발하는 일정으로 저장돼요.',
+              key: Key('repeatCrossesMidnightNotice'),
+              style: TextStyle(color: DdubiColors.red, fontSize: 12),
+            ),
+          ),
       ],
     ),
   );
+
+  /// 출발이 도착보다 늦은지. 둘 다 "HH:mm" 으로 채워져 있을 때만 본다.
+  bool get _crossesMidnight {
+    final depart = departTime.text.trim();
+    final arrive = time.text.trim();
+    final pattern = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
+    if (!pattern.hasMatch(depart) || !pattern.hasMatch(arrive)) return false;
+    return depart.compareTo(arrive) >= 0;
+  }
 
   Widget _repeatCard(BuildContext context) => InfoCard(
     child: Column(
@@ -239,13 +271,10 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
         const Text('중요도', style: TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         SegmentedButton<ScheduleImportance>(
-          segments: const [
-            ButtonSegment(value: ScheduleImportance.normal, label: Text('일반')),
-            ButtonSegment(value: ScheduleImportance.high, label: Text('중요')),
-            ButtonSegment(
-              value: ScheduleImportance.critical,
-              label: Text('절대 지각 불가'),
-            ),
+          key: const Key('repeatImportanceSelector'),
+          segments: [
+            for (final choice in ScheduleImportance.choices)
+              ButtonSegment(value: choice, label: Text(choice.label)),
           ],
           selected: {importance},
           onSelectionChanged: (value) =>
@@ -260,15 +289,73 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
           value: considerLastTrip,
           onChanged: (value) => setState(() => considerLastTrip = value),
         ),
-        const SizedBox(height: 18),
-        const Text('교통수단 선호', style: TextStyle(fontWeight: FontWeight.w700)),
-        TransportPreferenceSelector(
-          value: transport,
-          onChanged: (value) => setState(() => transport = value),
-        ),
       ],
     ),
   );
+
+  /// 고친 내용을 언제부터 적용할지 묻는다.
+  ///
+  /// 3일 뒤 일정을 보다가 규칙을 고쳤는데 오늘·내일 일정까지 바뀌면 사용자가 놀란다.
+  /// 서버는 값을 안 보내면 지금부터로 본다 — 예전 동작이다.
+  ///
+  /// 반환값이 null 이면 사용자가 취소한 것이고, 값 안의 [value] 가 null 이면 "지금부터" 다.
+  Future<({DateTime? value})?> _askEffectiveFrom() async {
+    final now = DateTime.now();
+    return showDialog<({DateTime? value})>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('repeatEffectiveFromDialog'),
+        title: const Text('언제부터 바꿀까요?'),
+        content: const Text('이미 지나간 일정은 바뀌지 않아요.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            key: const Key('repeatEffectiveFromPick'),
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: dialogContext,
+                initialDate: now,
+                firstDate: now,
+                lastDate: now.add(const Duration(days: 365)),
+              );
+              if (picked == null) return;
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext, (value: picked));
+              }
+            },
+            child: const Text('날짜 고르기'),
+          ),
+          FilledButton(
+            key: const Key('repeatEffectiveFromNow'),
+            onPressed: () => Navigator.pop(dialogContext, (value: null)),
+            child: const Text('지금부터'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 시계 단추로 고른 값을 칸에 넣는다. 직접 쳐도 되고 골라도 된다.
+  Future<void> _pickTimeInto(TextEditingController controller) async {
+    final current = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
+    final text = controller.text.trim();
+    final initial = current.hasMatch(text)
+        ? TimeOfDay(
+            hour: int.parse(text.substring(0, 2)),
+            minute: int.parse(text.substring(3, 5)),
+          )
+        : const TimeOfDay(hour: 8, minute: 0);
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked == null || !mounted) return;
+    setState(() {
+      controller.text =
+          '${picked.hour.toString().padLeft(2, '0')}:'
+          '${picked.minute.toString().padLeft(2, '0')}';
+    });
+  }
 
   Widget _field(
     String label,
@@ -286,7 +373,11 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
         TextFormField(
           key: key,
           controller: controller,
-          keyboardType: timeField ? TextInputType.datetime : TextInputType.text,
+          keyboardType: timeField ? TextInputType.number : TextInputType.text,
+          // 숫자만 치면 콜론을 대신 넣어 준다. 예전에는 사용자가 "08:10" 을 직접 쳐야 했는데,
+          // 삼성 키보드는 이 칸에서 콜론 없는 숫자판을 띄워 입력 자체가 불가능했다
+          // (2026-09-22 기기 확인). 옆의 시계 단추로 골라도 된다.
+          inputFormatters: timeField ? [_HourMinuteFormatter()] : null,
           validator: (value) {
             final text = (value ?? '').trim();
             if (text.isEmpty) return '필수 입력 항목입니다.';
@@ -297,7 +388,15 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
             return null;
           },
           decoration: InputDecoration(
-            suffixIcon: icon == null ? null : Icon(icon),
+            hintText: timeField ? '예: 0810' : null,
+            suffixIcon: timeField
+                ? IconButton(
+                    key: Key('${key.toString()}-picker'),
+                    tooltip: '시간 고르기',
+                    icon: const Icon(Icons.access_time),
+                    onPressed: () => _pickTimeInto(controller),
+                  )
+                : (icon == null ? null : Icon(icon)),
           ),
         ),
       ],
@@ -373,17 +472,23 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
         origin: origin!,
         destination: destination!,
         time: time.text.trim(),
+        departTime: departTime.text.trim(),
         startDate: startDate,
         weekdays: {...weekdays},
         untilDate: hasEndDate ? endDate : null,
         importance: importance,
         considerLastTrip: considerLastTrip,
-        preferredTransport: transport,
       );
       if (widget.rule == null) {
         await widget.repository.addRepeatSchedule(rule);
       } else {
-        await widget.repository.updateRepeatSchedule(rule);
+        final from = await _askEffectiveFrom();
+        // 취소를 고르면 아무것도 바꾸지 않는다.
+        if (from == null) return;
+        await widget.repository.updateRepeatSchedule(
+          rule,
+          effectiveFrom: from.value,
+        );
       }
       if (mounted) context.pop(true);
     } on Object {
@@ -397,13 +502,16 @@ class _RepeatScheduleFormScreenState extends State<RepeatScheduleFormScreen> {
 
 class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
   late ScheduleImportance importance;
-  TransportPreferenceChoice transport = TransportPreferenceChoice.balanced;
   late bool considerLastTrip;
   late DateTime departureDate;
   late DateTime arrivalDate;
   late TimeOfDay departureTime;
   late TimeOfDay arrivalTime;
   late bool departureConfirmed;
+
+  /// 출발 날짜를 사용자가 직접 골랐는지. 고르기 전에는 도착 날짜를 따라간다.
+  late bool departureDateTouched;
+
   final formKey = GlobalKey<FormState>();
   late final TextEditingController title;
   PlaceLocation? origin;
@@ -423,20 +531,17 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
           19,
           30,
         );
-    final departAt =
-        schedule?.plannedDepartAt ??
-        DateTime.now().add(const Duration(minutes: 30));
+    final departAt = schedule?.plannedDepartAt ?? _defaultDepartAt(arriveBy);
     departureConfirmed = schedule?.plannedDepartAt != null;
+    departureDateTouched = schedule?.plannedDepartAt != null;
     arrivalDate = arriveBy;
     arrivalTime = TimeOfDay.fromDateTime(arriveBy);
     departureDate = departAt;
     departureTime = TimeOfDay.fromDateTime(departAt);
     origin = schedule?.origin;
     destination = schedule?.destination;
-    importance = schedule?.importance ?? ScheduleImportance.high;
+    importance = schedule?.importance ?? ScheduleImportance.normal;
     considerLastTrip = schedule?.considerLastTrip ?? false;
-    transport =
-        schedule?.preferredTransport ?? TransportPreferenceChoice.balanced;
   }
 
   @override
@@ -515,6 +620,17 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
                         '자동으로 표시된 시각입니다. 출발할 날짜와 시간을 직접 확인해 주세요.',
                         style: TextStyle(color: DdubiColors.red, fontSize: 12),
                       ),
+                    )
+                  // 밤 늦게 출발해 다음 날 도착하는 일정은 정상이라 막지 않는다. 다만
+                  // 날짜가 다른 것은 눈에 띄게 알린다 — 대부분은 날짜를 안 바꾼 실수다.
+                  else if (!_sameDay(departureDate, arrivalDate))
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        '출발과 도착 날짜가 달라요. 맞는지 확인해 주세요.',
+                        key: Key('scheduleDepartureDateMismatch'),
+                        style: TextStyle(color: DdubiColors.red, fontSize: 12),
+                      ),
                     ),
                   const SizedBox(height: 15),
                   PlaceSearchField(
@@ -538,6 +654,8 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
               ),
             ),
             const SizedBox(height: 14),
+            _importanceCard(),
+            const SizedBox(height: 12),
             _lastTripCard(),
             const SizedBox(height: 12),
             _infoCard(),
@@ -631,6 +749,47 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     if (!context.mounted) return;
     GoRouter.maybeOf(context)?.go('/schedules');
   }
+
+  /// 일반 일정의 중요도 선택.
+  ///
+  /// 예전에는 이 화면에 고르는 칸이 아예 없어서, 모든 일정이 앱 기본값("중요")으로
+  /// 저장되고 사용자가 바꿀 방법이 없었다. 반복 일정 화면과 같은 두 단계를 쓴다.
+  Widget _importanceCard() => Container(
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0xFFDCE6EC)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '중요도',
+          style: TextStyle(
+            color: DdubiColors.navy,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '놓치면 곤란한 일정은 중요로 표시해 두세요.',
+          style: TextStyle(fontSize: 12, color: Color(0xFF6E8193)),
+        ),
+        const SizedBox(height: 10),
+        SegmentedButton<ScheduleImportance>(
+          key: const Key('scheduleImportanceSelector'),
+          segments: [
+            for (final choice in ScheduleImportance.choices)
+              ButtonSegment(value: choice, label: Text(choice.label)),
+          ],
+          selected: {importance},
+          onSelectionChanged: (value) =>
+              setState(() => importance = value.first),
+        ),
+      ],
+    ),
+  );
 
   Widget _lastTripCard() => Container(
     decoration: BoxDecoration(
@@ -755,17 +914,19 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
       plannedDepartAt: plannedDeparture,
       importance: importance,
       considerLastTrip: considerLastTrip,
-      preferredTransport: transport,
       repeatLabel: widget.schedule?.repeatLabel,
       updatedAt: widget.schedule?.updatedAt,
     );
     try {
       if (widget.schedule == null) {
-        await widget.repository.addSchedule(schedule);
+        // 서버가 발급한 실제 ID를 목록으로 돌려준다. 저장 직후 상세의 계산 대기 화면을
+        // 열 때 폼에서 만든 임시 ID로 404를 조회하지 않기 위해서다.
+        final created = await widget.repository.addSchedule(schedule);
+        if (mounted) context.pop(created);
       } else {
         await widget.repository.updateSchedule(schedule);
+        if (mounted) context.pop(true);
       }
-      if (mounted) context.pop(true);
     } on ScheduleConflictException {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -785,6 +946,24 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     }
   }
 
+  /// 새 일정의 출발 시각 기본값. 추천이 아니라 입력칸의 출발점일 뿐이며, 사용자가
+  /// 직접 확인해야 저장된다(확인 전에는 빨간 안내가 뜨고 저장이 막힌다).
+  ///
+  /// 도착 시각을 기준으로 잡는다. 예전에는 날짜와 무관하게 "지금+30분" 이었다. 그래서
+  /// 내일 일정을 만들면 출발만 오늘로 저장됐고, 서버는 그 값으로 계산하므로 화면에
+  /// "지금 출발" 처럼 보였다.
+  static DateTime _defaultDepartAt(DateTime arriveBy) {
+    final now = DateTime.now();
+    final anHourBefore = arriveBy.subtract(const Duration(hours: 1));
+    // 이미 지난 시각을 기본값으로 두지 않는다. 오늘 곧 있을 일정이면 "곧 출발" 로 잡는다.
+    return anHourBefore.isAfter(now)
+        ? anHourBefore
+        : now.add(const Duration(minutes: 5));
+  }
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
   Future<void> _pickDate(BuildContext context, {required bool arrival}) async {
     final initialDate = arrival ? arrivalDate : departureDate;
     final selected = await showDatePicker(
@@ -797,8 +976,12 @@ class _ScheduleFormScreenState extends State<ScheduleFormScreen> {
     setState(() {
       if (arrival) {
         arrivalDate = selected;
+        // 사용자가 출발 날짜를 직접 고른 적이 없으면 도착 날짜를 따라간다. 따라가지
+        // 않으면 내일 일정에 오늘 출발이 저장된다.
+        if (!departureDateTouched) departureDate = selected;
       } else {
         departureDate = selected;
+        departureDateTouched = true;
         departureConfirmed = true;
       }
     });
@@ -982,4 +1165,27 @@ class _ScheduleHeroBubble extends StatelessWidget {
       shape: BoxShape.circle,
     ),
   );
+}
+
+/// 숫자만 받아 `HH:mm` 으로 만들어 준다.
+///
+/// 시간 칸이 숫자 키패드를 띄우는데 거기엔 콜론이 없다. 그래서 사용자가 형식을 맞출 수
+/// 없었다(2026-09-22 기기 확인). 네 자리까지만 받고 두 자리 뒤에 콜론을 넣는다.
+/// 이미 "08:10" 처럼 맞게 들어온 값은 그대로 남는다.
+class _HourMinuteFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final kept = digits.length > 4 ? digits.substring(0, 4) : digits;
+    final formatted = kept.length <= 2
+        ? kept
+        : '${kept.substring(0, 2)}:${kept.substring(2)}';
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
 }

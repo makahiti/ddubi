@@ -37,7 +37,7 @@ class KakaoLocalClientTest {
     }
 
     @Test
-    @DisplayName("0-base page를 바꾸고 앞 권역 결과를 자르지 않고 그대로 준다")
+    @DisplayName("첫 페이지에서 수도권과 부산 결과를 함께 준다")
     void translatesPagingAndRect() {
         KakaoLocalClient client = client("local-key");
         server.expect(
@@ -46,7 +46,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "강남역",
                                 1,
-                                15,
+                                8,
                                 "125.8,36.85,127.9,38.3"))
                 .andExpect(header("Authorization", "KakaoAK local-key"))
                 .andRespond(
@@ -64,7 +64,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "강남역",
                                 1,
-                                15,
+                                7,
                                 "128.7,34.8,129.4,35.45"))
                 .andExpect(header("Authorization", "KakaoAK local-key"))
                 .andRespond(
@@ -80,15 +80,15 @@ class KakaoLocalClientTest {
         // 명세서 기본 size=20 은 카카오 상한 15 로 잘린다.
         PageResponse<PlaceSearchItem> result = client.search("강남역", 0, 20);
 
-        // 예전에는 두 권역 결과를 합쳐 15건으로 자르면서 잘린 항목이 다음 페이지에도 나오지 않았다.
-        // 이제 앞 권역을 모두 소진한 뒤 다음 권역으로 넘어가므로 첫 페이지는 수도권 결과만 준다.
-        assertThat(result.content()).hasSize(1);
+        // 앱이 첫 페이지만 읽어도 두 서비스 권역을 모두 발견해야 한다.
+        assertThat(result.content()).hasSize(2);
         PlaceSearchItem item = result.content().get(0);
         assertThat(item.providerPlaceId()).isEqualTo("123");
         assertThat(item.name()).isEqualTo("강남역 2호선");
         assertThat(item.address()).isEqualTo("서울 강남구 강남대로 396");
         assertThat(item.lat()).isEqualByComparingTo(new BigDecimal("37.49795"));
         assertThat(item.lng()).isEqualByComparingTo(new BigDecimal("127.02761"));
+        assertThat(result.content().get(1).providerPlaceId()).isEqualTo("456");
         assertThat(result.hasNext()).isTrue();
         assertThat(result.totalElements()).isEqualTo(46);
         server.verify();
@@ -104,7 +104,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "서울숲",
                                 1,
-                                15,
+                                8,
                                 "125.8,36.85,127.9,38.3"))
                 .andRespond(
                         withSuccess(
@@ -121,7 +121,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "서울숲",
                                 1,
-                                15,
+                                7,
                                 "128.7,34.8,129.4,35.45"))
                 .andRespond(
                         withSuccess(
@@ -134,22 +134,24 @@ class KakaoLocalClientTest {
     }
 
     @Test
-    @DisplayName("앞 권역 페이지를 모두 쓰면 다음 권역의 첫 페이지로 넘어간다")
-    void movesToNextAreaAfterExhaustingTheFirst() {
+    @DisplayName("다음 페이지도 권역별 고정 몫을 사용해 누락과 중복을 막는다")
+    void keepsStableAreaQuotasAcrossPages() {
         KakaoLocalClient client = client("local-key");
-        // 수도권은 45건(3페이지)이다. 우리 page=3 은 수도권 범위를 넘어 부산 첫 페이지여야 한다.
         server.expect(
                         requestToUriTemplate(
                                 BASE_URL
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "카페",
-                                4,
-                                15,
+                                2,
+                                8,
                                 "125.8,36.85,127.9,38.3"))
                 .andRespond(
                         withSuccess(
                                 """
-                        {"documents":[],"meta":{"is_end":true,"pageable_count":45,"total_count":900}}
+                        {"documents":[{"id":"a9","place_name":"수도권 카페 9",
+                          "road_address_name":"서울 중구","address_name":"서울 중구",
+                          "x":"126.98","y":"37.56"}],
+                         "meta":{"is_end":false,"pageable_count":45,"total_count":900}}
                         """,
                                 MediaType.APPLICATION_JSON));
         server.expect(
@@ -157,8 +159,8 @@ class KakaoLocalClientTest {
                                 BASE_URL
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "카페",
-                                1,
-                                15,
+                                2,
+                                7,
                                 "128.7,34.8,129.4,35.45"))
                 .andRespond(
                         withSuccess(
@@ -170,10 +172,11 @@ class KakaoLocalClientTest {
                         """,
                                 MediaType.APPLICATION_JSON));
 
-        PageResponse<PlaceSearchItem> result = client.search("카페", 3, 15);
+        PageResponse<PlaceSearchItem> result = client.search("카페", 1, 15);
 
-        assertThat(result.content()).hasSize(1);
-        assertThat(result.content().get(0).providerPlaceId()).isEqualTo("b1");
+        assertThat(result.content())
+                .extracting(PlaceSearchItem::providerPlaceId)
+                .containsExactly("a9", "b1");
         server.verify();
     }
 
@@ -188,7 +191,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "시청",
                                 1,
-                                15,
+                                8,
                                 "125.8,36.85,127.9,38.3"))
                 .andRespond(
                         withSuccess(
@@ -207,7 +210,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "시청",
                                 1,
-                                15,
+                                7,
                                 "128.7,34.8,129.4,35.45"))
                 .andRespond(
                         withSuccess(
@@ -225,8 +228,8 @@ class KakaoLocalClientTest {
     }
 
     @Test
-    @DisplayName("앞 권역이 한 페이지를 덜 채워도 뒤 권역 페이지가 사라지지 않는다")
-    void countsPagesPerAreaSoTrailingAreaStaysReachable() {
+    @DisplayName("두 권역 합계와 실제 첫 페이지 결과를 일치시킨다")
+    void reportsCombinedTotalForMixedFirstPage() {
         KakaoLocalClient client = client("local-key");
         // 수도권 5건, 부산 5건. 전체 10건을 한 번에 나누면 1페이지가 되어 부산 결과를 영영 못 본다.
         server.expect(
@@ -235,7 +238,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "도서관",
                                 1,
-                                15,
+                                8,
                                 "125.8,36.85,127.9,38.3"))
                 .andRespond(
                         withSuccess(
@@ -252,7 +255,7 @@ class KakaoLocalClientTest {
                                         + "/v2/local/search/keyword.json?query={q}&page={p}&size={s}&rect={r}",
                                 "도서관",
                                 1,
-                                15,
+                                7,
                                 "128.7,34.8,129.4,35.45"))
                 .andRespond(
                         withSuccess(
@@ -266,8 +269,12 @@ class KakaoLocalClientTest {
 
         PageResponse<PlaceSearchItem> result = client.search("도서관", 0, 15);
 
-        assertThat(result.totalPages()).isEqualTo(2);
-        assertThat(result.hasNext()).isTrue();
+        assertThat(result.content())
+                .extracting(PlaceSearchItem::providerPlaceId)
+                .containsExactly("a1", "b1");
+        assertThat(result.totalElements()).isEqualTo(10);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.hasNext()).isFalse();
         server.verify();
     }
 
