@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 400" width="1240" height="400" role="img" aria-label="backend 테스트 잡을 dind 에서 GitLab services 로 바꾼 전후 비교. 잡 한 번의 시간이 15분 57초에서 13분 53초로 줄었다.">
+<defs><marker id="arrow-gray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6e7781"/></marker><marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f37"/></marker><marker id="arrow-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#cf222e"/></marker></defs>
+<rect width="1240" height="400" rx="18" fill="#ffffff"/>
+<rect x="20" y="20" width="580" height="360" rx="16" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.4"/>
+<rect x="20" y="20" width="580" height="46" rx="16" fill="#ffebe9"/>
+<rect x="20" y="50" width="580" height="16" fill="#ffebe9"/>
+<text x="42" y="43" font-size="17" font-weight="800" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">전환 전 · dind + Testcontainers</text>
+<text x="578" y="43" font-size="12" font-weight="700" fill="#cf222e" text-anchor="end" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">9/4 ~ 9/23</text>
+<rect x="42" y="86" width="165" height="60" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="42" y="86" width="7" height="60" rx="3.5" fill="#cf222e"/>
+<text x="129.5" y="105.0" font-size="13.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">잡 컨테이너</text>
+<text x="129.5" y="128.0" font-size="10.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Maven 테스트 실행</text>
+<path d="M207,116 L227,116" fill="none" stroke="#cf222e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-red)" opacity="1"/>
+<rect x="227" y="86" width="165" height="60" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="227" y="86" width="7" height="60" rx="3.5" fill="#cf222e"/>
+<text x="314.5" y="105.0" font-size="13.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">dind 데몬</text>
+<text x="314.5" y="128.0" font-size="10.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">잡마다 새 도커 데몬 (privileged)</text>
+<path d="M392,116 L412,116" fill="none" stroke="#cf222e" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-red)" opacity="1"/>
+<rect x="412" y="86" width="165" height="60" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="412" y="86" width="7" height="60" rx="3.5" fill="#cf222e"/>
+<text x="499.5" y="105.0" font-size="13.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">MySQL 3회 기동</text>
+<text x="499.5" y="128.0" font-size="10.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">공용 1 + 격리 2, 이미지 매번 받음</text>
+<circle cx="50" cy="178" r="4" fill="#cf222e"/>
+<text x="64" y="178" font-size="13" font-weight="500" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">mysql:8.0 · redis 이미지를 캐시 없이 잡마다 내려받음</text>
+<circle cx="50" cy="208" r="4" fill="#cf222e"/>
+<text x="64" y="208" font-size="13" font-weight="500" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Testcontainers 가 MySQL 을 순서대로 세 번 띄움</text>
+<circle cx="50" cy="238" r="4" fill="#cf222e"/>
+<text x="64" y="238" font-size="13" font-weight="500" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Docker 가 없으면 테스트가 조용히 건너뛰어져 초록불</text>
+<text x="42" y="318" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">잡 1회 소요 시간 (2026-09-23 같은 날 실측)</text>
+<rect x="42" y="332" width="536" height="22" rx="11" fill="#eaeef2"/>
+<rect x="42" y="332" width="536.0" height="22" rx="11" fill="#cf222e"/>
+<text x="568.0" y="343" font-size="12.5" font-weight="800" fill="#ffffff" text-anchor="end" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">15분 57초</text>
+<rect x="640" y="20" width="580" height="360" rx="16" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.4"/>
+<rect x="640" y="20" width="580" height="46" rx="16" fill="#dafbe1"/>
+<rect x="640" y="50" width="580" height="16" fill="#dafbe1"/>
+<text x="662" y="43" font-size="17" font-weight="800" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">전환 후 · GitLab services</text>
+<text x="1198" y="43" font-size="12" font-weight="700" fill="#1a7f37" text-anchor="end" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">9/23 ~</text>
+<rect x="662" y="86" width="165" height="60" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="662" y="86" width="7" height="60" rx="3.5" fill="#1a7f37"/>
+<text x="749.5" y="105.0" font-size="13.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">잡 컨테이너</text>
+<text x="749.5" y="128.0" font-size="10.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Maven 테스트 실행</text>
+<path d="M827,116 L847,116" fill="none" stroke="#1a7f37" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-green)" opacity="1"/>
+<rect x="847" y="86" width="165" height="60" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="847" y="86" width="7" height="60" rx="3.5" fill="#1a7f37"/>
+<text x="934.5" y="105.0" font-size="13.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">mysql:8.0 서비스</text>
+<text x="934.5" y="128.0" font-size="10.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">utf8mb4 · +09:00 · 64M 패킷</text>
+<path d="M1012,116 L1032,116" fill="none" stroke="#1a7f37" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-green)" opacity="1"/>
+<rect x="1032" y="86" width="165" height="60" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="1032" y="86" width="7" height="60" rx="3.5" fill="#1a7f37"/>
+<text x="1119.5" y="105.0" font-size="13.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">redis:7 서비스</text>
+<text x="1119.5" y="128.0" font-size="10.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">같은 네트워크 별칭 redis</text>
+<circle cx="670" cy="178" r="4" fill="#1a7f37"/>
+<text x="684" y="178" font-size="13" font-weight="500" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">러너 호스트의 이미지 캐시를 그대로 사용</text>
+<circle cx="670" cy="208" r="4" fill="#1a7f37"/>
+<text x="684" y="208" font-size="13" font-weight="500" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">격리 테스트 2개는 잡 안에서 임시 DB 를 만들고 지움</text>
+<circle cx="670" cy="238" r="4" fill="#1a7f37"/>
+<text x="684" y="238" font-size="13" font-weight="500" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">"Docker 없으면 건너뜀" 을 "실패" 로 바꿔 조용한 초록불 제거</text>
+<text x="662" y="318" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">잡 1회 소요 시간 (2026-09-23 같은 날 실측)</text>
+<rect x="662" y="332" width="536" height="22" rx="11" fill="#eaeef2"/>
+<rect x="662" y="332" width="466.5496342737722" height="22" rx="11" fill="#1a7f37"/>
+<text x="1118.5496342737722" y="343" font-size="12.5" font-weight="800" fill="#ffffff" text-anchor="end" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">13분 53초 (13% 단축)</text>
+<path d="M602,200 L638,200" fill="none" stroke="#6e7781" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-gray)" opacity="1"/>
+</svg>

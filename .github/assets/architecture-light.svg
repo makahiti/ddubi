@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 820" width="1240" height="820" role="img" aria-label="서버 2대 아키텍처. 서버1은 수집기·Kafka·Spark·아카이버·HDFS 로 데이터를 모으고 계산하며, 서버2는 nginx·backend·MySQL·Redis 로 사용자 요청에 응답하고 Prometheus·Grafana 와 CI 러너를 둔다.">
+<defs><marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0969da"/></marker><marker id="arrow-gray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6e7781"/></marker><marker id="arrow-gray-rev" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#6e7781"/></marker><marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f37"/></marker><marker id="arrow-orange" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#bc4c00"/></marker><marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8250df"/></marker><marker id="arrow-purple-rev" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#8250df"/></marker></defs>
+<rect width="1240" height="820" rx="18" fill="#ffffff"/>
+<rect x="66" y="22" width="240" height="60" rx="30.0" fill="#ddf4ff" stroke="#0969da" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="186.0" y="43.0" font-size="14.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">공공 데이터 API 9종</text>
+<text x="186.0" y="63.0" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">서울시 · TOPIS · 기상청 · 데이터포털</text>
+<rect x="950" y="22" width="240" height="60" rx="30.0" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="1070.0" y="43.0" font-size="14.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">사용자</text>
+<text x="1070.0" y="63.0" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Flutter 앱 · 웹</text>
+<rect x="40" y="112" width="560" height="592" rx="16" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.4"/>
+<text x="62" y="140" font-size="19" font-weight="800" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">서버 1 · 데이터 서버</text>
+<text x="578" y="140" font-size="12" font-weight="400" fill="#656d76" text-anchor="end" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">EC2 · 4코어 · 16GB</text>
+<text x="62" y="684" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Docker Compose · 컨테이너 21개 · 전부 메모리 상한과 로그 회전</text>
+<rect x="640" y="112" width="560" height="592" rx="16" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.4"/>
+<text x="662" y="140" font-size="19" font-weight="800" fill="#1f2328" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">서버 2 · 서비스 서버</text>
+<text x="1178" y="140" font-size="12" font-weight="400" fill="#656d76" text-anchor="end" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">EC2 · 4코어 · 16GB</text>
+<text x="662" y="684" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Docker Compose · 컨테이너 16개 · 외부 공개 포트는 80/443 만</text>
+<rect x="66" y="172" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="66" y="172" width="7" height="64" rx="3.5" fill="#0969da"/>
+<text x="191.0" y="193.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">수집기 9개 · Python</text>
+<text x="191.0" y="216.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">호출 예산 장부 · 계약 스키마로 발행</text>
+<rect x="66" y="272" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="66" y="272" width="7" height="64" rx="3.5" fill="#0969da"/>
+<text x="191.0" y="293.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Kafka (KRaft)</text>
+<text x="191.0" y="316.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">원본 토픽 3 · 파티션 3 · 보존 21일</text>
+<rect x="66" y="372" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="66" y="372" width="7" height="64" rx="3.5" fill="#0969da"/>
+<text x="191.0" y="393.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Spark 스트리밍</text>
+<text x="191.0" y="416.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">master + worker 2 · 실시간 최신값</text>
+<rect x="334" y="272" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="334" y="272" width="7" height="64" rx="3.5" fill="#8250df"/>
+<text x="459.0" y="293.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">아카이버 · Python</text>
+<text x="459.0" y="316.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">1시간 단위 Parquet 병합</text>
+<rect x="334" y="372" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="334" y="372" width="7" height="64" rx="3.5" fill="#8250df"/>
+<text x="459.0" y="393.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">HDFS NameNode · DataNode 1</text>
+<text x="459.0" y="416.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">원본 영구 보관 · 복제 2</text>
+<rect x="66" y="482" width="508" height="56" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="66" y="482" width="7" height="56" rx="3.5" fill="#bc4c00"/>
+<text x="325.0" y="499.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">지표 노출</text>
+<text x="325.0" y="522.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">node · kafka · hdfs exporter · Spark 드라이버 지표</text>
+<rect x="66" y="562" width="508" height="56" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="66" y="562" width="7" height="56" rx="3.5" fill="#6e7781"/>
+<text x="325.0" y="579.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">크론</text>
+<text x="325.0" y="602.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">서버2 생존 감시 5분 · 네임노드 백업 매일 · 도커 정리 주 1회</text>
+<rect x="666" y="172" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="666" y="172" width="7" height="64" rx="3.5" fill="#8250df"/>
+<text x="791.0" y="193.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">HDFS DataNode 2</text>
+<text x="791.0" y="216.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">+ 세컨더리 NameNode</text>
+<rect x="950" y="172" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="950" y="172" width="7" height="64" rx="3.5" fill="#1a7f37"/>
+<text x="1075.0" y="193.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">nginx :443</text>
+<text x="1075.0" y="216.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">유일한 진입점 · TLS 갱신 설정</text>
+<rect x="666" y="272" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="666" y="272" width="7" height="64" rx="3.5" fill="#1a7f37"/>
+<text x="791.0" y="293.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">ml-serving</text>
+<text x="791.0" y="316.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">버스 구간 시간 예측</text>
+<rect x="950" y="272" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="950" y="272" width="7" height="64" rx="3.5" fill="#1a7f37"/>
+<text x="1075.0" y="293.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">backend · Spring Boot</text>
+<text x="1075.0" y="316.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">일정 · 추천 · 알림(FCM)</text>
+<rect x="666" y="372" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="666" y="372" width="7" height="64" rx="3.5" fill="#0969da"/>
+<text x="791.0" y="393.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Redis</text>
+<text x="791.0" y="416.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">실시간 최신값 · 모든 키 TTL</text>
+<rect x="950" y="372" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="950" y="372" width="7" height="64" rx="3.5" fill="#1a7f37"/>
+<text x="1075.0" y="393.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">MySQL 8</text>
+<text x="1075.0" y="416.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">회원 · 일정 · 일일 백업</text>
+<rect x="666" y="482" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="666" y="482" width="7" height="64" rx="3.5" fill="#bc4c00"/>
+<text x="791.0" y="503.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Prometheus · Grafana</text>
+<text x="791.0" y="526.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">대상 15 · 패널 28 · 알림 규칙 20</text>
+<rect x="950" y="482" width="240" height="64" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+<rect x="950" y="482" width="7" height="64" rx="3.5" fill="#6e7781"/>
+<text x="1075.0" y="503.0" font-size="15.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">gitlab-runner</text>
+<text x="1075.0" y="526.0" font-size="12" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">CI 검증 잡 · 수동 배포 버튼</text>
+<rect x="666" y="736" width="240" height="56" rx="28.0" fill="#fff1e5" stroke="#bc4c00" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="786.0" y="755.0" font-size="14.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Mattermost 팀 채널</text>
+<text x="786.0" y="775.0" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">알림 · 하루 2회 자동 브리핑</text>
+<rect x="950" y="736" width="240" height="56" rx="28.0" fill="#eaeef2" stroke="#6e7781" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="1070.0" y="755.0" font-size="14.5" font-weight="700" fill="#1f2328" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">GitLab</text>
+<text x="1070.0" y="775.0" font-size="11.5" font-weight="400" fill="#656d76" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">저장소 · CI 파이프라인</text>
+<path d="M186,82 L186,172" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="201.585" y="89.25" width="60.83" height="17.5" rx="4" fill="#ffffff"/>
+<text x="232" y="98" font-size="11.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">API 호출</text>
+<path d="M186,236 L186,272" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="215.5" y="245.25" width="33.0" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="232" y="254" font-size="11.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">발행</text>
+<path d="M186,336 L186,372" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="215.5" y="345.25" width="33.0" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="232" y="354" font-size="11.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">구독</text>
+<path d="M306,304 L334,304" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="303.5" y="281.25" width="33.0" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="320" y="290" font-size="11.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">구독</text>
+<path d="M454,336 L454,372" fill="none" stroke="#8250df" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-purple)" opacity="1"/>
+<rect x="486.085" y="345.25" width="83.83" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="528" y="354" font-size="11.5" font-weight="600" fill="#8250df" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">Parquet 적재</text>
+<path d="M306,404 L334,404" fill="none" stroke="#0969da" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="288.75" y="436.75" width="62.5" height="16.5" rx="4" fill="#f6f8fa"/>
+<text x="320" y="445" font-size="10.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">체크포인트</text>
+<path d="M186,436 L186,458 L628,458 L628,404 L666,404" fill="none" stroke="#0969da" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="318.41" y="449.25" width="163.17999999999998" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="400" y="458" font-size="11.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">최신값 쓰기 · 모든 키에 TTL</text>
+<path d="M574,384 L612,384 L612,204 L666,204" fill="none" stroke="#8250df" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5" marker-end="url(#arrow-purple)" marker-start="url(#arrow-purple-rev)" opacity="1"/>
+<rect x="603.25" y="240.585" width="17.5" height="106.83" rx="4" fill="#ffffff"/>
+<text x="612" y="294" font-size="11.5" font-weight="600" fill="#8250df" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" transform="rotate(-90 612 294)" opacity="1">HDFS 블록 복제 2</text>
+<path d="M1070,82 L1070,172" fill="none" stroke="#1a7f37" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-green)" opacity="1"/>
+<rect x="1083.45" y="89.25" width="49.1" height="17.5" rx="4" fill="#ffffff"/>
+<text x="1108" y="98" font-size="11.5" font-weight="600" fill="#1a7f37" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">HTTPS</text>
+<path d="M1070,236 L1070,272" fill="none" stroke="#1a7f37" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-green)" opacity="1"/>
+<rect x="1095.75" y="245.25" width="44.5" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="1118" y="254" font-size="11.5" font-weight="600" fill="#1a7f37" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">프록시</text>
+<path d="M1070,336 L1070,372" fill="none" stroke="#1a7f37" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-green)" opacity="1"/>
+<rect x="1089.445" y="345.25" width="69.11" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="1124" y="354" font-size="11.5" font-weight="600" fill="#1a7f37" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">읽기 · 쓰기</text>
+<path d="M950,304 L906,304" fill="none" stroke="#1a7f37" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-green)" opacity="1"/>
+<rect x="900.005" y="279.75" width="55.99" height="16.5" rx="4" fill="#f6f8fa"/>
+<text x="928" y="288" font-size="10.5" font-weight="600" fill="#1a7f37" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">예측 요청</text>
+<path d="M950,322 L928,322 L928,404 L906,404" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-blue)" opacity="1"/>
+<rect x="919.75" y="330.755" width="16.5" height="66.49000000000001" rx="4" fill="#f6f8fa"/>
+<text x="928" y="364" font-size="10.5" font-weight="600" fill="#0969da" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" transform="rotate(-90 928 364)" opacity="1">최신값 읽기</text>
+<path d="M574,510 L666,510" fill="none" stroke="#bc4c00" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5" marker-end="url(#arrow-orange)" opacity="1"/>
+<rect x="589.815" y="487.25" width="60.370000000000005" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="620" y="496" font-size="11.5" font-weight="600" fill="#bc4c00" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">지표 수집</text>
+<path d="M786,546 L786,736" fill="none" stroke="#bc4c00" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5" marker-end="url(#arrow-orange)" opacity="1"/>
+<rect x="720.855" y="597.25" width="130.29000000000002" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="786" y="606" font-size="11.5" font-weight="600" fill="#bc4c00" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">알림 · 하루 2회 브리핑</text>
+<path d="M1070,546 L1070,736" fill="none" stroke="#6e7781" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-gray)" marker-start="url(#arrow-gray-rev)" opacity="1"/>
+<rect x="1011.41" y="597.25" width="117.17999999999998" height="17.5" rx="4" fill="#f6f8fa"/>
+<text x="1070" y="606" font-size="11.5" font-weight="600" fill="#6e7781" text-anchor="middle" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">잡 실행 · 배포(SSH)</text>
+<path d="M60,806 L94,806" fill="none" stroke="#0969da" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" opacity="1"/>
+<text x="102" y="806" font-size="12" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">데이터 흐름</text>
+<path d="M202.56,806 L236.56,806" fill="none" stroke="#1a7f37" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" opacity="1"/>
+<text x="244.56" y="806" font-size="12" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">사용자 요청</text>
+<path d="M345.12,806 L379.12,806" fill="none" stroke="#8250df" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5" opacity="1"/>
+<text x="387.12" y="806" font-size="12" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">HDFS 복제</text>
+<path d="M484.32,806 L518.3199999999999,806" fill="none" stroke="#bc4c00" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="7 5" opacity="1"/>
+<text x="526.3199999999999" y="806" font-size="12" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">지표 · 알림</text>
+<path d="M624.0,806 L658.0,806" fill="none" stroke="#6e7781" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" opacity="1"/>
+<text x="666.0" y="806" font-size="12" font-weight="400" fill="#656d76" text-anchor="start" font-family="Pretendard, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif" dominant-baseline="middle" opacity="1">CI · 배포</text>
+</svg>
